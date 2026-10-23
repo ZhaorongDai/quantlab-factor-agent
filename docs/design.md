@@ -40,7 +40,7 @@
 | Q21 | token / 成本预算上限，超出即停并记录；开跑前估算总成本报用户确认 |
 | Q22 | 项目名 `quantlab-factor-agent`，包名 `factor_agent`，本地与服务器均在 `~/projects/quantlab-factor-agent` |
 | Q23 | GitHub 私有仓库 `ZhaorongDai/quantlab-factor-agent`，每个提交即推送 |
-| Q24 | `[tool.uv.sources]` 指向 `../quantlab`；服务器需软链接 `~/projects/quantlab -> quantlab2`（改服务器前单独确认） |
+| Q24 | `[tool.uv.sources]` 指向 `../quantlab`；服务器仓库本就在 `~/projects/quantlab`（与 quantlab-ibkr 同一写法），直接 clone 即可，无需软链接 |
 | Q25 | `LLMBackend` 后端：`claude_code`（`claude -p --output-format json`，走 Claude Code 登录）、`anthropic`（`ANTHROPIC_API_KEY`）、`openai_compatible`（OpenAI/DeepSeek/DashScope/Gemini 兼容端点/vLLM/Ollama，`base_url` 与密钥变量名在配置）、`replay`；各角色在配置里独立选后端和模型，可交叉审查 |
 | Q26 | `claude_code` 后端关闭全部工具，纯文本生成（否则可读 `/data/quantlab` 破坏数据隔离） |
 | Q27 | 产物路径见 §1 |
