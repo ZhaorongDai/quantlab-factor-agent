@@ -104,8 +104,12 @@
 | `LLMBackend` | `complete(request) -> Reply(text, usage, cost, model_id)` | — | 真实 seam：claude_code / anthropic / openai_compatible / replay + 测试 fake |
 | `Ledger` | 追加与读取试验记录、轮次状态 | 文件格式 | 测试用临时目录 |
 
-`Campaign` 注入 `Researcher`、`Gate`、`Evaluator`、`Ledger`；`Evaluator` 有真实与 fake 两个 adapter，
-所以 `Campaign` 的测试不编译、不读数据。bandit、反馈拼装、记忆节奏、准入策略、停止条件都是 `Campaign` 的内部细节。
+`Campaign` 由配置构造 `Researcher`、`Gate`、`Evaluator`、`Ledger`；唯一的外部 seam 是 `LLMBackend`
+（2026-10-23 to-spec 时收紧：取消 `Evaluator` 的 fake，`Campaign` 测试用真 `Gate`、真 `Evaluator` 加小型合成 Zarr store）。
+bandit、反馈拼装、记忆节奏、准入策略、停止条件都是 `Campaign` 的内部细节。
+
+测试面：`Campaign.run()`（主测试面，脚本化 fake `LLMBackend`）、`Gate.check()`（表驱动拒绝规则）、
+`Acceptance`（验证对比、保留期锁、导出逐位一致）、`LLMBackend` adapter（replay/fake 离线；真实提供商仅带凭证冒烟）。
 
 ```
 factor_agent/
