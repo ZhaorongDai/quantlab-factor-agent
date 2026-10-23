@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quantlab-factor-agent"
+version = "0.1.0"
+description = "LLM-driven, mechanism-first formulaic factor research on quantlab, evaluated with KunQuant."
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "quantlab-py",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-xdist>=3.8.0",
+]
+
+[tool.uv.sources]
+quantlab-py = { path = "../quantlab", editable = true }
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["factor_agent*"]
+namespaces = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
