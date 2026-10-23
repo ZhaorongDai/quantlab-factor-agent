@@ -116,7 +116,7 @@ factor_agent/
   campaign.py      （内部 _scheduler.py、_feedback.py、_admission.py、_memory.py）
   researcher.py    （内部 prompts/、_parse.py、_recorder.py）
   llm/             base.py、claude_code.py、anthropic.py、openai_compatible.py、replay.py
-  gate/            只暴露 Gate；内部 _sandbox.py、_registry.py、_graph.py、_checks.py
+  gate/            Gate；与 Evaluator / 提示词共用的 graph.py（图的纯数据形式）、vocabulary.py（算子白名单）；内部 _sandbox.py、_checks.py
   evaluator.py     （内部 _batch.py）
   segments.py · ledger.py · zoo.py · acceptance.py · config.py
 tests/  只测对外与深 module 的 interface：test_gate、test_evaluator、test_campaign、test_acceptance、test_llm_backends

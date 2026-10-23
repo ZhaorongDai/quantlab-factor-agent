@@ -2005,6 +2005,7 @@ name = "quantlab-factor-agent"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "pyyaml" },
     { name = "quantlab-py" },
 ]
 
@@ -2015,7 +2016,10 @@ dev = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "quantlab-py", editable = "../quantlab" }]
+requires-dist = [
+    { name = "pyyaml", specifier = ">=6.0.3" },
+    { name = "quantlab-py", editable = "../quantlab" },
+]
 
 [package.metadata.requires-dev]
 dev = [
