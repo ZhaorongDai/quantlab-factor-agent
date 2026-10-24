@@ -127,7 +127,8 @@ acceptance:
   features: [...]        # SEL0's features as components; empty: the reference set
   seeds: [0, 1, 2]
   top_k: 100
-  # hyperparameters: xgb_deep by default; factor_root: quantlab's factors/market by default
+  hyperparameters: {...}  # the xgb's; unset: quantlab's XGBoost defaults (us3000_ret5.yaml names SEL0's xgb_deep)
+  factor_root: /data/quantlab/factors/market   # where export() writes the stores; an export needs it
 ```
 
 - `validate()` trains the xgb per seed on the baseline features and on those plus every accepted

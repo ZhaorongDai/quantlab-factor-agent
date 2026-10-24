@@ -209,6 +209,16 @@ def test_an_export_refuses_an_existing_name_and_an_unknown_factor(campaign, expo
         campaign["acceptance"].export({"never accepted": "nothing"})
 
 
+def test_an_export_without_a_factor_root_fails_and_writes_nothing(campaign):
+    config = campaign["acceptance"].config
+    config = dataclasses.replace(config, acceptance=dataclasses.replace(config.acceptance, factor_root=None))
+    package_dir = campaign["root"] / "packages" / PACKAGE
+    before = sorted(package_dir.iterdir())
+    with pytest.raises(ValueError, match="acceptance.factor_root"):
+        Acceptance(config).export({"volume": "no_root"})
+    assert sorted(package_dir.iterdir()) == before
+
+
 @pytest.fixture(scope="module")
 def unscored(tmp_path_factory):
     """The campaign ranked only, on every symbol; it exports into its own package directory."""

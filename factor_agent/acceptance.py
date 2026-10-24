@@ -48,7 +48,6 @@ from pathlib import Path
 
 import numpy as np
 import xarray as xr
-from quantlab.config import get_data_root
 from quantlab.core.store_folder import save_component
 from quantlab.factor.config import FactorConfig
 from quantlab.model.config import ModelConfig
@@ -251,12 +250,15 @@ class Acceptance:
         KeyError
             If a key names no accepted factor, or a description several.
         ValueError
-            If a name is not a lowercase identifier, or its module or store already exists.
+            If the config sets no ``acceptance.factor_root``, a name is not a lowercase
+            identifier, or its module or store already exists.
         """
+        if self.config.acceptance.factor_root is None:
+            raise ValueError("export: the config sets no acceptance.factor_root, the folder the stores are written into")
         records = self._named(names)
         package = importlib.import_module(self.config.acceptance.package)
         package_dir = Path(package.__path__[0])
-        root = Path(self.config.acceptance.factor_root or get_data_root() / "factors" / "market")
+        root = Path(self.config.acceptance.factor_root)
         if len(set(names.values())) != len(names):
             raise ValueError(f"export: the names {list(names.values())} repeat")
         for name in names.values():

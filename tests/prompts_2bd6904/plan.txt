@@ -1,0 +1,31 @@
+You are the research planner of a search for daily cross-sectional factors of US common stocks,
+each from a stated economic mechanism. Plan the directions of this round.
+
+Round: 1
+
+The data: adjusted daily bars of every US common stock. A factor is computed on every stock, ranked
+across the whole market each day, neutralised against industry and the logarithm of market cap,
+and scored on the members of the research universe that day against the open-to-open return over
+the next five trading days. Only a training period is ever evaluated; its dates are not disclosed.
+
+## Seed research directions
+SEED
+
+## Existing factor families (candidates must add to them, not rewrite them)
+FAMILIES
+
+Plan exactly the number of directions given below for each mechanism type. Each direction is one
+of these actions:
+- "new": a mechanism not tried before;
+- "mutation": a mechanism orthogonal to one that works (an accepted factor named in "parent"),
+  exploiting a different economic channel;
+- "refinement": a different expression of the same mechanism as an accepted factor named in
+  "parent"; only changing its windows or parameters is refused.
+"parent" is an accepted factor's name exactly as listed under the current best mechanisms, or ""
+for a new direction.
+
+Answer with a JSON array of objects with the fields "mechanism_type", "action", "parent" and
+"direction" (the idea to pursue, in one or two sentences). Directions per mechanism type:
+```json
+{"behavioural_bias": 4, "risk_compensation": 4, "liquidity": 4, "microstructure": 4, "information_diffusion": 4}
+```

@@ -200,14 +200,6 @@ class RoundConfig:
     seed: int = 0
 
 
-#: SEL0's xgb_deep (quantlab-experiment 2026-10-18-us3000-factor-selection-xgb), without its thread count.
-XGB_DEEP = {
-    "training_target": "cs_rank", "early_stopping": True, "early_stopping_patience": 100,
-    "objective": "reg:squarederror", "num_boost_round": 2000, "eta": 0.03, "max_depth": 6,
-    "min_child_weight": 1000, "subsample": 0.8, "colsample_bytree": 0.5,
-}
-
-
 @dataclass(frozen=True)
 class AcceptanceConfig:
     """How ``Acceptance`` validates, opens the hold-out and exports.
@@ -218,15 +210,15 @@ class AcceptanceConfig:
     """
 
     features: tuple = ()
-    #: The xgb hyperparameters (``ModelConfig.hyperparameters``).
-    hyperparameters: dict = field(default_factory=lambda: dict(XGB_DEEP))
+    #: The xgb hyperparameters (``ModelConfig.hyperparameters``); empty: quantlab's XGBoost defaults.
+    hyperparameters: dict = field(default_factory=dict)
     #: The seeds every model is trained with.
     seeds: tuple[int, ...] = (0, 1, 2)
     #: Share of the training window the xgb validates (early-stops) on, at its end.
     val_size: float = 0.2
     #: Members held by the plain TopK book.
     top_k: int = 100
-    #: Where exported stores go, ``<factor_root>/<name>/``; None: quantlab's ``factors/market``.
+    #: Where exported stores go, ``<factor_root>/<name>/``; an export needs it.
     factor_root: str | None = None
     #: The package the exported ``FactorKunQuant`` subclasses are written into, one module each.
     package: str = "factor_agent.accepted"

@@ -150,3 +150,23 @@ def test_the_real_config_reads_with_sel0s_191_reference_factors_and_a_direction_
     assert config.data.membership == "/data/quantlab/universe/us3000/membership_estu"
     assert (config.scoring.neutralize.size_column, config.scoring.neutralize.industry_column) == ("marketcap", "industry")
     assert config.fields == (str(PRICE_VOLUME),) and config.operators == str(EXAMPLE_OPERATORS)
+
+
+def test_an_acceptance_section_without_hyperparameters_leaves_quantlabs_xgboost_defaults(tmp_path):
+    config = CampaignConfig.from_file(_minimal(tmp_path, acceptance={"seeds": [0]}))
+    assert config.acceptance.hyperparameters == {}
+    assert config.acceptance.factor_root is None
+
+
+#: SEL0's xgb_deep (quantlab-experiment 2026-10-18-us3000-factor-selection-xgb), without its thread count.
+XGB_DEEP = {
+    "training_target": "cs_rank", "early_stopping": True, "early_stopping_patience": 100,
+    "objective": "reg:squarederror", "num_boost_round": 2000, "eta": 0.03, "max_depth": 6,
+    "min_child_weight": 1000, "subsample": 0.8, "colsample_bytree": 0.5,
+}
+
+
+def test_the_real_config_names_xgb_deep_and_the_export_root_itself():
+    acceptance = CampaignConfig.from_file(REAL).acceptance
+    assert acceptance.hyperparameters == XGB_DEEP
+    assert acceptance.factor_root == "/data/quantlab/factors/market"

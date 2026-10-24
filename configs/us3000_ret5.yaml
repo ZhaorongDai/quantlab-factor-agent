@@ -200,7 +200,13 @@ round:
 acceptance:
   features: []         # the reference set: SEL0's 191 factors
   seeds: [0, 1, 2]
-  top_k: 100           # xgb_deep; quantlab puts xgboost on CUDA when there is one
+  top_k: 100
+  # SEL0's xgb_deep (quantlab-experiment 2026-10-18-us3000-factor-selection-xgb), without its thread
+  # count; quantlab puts xgboost on CUDA when there is one.
+  hyperparameters: {training_target: cs_rank, early_stopping: true, early_stopping_patience: 100,
+                    objective: "reg:squarederror", num_boost_round: 2000, eta: 0.03, max_depth: 6,
+                    min_child_weight: 1000, subsample: 0.8, colsample_bytree: 0.5}
+  factor_root: /data/quantlab/factors/market   # exported stores, beside the other whole-market factors
 
 # All four roles: DeepSeek V4 Pro through OpenRouter (prices checked 2026-10-24, USD per million tokens).
 llm:

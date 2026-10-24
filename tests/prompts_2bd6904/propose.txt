@@ -1,0 +1,140 @@
+You are a quantitative researcher. Write one daily cross-sectional factor for US common stocks for
+each research direction below, from a stated economic mechanism, to predict the open-to-open return
+over the next five trading days.
+
+Round: 1
+
+The data: adjusted daily bars of every US common stock. A factor is computed on every stock, ranked
+across the whole market each day, neutralised against industry and the logarithm of market cap,
+and scored on the members of the research universe that day against the open-to-open return over
+the next five trading days. Only a training period is ever evaluated; its dates are not disclosed.
+
+## Existing factor families (candidates must add to them, not rewrite them)
+FAMILIES
+
+Write each factor as Python code over KunQuant operators. The code may assign variables, define
+functions, and use for/while/if and `with Builder(loop):` blocks for window loops. It must not use
+import, class, attribute access, file or network access, or names outside the vocabulary below.
+It must end by assigning exactly one operator to `alpha`. Arithmetic operators (+, -, *, /) and
+comparisons work on operators; a comparison is only a Select condition.
+
+Inputs (adjusted daily bars): open, high, low, close, volume, vwap, amount
+Operators:
+- Add(x, y)
+- Sub(x, y)
+- Mul(x, y)
+- Div(x, y)
+- AddConst(x, c)
+- SubConst(x, c)
+- MulConst(x, c)
+- DivConst(x, c)
+- ConstantOp(c)
+- Abs(x)
+- Sign(x)
+- Exp(x)
+- Log(x)
+- Sqrt(x)
+- Pow(x, y)
+- Max(x, y)
+- Min(x, y)
+- Clip(x, c)
+- SetInfOrNanToValue(x, c=0.0)
+- Select(condition, x, y)
+- GreaterThan(x, y)
+- GreaterEqual(x, y)
+- LessThan(x, y)
+- LessEqual(x, y)
+- Equals(x, y)
+- GreaterThanConst(x, c)
+- LessThanConst(x, c)
+- And(a, b)
+- Or(a, b)
+- Not(a)
+- BackRef(x, lag)
+- WindowedAvg(x, window)
+- WindowedSum(x, window)
+- WindowedStddev(x, window)
+- WindowedVar(x, window)
+- WindowedMax(x, window)
+- WindowedMin(x, window)
+- WindowedCorrelation(x, window, y)
+- WindowedCovariance(x, window, y)
+- WindowedSkew(x, window)
+- WindowedKurt(x, window)
+- WindowedQuantile(x, window, q)
+- WindowedProduct(x, window)
+- WindowedMaxDrawdown(x, window)
+- WindowedLinearRegressionSlope(x, window)
+- WindowedLinearRegressionRSqaure(x, window)
+- WindowedLinearRegressionResi(x, window)
+- TsRank(x, window)
+- TsArgMax(x, window)
+- TsArgMin(x, window)
+- DecayLinear(x, window)
+- ExpMovingAvg(x, window)
+- WindowedZScore(x, window)
+- EWSum(x, window, half_life)
+- EWMean(x, window, half_life)
+- EWVar(x, window, half_life)
+- EWCov(y, x, window, half_life)
+- EWBeta(y, x, window, half_life)
+- EWAlpha(y, x, window, half_life)
+- EWResidualStd(y, x, window, half_life)
+- CMRA(x, months=12, month_length=21)
+- ForeachBackWindow(x, window, *more_series)
+- IterValue(loop, x)
+- WindowLoopIndex(loop)
+- ReduceAdd(item)
+- ReduceMul(item)
+- ReduceMax(item)
+- ReduceMin(item)
+- ReduceArgMax(item)
+- ReduceArgMin(item)
+- ReduceRank(item)
+- ReduceDecayLinear(item)
+- Rank(x)
+- Scale(x)
+- CrossSectionalZScore(x)
+- CrossSectionalWinsorize(x, lower=0.01, upper=0.99)
+- CrossSectionalTrim(x, lower=0.01, upper=0.99)
+Parameter values (windows, lags and constants must be one of these; constants may be negative):
+- window: 5, 10, 20, 40, 60, 120, 250
+- lag: 1, 5, 10, 20, 40, 60, 120, 250
+- half_life: 5, 10, 20, 40, 60, 120, 250
+- quantile: 0.1, 0.25, 0.5, 0.75, 0.9
+- lower: 0.01, 0.025, 0.05, 0.1
+- upper: 0.9, 0.95, 0.975, 0.99
+- months: 3, 6, 12
+- month_length: 21
+- constant: 0, 1e-12, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 1.5, 2, 3, 4, 5, 10, 100, 5, 10, 20, 40, 60, 120, 250
+Builtins: abs, bool, dict, enumerate, float, int, len, list, range, round, tuple, zip
+
+Answer with a JSON array of 2 objects, one per direction and in the same order, each with exactly
+these fields:
+- "hypothesis": the economic mechanism, in one or two sentences
+- "mechanism_type": the direction's mechanism type
+- "expected_sign": 1 if a higher value predicts a higher return, -1 if lower
+- "horizon_rationale": why the effect plays out over about five trading days
+- "reference": the literature the mechanism comes from, or why there is none
+- "description": what the code computes, in words
+- "code": the Python code
+
+The directions:
+```json
+[
+  {
+    "number": 1,
+    "mechanism_type": "liquidity",
+    "action": "new",
+    "parent": "",
+    "direction": "DIRECTION A"
+  },
+  {
+    "number": 2,
+    "mechanism_type": "microstructure",
+    "action": "new",
+    "parent": "",
+    "direction": "DIRECTION B"
+  }
+]
+```
