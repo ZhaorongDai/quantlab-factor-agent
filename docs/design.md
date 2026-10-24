@@ -55,6 +55,42 @@
 | Q36 | 保留期首次读取写锁文件（时间、代码版本）；再读须显式 `force` 并写进报告 |
 | Q37 | v1 种子方向由 agent 按已有因子族空白起草约 10 条（附文献），用户审后写进配置 |
 | Q38 | 采用 §4 的深 module 设计 |
+| Q39 | （2026-10-24 v2 基本面拷问）候选输入在量价之外开放 SF1 ART 财报项目与 DAILY 市值估值；SF3A 持仓、SF2 内部人、另类数据暂不开放 |
+| Q40 | 基本面另开独立 campaign（自己的配置与 `run_dir`）；配置新增 `inputs` 选输入族（默认只 `price_volume`，现有配置行为不变）；运行中的 us3000_ret5 不动 |
+| Q41 | 一个候选可同时用量价与基本面字段；机制绑定照旧（假设点名的字段须在图里出现） |
+| Q42 | 基本面 campaign 仍用 `labels/market/ret_5`，与量价 campaign、SEL0 验收口径一致 |
+| Q43 | 机制类保持五类，不新增；价值/盈利/投资归风险补偿或行为偏差，盈余漂移归信息扩散 |
+| Q44 | 开放字段为精选清单（约 40 个：`FundamentalAlpha` 用到的 + 常用三表项目 + DAILY `marketcap`/`ev`/`pe`/`pb`/`ps`/`evebit`/`evebitda`），每个附单位与一句话说明进提示词；清单由 agent 起草、用户审 |
+| Q45 | 季度滞后用新算子 `Quarter(x, k)`，k ∈ {1,2,3,4,8}，读数据集的 `x__qk` 列；日频窗口算子作用于基本面字段照样允许，数据说明写明其为阶梯函数 |
+| Q46 | 量纲改为（美元，股数）基：价格 (1,−1)、成交量 (0,1)、成交额与总额项目 (1,0)、股数 (0,1)、比率 (0,0)；对现有量价规则只是线性换基 |
+| Q47 | 不开放每股项目（`eps`、`bvps` 等）与未复权价：复权价与原样每股数字相除会因拆股历史出错；估值用总额或 DAILY 现成比率 |
+| Q48 | `max_base_fields` 仍为 5；同一字段的季度滞后不重复计数 |
+| Q49 | 准入加覆盖率门槛：训练段每日有值成员占比平均 ≥ 50%（配置常量） |
+| Q50 | 基本面 campaign 参考集仍为 SEL0 的 191 个；种子方向按已有基本面族空白由 agent 起草约 10 条附文献、用户审（同 Q37） |
+| Q51 | 候选中的基本面字段名直接用 SF1 / DAILY 列名（`netinc`、`marketcap` …），量价仍用短名（`close`、`volume`），使 Zoo 能在图上认出对 `FundamentalAlpha` 的重写 |
+| Q52 | 每个开放字段配一组同义词（机制绑定用），与 Q44 字段清单同表、同一来源，一起交用户审 |
+| Q53 | v2 本地开发照常推送；服务器上运行中的 us3000_ret5 工作树钉在 `6298c2a` 不动，v2 测试另开 worktree |
+| Q54 | campaign 开跑与每次续跑把 factor_agent 与 quantlab 提交号写进 `state.json`；续跑发现提交号变了只警告、不拦停 |
+| Q55 | （2026-10-24 框架可配置拷问）开放字段不写进代码：每个输入族一个字段文件（YAML），每个字段写 `name`、`column`、`unit`、`period_lag` 可用否、`description`、`synonyms`；campaign 配置 `fields` 列字段文件路径（取代 Q40 的 `inputs` 名字列表）；现有量价输入也迁进 `price_volume.yaml` |
+| Q56 | 派生字段在字段文件里写 `formula`（只引用同族已有字段，走候选代码同一套 AST 白名单），如 `vwap`、`amount`、换手率 |
+| Q57 | 启动即校验：字段 `column` 在 `data.prices` 中、单位合法、名字不与算子/内置/其他字段冲突；不过即报错，不等到 Evaluator |
+| Q58 | 用到的字段、算子、模板文件开跑时原样快照进 `run_dir`、哈希记入状态；续跑时文件与快照不符即报错（改搜索空间须另开 `run_dir`）；replay 读快照 |
+| Q59 | 核心框架只含 agent 系统（循环、调度、角色与提示词骨架、LLM 后端、台账续跑回放、Gate 沙箱与图约束、Evaluator 统计、准入、验收流程）；数据组件、字段、参考集、标签、成员、中性化、市场描述、机制类、验收模型全来自配置；框架代码不出现数据集名、列名、路径 |
+| Q60 | 配置 `market` 写市场描述；预测周期由标签 `span_bars()` 推出；数据说明段由框架按配置（字段说明、中性化方式）拼出 |
+| Q61 | 配置 `scoring`：`neutralize: {exposures, size_column, industry_column}` 或 null（只 rank）；`membership` 可为 null（全体标的）；截面 rank 始终做；Evaluator 与 Acceptance 共用 |
+| Q62 | 机制类为配置列表，每类附一句说明进提示词；默认现有五类；`min_per_type` 按配置类数校验（Q43 的五类成为默认值） |
+| Q63 | 字段的绑定短语进字段文件（每字段 `synonyms`，族级 `rules` 表达多字段要求，如 overnight → open 与 close）；算子的绑定短语进算子文件 |
+| Q64 | `Quarter(x, k)` 改为通用 `PeriodLag(x, k)`：字段文件族级声明 `period_lag: {column 模式, k 取值, period 说明}`，未声明的族不可用（取代 Q45） |
+| Q65 | 框架不放用户默认值：删 `XGB_DEEP` 默认（不写用 quantlab XGBoost 默认，us3000 配置显式写 xgb_deep）；导出 `factor_root` 必填 |
+| Q66 | 框架不自带输入族；仓库 `configs/fields/*.yaml` 只是示例与用户自己的配置，文件名标数据源（如 `sharadar_`） |
+| Q67 | 自定义数据集与因子：任何遵守 quantlab 组件契约、可 import、能被 `rebuild` 重建的类都可写进 `data`/`reference`，不另设插件注册表 |
+| Q68 | 算子白名单为算子文件（YAML），配置 `operators` 指向它；每条写 `name`、`class`（KunQuant `OpBase` 子类）、`call`（可为 NaN 保留版）、`signature`、`inputs`、`params`、`dimension`（从代码固定的量纲规则集中选）、`description`、`binding`；代码只留类路径解析、量纲规则、循环语言构造（取代 Q8' 的代码注册表与 Q31 的"只经 quantlab 进白名单"） |
+| Q69 | 参数集合（窗口、常量、分位数、上下界等）进算子文件 `parameters` 段，同 Q58 快照与哈希（推翻本轮早先"参数集合留在代码"的推荐） |
+| Q70 | 解析时安全校验：`class` 须为 KunQuant `OpBase` 子类；`call` 只能来自 `KunQuant`、`quantlab.factor` 或配置 `operator_modules` 显式列出的模块；沙箱按同一解析结果建命名空间；构图后 Gate 仍查每个节点类已注册 |
+| Q71 | 全覆盖守护测试只针对仓库示例算子文件的 `excluded:` 段（类 → 理由），提醒 KunQuant 升级新增算子；用户算子文件不受约束 |
+| Q72 | 四个角色的提示词模板与数据说明段可由配置 `prompts` 替换；构造时校验必需占位符；模板同 Q58 快照 |
+| Q73 | 图约束常量（节点数、自由参数比例、字段数、公共子树）维持现状在配置 `gate` 段，不增约束种类 |
+| Q74 | 模块划分（2026-10-24 codebase-design）：新建深 module `Vocabulary`（`load`、`namespace`、`check`、`bind`、`columns`、`prompt`；只按数据不同、不设可替换实现）、`Scoring`（`from_config`、`apply`、`read`、`describe`；收走 Evaluator 与 Acceptance 重复的打分代码）、`RunSnapshot`（`open`、`path`；Campaign 与 Acceptance 共用）；`Researcher` 接口不变，模板与机制类由配置注入；`vocabulary.py` 不再存常量 |
 
 ## 3. 一轮的流程
 
@@ -103,6 +139,9 @@
 | `Researcher` | `plan`、`propose(plan, gate)`、`review`、`distill` | prompt 模板、三段历史、JSON 解析与重试、Gate 失败重试、调用落盘 | 各角色后端由配置注入 |
 | `LLMBackend` | `complete(request) -> Reply(text, usage, cost, model_id)` | — | 真实 seam：claude_code / anthropic / openai_compatible / replay + 测试 fake |
 | `Ledger` | 追加与读取试验记录、轮次状态 | 文件格式 | 测试用临时目录 |
+| `Vocabulary` | `load(fields, operators)`、`namespace()`、`check(graph)`、`bind(hypothesis, graph)`、`columns(graph)`、`prompt()` | 类路径解析与模块白名单、单位与量纲规则、派生字段、周期滞后、绑定短语、启动校验 | 由字段文件与算子文件构建；沙箱子进程从快照重建同一份；`test_vocabulary` |
+| `Scoring` | `from_config(scoring, data)`、`apply(factor)`、`read(factor, start, end)`、`describe()` | 截面 rank、可选中性化、可选成员屏蔽、从 store 首日读 | Evaluator 与 Acceptance 共用，口径唯一 |
+| `RunSnapshot` | `open(run_dir, files, versions)`、`path(name)` | 文件复制、哈希、提交号；续跑时文件变了报错、提交号变了警告 | Campaign 与 Acceptance 共用 |
 
 `Campaign` 由配置构造 `Researcher`、`Gate`、`Evaluator`、`Ledger`；唯一的外部 seam 是 `LLMBackend`
 （2026-10-23 to-spec 时收紧：取消 `Evaluator` 的 fake，`Campaign` 测试用真 `Gate`、真 `Evaluator` 加小型合成 Zarr store）。
