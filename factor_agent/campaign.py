@@ -244,6 +244,7 @@ class Campaign:
             warmup_bars=config.evaluator.warmup_bars,
             njobs=config.evaluator.njobs,
             purge_bars=config.segments.purge_bars,
+            period_lags=vocabulary.lag_columns,
         )
         zoo = Zoo.from_reference(reference, vocabulary)
         _write_zoo(run_dir / "zoo.json", zoo)

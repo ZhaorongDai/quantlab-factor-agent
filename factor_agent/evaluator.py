@@ -43,7 +43,7 @@ one round are never both accepted when the second says nothing new.
 """
 
 import warnings
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -52,10 +52,10 @@ import xarray as xr
 from KunQuant.Stage import Function
 from quantlab.analysis.factor_report import newey_west_lags, newey_west_t_stat
 from quantlab.factor.config import FactorConfig
-from quantlab.factor.kunquant import FactorKunQuant
 from quantlab.model.evaluation import cross_sectional_rank_ic_series
 from scipy import stats
 
+from factor_agent import period_lag
 from factor_agent.exported import ranked_function
 from factor_agent.gate.graph import Graph
 from factor_agent.scoring import Scoring
@@ -131,8 +131,11 @@ class CompileFailure:
 Admit = Callable[[int, Metrics, int], str | None]
 
 
-class _RoundGraph(FactorKunQuant):
+class _RoundGraph(period_lag.PeriodLagFactor):
     """A batch of graphs as one factor, one whole-market rank per candidate.
+
+    The lag columns the graphs read are computed from the dataset
+    (``factor_agent.period_lag``).
 
     ``compute`` keeps its last result, so the scored factor that wraps it
     (a ``NeutralizedFactor`` when the scoring neutralises) reads the panel
@@ -140,10 +143,14 @@ class _RoundGraph(FactorKunQuant):
     candidate outputs are neutralised; the presence outputs are read raw.
     """
 
-    def __init__(self, config: FactorConfig, graphs: list[Graph]):
+    def __init__(self, config: FactorConfig, graphs: list[Graph], period_lags: Mapping[str, Mapping]):
         self._graphs = graphs
+        self._lags = dict(period_lags)
         self._computed: tuple[tuple, xr.Dataset] | None = None
         super().__init__(config)
+
+    def _period_lags(self) -> Mapping[str, Mapping]:
+        return self._lags
 
     def _get_factor_names(self) -> tuple[str, ...]:
         n = len(self._graphs)
@@ -182,9 +189,10 @@ class Evaluator:
 
     def __init__(
         self, segment: Segment, prices, label, scoring: Scoring, reference: Sequence,
-        warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS,
+        warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS, period_lags: Mapping[str, Mapping] | None = None,
     ):
         self._segment = segment
+        self._period_lags = dict(period_lags or {})
         self._purge_bars = purge_bars
         self._prices = prices
         self._label = label
@@ -197,7 +205,7 @@ class Evaluator:
     @classmethod
     def for_segment(
         cls, segment: Segment, *, prices, label, scoring: Scoring, reference: Sequence = (),
-        warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS,
+        warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS, period_lags: Mapping[str, Mapping] | None = None,
     ) -> "Evaluator":
         """Return an evaluator of ``segment``.
 
@@ -219,8 +227,12 @@ class Evaluator:
             Warm-up bars and KunQuant executor threads.
         purge_bars : int
             The fewest bars dropped at the end of the segment (``segments.purge``).
+        period_lags : mapping, optional
+            How each lag column a graph may read is computed
+            (``Vocabulary.lag_columns``); a lag reads the warm-up it needs
+            when that is longer than ``warmup_bars``.
         """
-        return cls(segment, prices, label, scoring, reference, warmup_bars, njobs, purge_bars)
+        return cls(segment, prices, label, scoring, reference, warmup_bars, njobs, purge_bars, period_lags)
 
     @property
     def segment(self) -> Segment:
@@ -306,13 +318,15 @@ class Evaluator:
 
     def _values(self, graphs: list[Graph], frame: "_Frame") -> list["tuple[np.ndarray, np.ndarray] | CompileFailure"]:
         """Each graph's scored values and its own (unranked) presence, bisecting a batch that fails."""
-        columns = sorted({name for graph in graphs for name in graph.input_names})
+        inputs = {name for graph in graphs for name in graph.input_names}
+        lags = {name: self._period_lags[name] for name in sorted(inputs) if name in self._period_lags}
         factor = _RoundGraph(
             FactorConfig(
                 warmup_bars=self._warmup_bars, dataset=self._prices, mode="batch",
-                data_columns=tuple(columns), njobs=self._njobs,
+                data_columns=period_lag.data_columns(inputs, lags), njobs=self._njobs,
             ),
             graphs,
+            lags,
         )
         start, end = self._segment.start, self._segment.end
         try:

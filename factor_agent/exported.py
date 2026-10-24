@@ -14,8 +14,7 @@ from collections.abc import Mapping
 from KunQuant.Op import OpBase, Output, Rank
 from KunQuant.ops import MulConst
 from KunQuant.Stage import Function
-from quantlab.factor.kunquant import FactorKunQuant
-
+from factor_agent import period_lag
 from factor_agent.gate.graph import Graph
 from factor_agent.gate.vocabulary import resolve_classes
 
@@ -40,27 +39,34 @@ def ranked_function(graphs: Mapping[str, Graph], presence: Mapping[str, str] | N
     return Function(ops)
 
 
-class GraphFactor(FactorKunQuant):
+class GraphFactor(period_lag.PeriodLagFactor):
     """Recorded graphs, each ranked across the market, as one factor.
 
     The graphs, name to ``Graph.to_json()``, are the class's ``GRAPHS`` (an
     exported factor) or, when it has none, ``config.kwargs["graphs"]``; the
     class path of each operator they record, ``CLASSES`` or
-    ``config.kwargs["classes"]`` (``Vocabulary.class_paths``).
-    ``config.data_columns`` must hold every column the graphs read
-    (``data_columns``).
+    ``config.kwargs["classes"]`` (``Vocabulary.class_paths``); how each lag
+    column they read is computed, ``PERIOD_LAGS`` or
+    ``config.kwargs["period_lags"]`` (``period_lags``), none when neither is
+    set. ``config.data_columns`` must hold every dataset column the graphs
+    and their lags read (``data_columns``).
     """
 
     #: Output name -> ``Graph.to_json()``; set by an exported subclass.
     GRAPHS: dict = {}
     #: Operator name -> class path, of every operator ``GRAPHS`` records; set by an exported subclass.
     CLASSES: dict = {}
+    #: Lag column -> how it is computed, of every lag column ``GRAPHS`` reads; set by an exported subclass.
+    PERIOD_LAGS: dict = {}
 
     def _recorded(self) -> dict:
         return type(self).GRAPHS or dict((self.config.kwargs or {})["graphs"])
 
     def _classes(self) -> dict:
         return resolve_classes(type(self).CLASSES or dict((self.config.kwargs or {})["classes"]))
+
+    def _period_lags(self) -> dict:
+        return type(self).PERIOD_LAGS or dict((self.config.kwargs or {}).get("period_lags") or {})
 
     def _get_factor_names(self) -> tuple[str, ...]:
         return tuple(self._recorded())
@@ -70,6 +76,16 @@ class GraphFactor(FactorKunQuant):
         return ranked_function({name: Graph.from_json(graph, classes) for name, graph in self._recorded().items()})
 
     @staticmethod
-    def data_columns(graphs: Mapping[str, list]) -> tuple[str, ...]:
-        """The dataset columns the recorded graphs read, sorted."""
-        return tuple(sorted({dict(node[1])["name"] for graph in graphs.values() for node in graph if node[0] == "Input"}))
+    def data_columns(graphs: Mapping[str, list], period_lags: Mapping[str, Mapping] | None = None) -> tuple[str, ...]:
+        """The dataset columns the recorded graphs read, with the columns and keys of their ``period_lags``, sorted."""
+        return period_lag.data_columns(_inputs(graphs), period_lags or {})
+
+    @staticmethod
+    def period_lags(graphs: Mapping[str, list], lag_columns: Mapping[str, Mapping]) -> dict:
+        """The entries of ``lag_columns`` (``Vocabulary.lag_columns``) the recorded graphs read."""
+        return {name: dict(lag_columns[name]) for name in sorted(_inputs(graphs)) if name in lag_columns}
+
+
+def _inputs(graphs: Mapping[str, list]) -> set[str]:
+    """The names of the ``Input`` nodes of recorded graphs."""
+    return {dict(node[1])["name"] for graph in graphs.values() for node in graph if node[0] == "Input"}

@@ -269,7 +269,10 @@ class Acceptance:
         folders = []
         for (key, name), record in zip(names.items(), records):
             module, folder = package_dir / f"{name}.py", root / name
-            module.write_text(_module_source(name, record, self.run_dir, self.vocabulary.class_paths([record.graph])))
+            module.write_text(_module_source(
+                name, record, self.run_dir, self.vocabulary.class_paths([record.graph]),
+                GraphFactor.period_lags({name: record.graph}, self.vocabulary.lag_columns),
+            ))
             try:
                 importlib.invalidate_caches()
                 factor_class = getattr(importlib.import_module(f"{package.__name__}.{name}"), _class_name(name))
@@ -372,7 +375,10 @@ class Acceptance:
         """The accepted factors, scored, from a store under the run directory, read as the scoring reads."""
         graphs = dict(zip(outputs, (r.graph for r in records)))
         classes = self.vocabulary.class_paths(graphs.values())
-        factor = GraphFactor(self._factor_config(graphs, kwargs={"graphs": graphs, "classes": classes}))
+        lags = GraphFactor.period_lags(graphs, self.vocabulary.lag_columns)
+        factor = GraphFactor(self._factor_config(
+            graphs, kwargs={"graphs": graphs, "classes": classes, **({"period_lags": lags} if lags else {})},
+        ))
         folder = self.run_dir / "acceptance" / "accepted"
         scored = self._scoring().apply(factor, folder / "accepted.zarr")
         start = self.config.segments.training.start
@@ -389,7 +395,8 @@ class Acceptance:
     def _factor_config(self, graphs: dict, kwargs: dict | None = None) -> FactorConfig:
         return FactorConfig(
             warmup_bars=self.config.evaluator.warmup_bars, dataset=self._data("prices"), mode="batch",
-            data_columns=GraphFactor.data_columns(graphs), njobs=self.config.evaluator.njobs, kwargs=kwargs,
+            data_columns=GraphFactor.data_columns(graphs, GraphFactor.period_lags(graphs, self.vocabulary.lag_columns)),
+            njobs=self.config.evaluator.njobs, kwargs=kwargs,
         )
 
     def _scoring(self) -> Scoring:
@@ -467,10 +474,11 @@ def _class_name(name: str) -> str:
     return "".join(part.capitalize() for part in name.split("_") if part) or "Factor"
 
 
-def _module_source(name: str, record: TrialRecord, run_dir: Path, classes: dict) -> str:
+def _module_source(name: str, record: TrialRecord, run_dir: Path, classes: dict, period_lags: dict) -> str:
     """The module of an exported factor: the candidate as data and a ``GraphFactor`` subclass fixing its graph.
 
-    ``classes`` are the class paths of the graph's operators, from the campaign's vocabulary.
+    ``classes`` are the class paths of the graph's operators and ``period_lags`` how its lag columns are
+    computed, both from the campaign's vocabulary.
     """
     code = "\n".join(f"#     {line}" for line in record.candidate["code"].splitlines())
     return (
@@ -486,4 +494,5 @@ def _module_source(name: str, record: TrialRecord, run_dir: Path, classes: dict)
         f'    """The accepted factor ``{name}``, ranked across the market; see ``CANDIDATE``."""\n\n'
         f"    GRAPHS = {{{name!r}: {pprint.pformat(record.graph, width=100)}}}\n"
         f"    CLASSES = {pprint.pformat(classes, width=100)}\n"
+        + (f"    PERIOD_LAGS = {pprint.pformat(period_lags, width=100)}\n" if period_lags else "")
     )

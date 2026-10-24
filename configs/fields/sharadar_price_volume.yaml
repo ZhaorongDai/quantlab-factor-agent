@@ -14,6 +14,18 @@
 #
 # `rules` are phrases that need several fields together. `bar: true` makes a value missing in any of
 # the family's columns a missing bar, which the NaN-preserving operators keep NaN.
+#
+# A family of periodic data (financial statements) may declare a period lag, which lets candidate
+# code write `PeriodLag(x, k)` for a field x of the family read from a column; this one has none:
+#   period_lag:
+#     column: '{column}__q{k}'    # the name a lag is read under, as quantlab's FundamentalAlpha names it
+#     k: [1, 2, 3, 4, 8]          # the allowed k
+#     period:
+#       description: ...          # what a period is, in the prompt
+#       key: reportperiod         # the price dataset's column holding the period end of the report shown
+#       days: 91                  # the spacing of consecutive periods in days, and the tolerance on it
+#       tolerance_days: 45
+#       bars: 63                  # the most bars one period spans, for the warm-up a lag reads
 family: price_volume
 description: adjusted daily bars
 bar: true

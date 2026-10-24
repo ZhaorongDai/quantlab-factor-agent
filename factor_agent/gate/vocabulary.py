@@ -18,6 +18,18 @@ runs inside quantlab's ``missing_bars_only`` over those columns, so the
 NaN-preserving stand-ins of ``quantlab.factor.kunquant_nan`` keep such a
 bar NaN.
 
+A family may declare a period lag (``period_lag``): the column pattern of
+its lags (``{column}`` and ``{k}`` fill it, ``"{column}__q{k}"`` as
+quantlab's ``FundamentalAlpha`` names its report lags), the allowed ``k``
+and what a period is: the dataset column holding the period end of the
+report a bar shows (``key``), the spacing of consecutive periods in days and
+the tolerance on it, and the most bars a period spans. Candidate code then
+calls ``PeriodLag(x, k)`` on a field of the family that reads a column; it
+reads the lag column of the field, which ``factor_agent.period_lag``
+computes from the field's column and the key when the factor is computed.
+The lags of a field count as the field itself, toward the field limit and
+in dimensions.
+
 The operator file lists each operator's class (a KunQuant ``OpBase``
 subclass, what a graph records), the callable candidate code calls under
 its name (the class, or a stand-in such as ``kunquant_nan.Max``), its
@@ -38,6 +50,7 @@ import importlib
 import keyword
 import math
 import re
+import string
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from fractions import Fraction
@@ -69,16 +82,22 @@ INPUT_KINDS = ("series", "condition", "loop")
 FLAG = "flag"
 
 #: Names the framework binds in candidate code itself.
-_RESERVED = frozenset({"Builder", "Input", "alpha"})
+_RESERVED = frozenset({"Builder", "Input", "PeriodLag", "alpha"})
 
 #: The bases of a unit, in the order of a dimension's exponents.
 _UNIT_BASES = ("dollars", "shares")
 _UNIT_FACTOR = re.compile(r"(dollars|shares|1)(?:\^(-?\d+))?")
 
-_FIELD_FILE_KEYS = {"family", "description", "bar", "phrases", "rules", "fields"}
+_FIELD_FILE_KEYS = {"family", "description", "bar", "phrases", "rules", "fields", "period_lag"}
+_PERIOD_LAG_KEYS = {"column", "k", "period"}
+_PERIOD_KEYS = {"description", "key", "days", "tolerance_days", "bars"}
 _FIELD_KEYS = {"name", "column", "formula", "unit", "description", "synonyms"}
 _OPERATOR_FILE_KEYS = {"parameters", "phrases", "operators", "excluded"}
 _OPERATOR_KEYS = {"name", "class", "call", "signature", "inputs", "params", "dimension", "description", "binding"}
+
+
+class PeriodLagError(ValueError):
+    """Candidate code called ``PeriodLag`` on what has no such lag; the message says why."""
 
 
 class VocabularyError(ValueError):
@@ -125,6 +144,24 @@ class OpSpec:
     binding: tuple[str, ...]
 
 
+@dataclass(frozen=True)
+class PeriodLag:
+    """A family's declared period lag; see the module docstring."""
+
+    family: str
+    column: str
+    k: tuple[int, ...]
+    description: str
+    key: str
+    days: float
+    tolerance_days: float
+    bars: int
+
+    def lag_column(self, column: str, k: int) -> str:
+        """The column a lag of ``k`` periods of ``column`` is read under."""
+        return self.column.format(column=column, k=k)
+
+
 #: ``Input``, which every graph records and no candidate calls.
 INPUT = OpSpec("Input", Input, "KunQuant.Op.Input", None, "", (), {"name": FLAG}, "input", "", ())
 
@@ -157,17 +194,24 @@ class Vocabulary:
         self._synonyms: dict[str, list[str]] = {}
         self._rules: list[tuple[str, tuple[str, ...]]] = []
         self._bar_columns: list[str] = []
+        #: The declared period lags, by family.
+        self.period_lags: dict[str, PeriodLag] = {}
         operators = sources["operators"]
         self._read_operators(operators["path"], self._yaml(operators))
         for document in sources["fields"]:
             self._read_fields(document["path"], self._yaml(document))
         if not self._problems:
             self._build_derived()
+        self._check_lag_columns()
         if columns is not None:
             available = set(columns)
             self._problems += [
                 f"field {f.name} ({f.family}): column {f.column!r} is not in the price dataset"
                 for f in self.fields.values() if f.column is not None and f.column not in available
+            ]
+            self._problems += [
+                f"period lag of {lag.family}: key column {lag.key!r} is not in the price dataset"
+                for lag in self.period_lags.values() if lag.key not in available
             ]
         if self._problems:
             raise VocabularyError(self._problems)
@@ -208,7 +252,8 @@ class Vocabulary:
     @property
     def names(self) -> frozenset[str]:
         """Every name candidate code may read without binding it first."""
-        return frozenset(self.fields) | frozenset(self._operators) | frozenset(BUILTINS) | {"Builder"}
+        lag = {"PeriodLag"} if self.period_lags else set()
+        return frozenset(self.fields) | frozenset(self._operators) | frozenset(BUILTINS) | {"Builder"} | lag
 
     @property
     def classes(self) -> dict[str, type]:
@@ -238,8 +283,9 @@ class Vocabulary:
         """
         fields = self._inputs()
         callables = {name: spec.call for name, spec in self._operators.items()}
+        lag = {"PeriodLag": self._period_lag_call()} if self.period_lags else {}
         with self._bar_mask(fields):
-            yield {"__builtins__": dict(BUILTINS), **callables, "Builder": Builder, **fields}
+            yield {"__builtins__": dict(BUILTINS), **callables, "Builder": Builder, **lag, **fields}
 
     def recorded_name(self, op_class: type) -> str | None:
         """Return the name a graph records ``op_class`` under, or None when it is not registered.
@@ -310,13 +356,35 @@ class Vocabulary:
         )
 
     def field_name(self, column: str) -> str:
-        """The field reading ``column``, or the column itself when no field reads it."""
+        """The field reading ``column`` or a period lag of it, or the column itself when no field reads it."""
+        if column in self._lag_columns:
+            return self._lag_columns[column][0]
         return self._column_fields.get(column, column)
 
+    def written(self, column: str) -> str:
+        """``column`` as candidate code reads it: a field's name, or ``PeriodLag(field, k)`` for a lag column."""
+        if column in self._lag_columns:
+            name, k = self._lag_columns[column]
+            return f"PeriodLag({name}, {k})"
+        return self.field_name(column)
+
     def column_dimension(self, column: str) -> tuple | None:
-        """The ``(dollars, shares)`` exponents of the field reading ``column``, or None."""
-        name = self._column_fields.get(column)
-        return None if name is None else self.fields[name].dimension
+        """The ``(dollars, shares)`` exponents of the field reading ``column`` or a period lag of it, or None."""
+        name = self.field_name(column)
+        return self.fields[name].dimension if name in self.fields else None
+
+    @property
+    def lag_columns(self) -> dict[str, dict]:
+        """How each lag column candidate code may read is computed, by its name (``factor_agent.period_lag``)."""
+        found = {}
+        for lag_column, (name, k) in self._lag_columns.items():
+            field = self.fields[name]
+            lag = self.period_lags[field.family]
+            found[lag_column] = {
+                "column": field.column, "k": k, "key": lag.key, "days": lag.days,
+                "tolerance_days": lag.tolerance_days, "bars": lag.bars,
+            }
+        return found
 
     @cached_property
     def reference_hashes(self) -> tuple[dict[str, str], str | None]:
@@ -339,9 +407,22 @@ class Vocabulary:
         def operator(spec: OpSpec) -> str:
             return f"- {spec.signature}: {spec.description}" if spec.description else f"- {spec.signature}"
 
+        lines = [operator(spec) for spec in self._operators.values()]
+        if self.period_lags:
+            lines.append(
+                "- PeriodLag(x, k): field x as of the k-th earlier period, counted in periods, not in bars; "
+                "missing when that period is missing or is not k periods before the current one. "
+                "x is a field of a family below, k one of its values:"
+            )
+            for lag in self.period_lags.values():
+                names = [f.name for f in self.fields.values() if f.family == lag.family and f.column is not None]
+                lines.append(
+                    f"  - {', '.join(names)} ({lag.family}): k one of {', '.join(map(str, lag.k))}; "
+                    f"a period is {lag.description}"
+                )
         return {
             "inputs": ", ".join(self.fields),
-            "operators": "\n".join(operator(spec) for spec in self._operators.values()),
+            "operators": "\n".join(lines),
             "parameters": "\n".join(
                 f"- {kind}: {', '.join(f'{v:g}' for v in values)}" for kind, values in self.parameters.items()
             ),
@@ -353,6 +434,42 @@ class Vocabulary:
     @cached_property
     def _column_fields(self) -> dict[str, str]:
         return {f.column: f.name for f in self.fields.values() if f.column is not None}
+
+    @cached_property
+    def _lag_columns(self) -> dict[str, tuple[str, int]]:
+        """``(field, k)`` of every lag column, by its name."""
+        return {
+            lag.lag_column(f.column, k): (f.name, k)
+            for f in self.fields.values() if f.column is not None and f.family in self.period_lags
+            for lag in [self.period_lags[f.family]] for k in lag.k
+        }
+
+    def _period_lag_call(self):
+        """``PeriodLag`` of one execution of candidate code: one ``Input`` per lag column."""
+        made: dict[str, OpBase] = {}
+        families = ", ".join(self.period_lags)
+
+        def period_lag(x, k):
+            name = self._column_fields.get(x.attrs.get("name")) if isinstance(x, Input) else None
+            if name is None:
+                raise PeriodLagError(
+                    "PeriodLag takes a field read from a column, not an expression or a derived field"
+                )
+            field = self.fields[name]
+            lag = self.period_lags.get(field.family)
+            if lag is None:
+                raise PeriodLagError(
+                    f"PeriodLag({name}, ...): {field.family} declares no period lag; "
+                    f"only fields of {families} have one"
+                )
+            if isinstance(k, bool) or not isinstance(k, int) or k not in lag.k:
+                raise PeriodLagError(
+                    f"PeriodLag({name}, {k!r}): k must be one of {', '.join(map(str, lag.k))} for {field.family}"
+                )
+            column = lag.lag_column(field.column, k)
+            return made.setdefault(column, Input(column))
+
+        return period_lag
 
     def _inputs(self) -> dict[str, OpBase]:
         """Fresh input operators by field name: an ``Input`` per column, each derived field built by its formula."""
@@ -547,6 +664,8 @@ class Vocabulary:
                 declared.append(entry["name"])
         if document.get("bar"):
             self._bar_columns += [self.fields[n].column for n in mine if self.fields[n].column is not None]
+        if document.get("period_lag") is not None:
+            self._read_period_lag(f"{path}: period_lag", family, document["period_lag"])
         for i, rule in enumerate(document.get("rules") or []):
             where = f"{path}: rule {i + 1}"
             if not isinstance(rule, dict) or set(rule) != {"phrase", "needs"}:
@@ -600,6 +719,54 @@ class Vocabulary:
             return None
         self.fields[name] = Field(name, family, column, formula, dimension, str(entry.get("description", "")))
         return name
+
+    def _read_period_lag(self, where: str, family: str, entry) -> None:
+        if not isinstance(entry, dict):
+            self._problem(where, "must be a mapping of column, k and period")
+            return
+        self._unknown_keys(where, entry, _PERIOD_LAG_KEYS)
+        ok = True
+        column = entry.get("column")
+        placeholders = set()
+        if isinstance(column, str):
+            with contextlib.suppress(ValueError):
+                placeholders = {f for _, f, _, _ in string.Formatter().parse(column) if f is not None}
+        if placeholders != {"column", "k"}:
+            self._problem(where, f"column {column!r} must be a pattern with exactly {{column}} and {{k}}")
+            ok = False
+        k = entry.get("k")
+        if not isinstance(k, list) or not k or not all(_number(v) and v == int(v) and v > 0 for v in k):
+            self._problem(where, f"k {k!r} must be a list of positive whole numbers")
+            ok = False
+        period = entry.get("period")
+        if not isinstance(period, dict):
+            self._problem(where, "period must be a mapping of description, key, days, tolerance_days and bars")
+            return
+        self._unknown_keys(f"{where}: period", period, _PERIOD_KEYS)
+        for name in ("description", "key"):
+            if not isinstance(period.get(name), str) or not period[name].strip():
+                self._problem(where, f"period {name} must be a non-empty text, got {period.get(name)!r}")
+                ok = False
+        for name in ("days", "tolerance_days", "bars"):
+            value = period.get(name)
+            if not _number(value) or value <= 0 or (name == "bars" and value != int(value)):
+                self._problem(where, f"period {name} must be a positive number, got {value!r}")
+                ok = False
+        if ok:
+            self.period_lags[family] = PeriodLag(
+                family, column, tuple(int(v) for v in k), period["description"], period["key"],
+                float(period["days"]), float(period["tolerance_days"]), int(period["bars"]),
+            )
+
+    def _check_lag_columns(self) -> None:
+        """A lag column may not be a field's column or a declared key."""
+        keys = {lag.key for lag in self.period_lags.values()}
+        for column, (name, k) in self._lag_columns.items():
+            if column in self._column_fields or column in keys:
+                self._problem(
+                    f"period lag of {self.fields[name].family}",
+                    f"PeriodLag({name}, {k}) reads {column!r}, which is also a column of the price dataset",
+                )
 
     def _build_derived(self) -> None:
         """Build every derived field once, so a formula that cannot be built is a start-up error."""
