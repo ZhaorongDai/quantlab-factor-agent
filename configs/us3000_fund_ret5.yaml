@@ -199,7 +199,7 @@ reference:
     factor_names: [intraday_20, reversal_3, intraday_5]
 
 # Seed directions (Q50): two per mechanism type, aimed at what the fundamental families of the reference
-# (FundamentalAlpha, Barra's value, leverage and growth descriptors) lack. A DRAFT for the user's review.
+# (FundamentalAlpha, Barra's value, leverage and growth descriptors) lack. Approved by the user (2026-10-24).
 # Papers are cited without their year, so no prompt names a date after the training segment; the years
 # are in the comments.
 directions:
@@ -242,7 +242,7 @@ round:
   max_trials: 600
   patience: 5
   memory_every: 5
-  budget_usd: 10.0     # DRAFT: for the user to approve with the cost estimate
+  budget_usd: 10.0     # approved by the user against the $2.90 estimate (2026-10-24)
   seed: 0
 
 acceptance:

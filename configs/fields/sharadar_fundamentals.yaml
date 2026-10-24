@@ -1,6 +1,6 @@
 # Sharadar fundamentals: SF1 as-reported trailing-twelve-month (ART) statement items and DAILY's
 # valuation metrics, on the merged SEP + DAILY + SF1 ART panel quantlab's FundamentalAlpha reads.
-# A DRAFT for the user's review before the first fundamentals campaign (design Q44, Q52).
+# Reviewed and approved by the user for the first fundamentals campaign (2026-10-24; design Q44, Q52).
 #
 # - Fields are named after their vendor columns (design Q51), so the zoo recognises a rewrite of a
 #   FundamentalAlpha factor, which reads the same columns.
@@ -16,8 +16,8 @@
 #   (investment, dividends paid, net buybacks).
 # - No per-share items (eps, bvps, dps, sps, ...) and no unadjusted prices (design Q47): an adjusted
 #   price divided by an as-reported per-share number is wrong across a split. Valuations use totals
-#   (netinc / marketcap) or DAILY's ready ratios. sharesbas, the one share count, is as reported and
-#   not on adjVolume's split-adjusted basis.
+#   (netinc / marketcap) or DAILY's ready ratios. No share count either: SF1's are as reported, not on
+#   adjVolume's split-adjusted basis; turnover is amount / marketcap.
 #
 # See sharadar_price_volume.yaml for the keys of a field file.
 family: sharadar_fundamentals
@@ -230,15 +230,6 @@ fields:
     unit: dollars
     description: net cash from issuing (positive) or buying back (negative) common stock, trailing twelve months
     synonyms: [buybacks, payout]
-
-  # Shares.
-  - name: sharesbas
-    column: sharesbas
-    unit: shares
-    description: >-
-      shares outstanding on the filing's cover, as reported: not split-adjusted, so a ratio with
-      volume or with an earlier report jumps at a split
-    synonyms: [shares outstanding, buybacks]
 
   # SF1 ratios.
   - name: currentratio

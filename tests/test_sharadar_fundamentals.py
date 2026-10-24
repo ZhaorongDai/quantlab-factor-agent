@@ -78,7 +78,7 @@ def test_the_field_file_loads_with_the_price_volume_file_on_vendor_columns(vocab
     ("code", "dimension"),
     [
         ("alpha = netinc / marketcap", "pure number"),
-        ("alpha = volume / sharesbas", "pure number"),
+        ("alpha = amount / marketcap", "pure number"),
         ("alpha = (netinc - PeriodLag(netinc, 4)) / assetsavg", "pure number"),
         ("alpha = Log(pe) - Log(evebit)", "pure number"),
         ("alpha = close / netinc", "1/shares"),
@@ -94,7 +94,7 @@ def test_dimensions_are_inferred_over_mixed_fields(vocabulary, code, dimension):
     ("code", "reason"),
     [
         ("alpha = close + netinc", "Add combines a price with a money"),
-        ("alpha = volume / sharesbas + marketcap", "Add combines a pure number with a money"),
+        ("alpha = amount / marketcap + marketcap", "Add combines a pure number with a money"),
     ],
 )
 def test_a_sum_of_dimensioned_fields_that_differ_is_refused(vocabulary, code, reason):
