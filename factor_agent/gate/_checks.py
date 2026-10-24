@@ -66,7 +66,7 @@ def _reasons(tree: ast.AST, names: frozenset[str], bound: set[str]) -> list[str]
             and node.id not in names
             and node.id not in bound
         ):
-            reasons.append(f"{where}name {node.id} is not in the operator whitelist")
+            reasons.append(f"{where}name {node.id} is not in the vocabulary (its fields, operators and builtins)")
     return reasons
 
 

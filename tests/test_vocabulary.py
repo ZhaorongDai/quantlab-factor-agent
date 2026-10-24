@@ -185,7 +185,7 @@ def test_a_user_operator_file_needs_no_exclusions_and_refuses_what_it_does_not_r
     assert isinstance(passed, Passed), getattr(passed, "reasons", None)
     refused = gate.check(_candidate("alpha = WindowedAvg(close, 20) / close"), Zoo())
     assert isinstance(refused, Rejected)
-    assert any("WindowedAvg is not in the operator whitelist" in r for r in refused.reasons), refused.reasons
+    assert any("name WindowedAvg is not in the vocabulary" in r for r in refused.reasons), refused.reasons
 
 
 def test_the_sandbox_reads_the_fields_and_stand_ins_of_the_vocabulary(tmp_path):

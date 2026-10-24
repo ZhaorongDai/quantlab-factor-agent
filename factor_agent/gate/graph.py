@@ -47,7 +47,7 @@ class Graph:
         """Record every operator ``output`` depends on, its inputs and loops first, under ``vocabulary``'s names.
 
         With ``strict=False`` (a reference factor's graph, compared but never
-        rebuilt) an operator outside the whitelist is recorded under its class
+        rebuilt) an operator outside the vocabulary is recorded under its class
         name, other state is ignored and an attribute that is not a number,
         string or bool is recorded as its ``repr``.
 
@@ -69,7 +69,7 @@ class Graph:
                 name = name or type(op).__name__
                 attrs = tuple((k, v if isinstance(v, (bool, int, float, str)) else repr(v)) for k, v in attrs)
             if name is None:
-                raise ValueError(f"operator {type(op).__name__} is not in the whitelist")
+                raise ValueError(f"operator {type(op).__name__} is not an operator of the vocabulary")
             extra = set(vars(op)) - _OP_STATE
             if extra and strict:
                 raise ValueError(f"operator {name} carries state the gate cannot record: {sorted(extra)}")
@@ -139,7 +139,7 @@ class Graph:
         nodes = []
         for position, (op, attrs, inputs, parent) in enumerate(data):
             if op not in classes:
-                raise ValueError(f"graph node {position} names {op!r}, which is not whitelisted")
+                raise ValueError(f"graph node {position} names {op!r}, which is not an operator of the vocabulary")
             refs = list(inputs) + ([] if parent is None else [parent])
             if any(not isinstance(r, int) or not 0 <= r < position for r in refs):
                 raise ValueError(f"graph node {position} refers to a node that does not precede it")
