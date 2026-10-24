@@ -304,6 +304,16 @@ def test_the_prompts_name_an_accepted_factors_direction(backwards):
     assert "expected sign" not in prompt.lower() and "expected_sign" not in prompt
 
 
+def test_a_fix_hint_goes_to_the_fix_request_but_not_into_the_recorded_reasons(tmp_path):
+    item = _candidate("integer input", "alpha = Sub(close / open, 1)")
+    outcome = _run(tmp_path, [[item]], round={"candidates": 1, "retries": 1})
+    fix_request = outcome["fake"].of_role("proposer")[1].prompt
+    assert "write a number as ConstantOp(1)" in fix_request
+    [record] = outcome["result"].failed
+    assert any("Bad inputs, given" in r for r in record.reasons), record.reasons
+    assert not any("ConstantOp(1)" in r for r in record.reasons), record.reasons
+
+
 def test_one_trial_is_judged_as_two_tests_one_per_direction(weak_alone, tmp_path):
     strict = _run(tmp_path, [[WEAK]], admission={"t_threshold": 3.3}, round={"candidates": 1, "retries": 0})
     [record] = strict["result"].rejected

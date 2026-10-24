@@ -58,6 +58,10 @@ operator_modules: []                          # modules besides KunQuant and qua
   description and binding phrases, plus the parameter value sets. The repository's example file also
   lists every other KunQuant and quantlab operator class under `excluded` with a reason, which a guard
   test checks; a user's own file needs no such section.
+- An operator file may list `fixes`: each a `match` (a regular expression a refusal's text matches when
+  KunQuant turns code down) and a `hint` (how to write it instead); the Gate gives a writing error the
+  hints it matches, in file order, and they go with the reasons into the proposer's fix request only. Candidate code and derived formulas may write `-x`
+  (`MulConst(x, -1)`) and `x ** c` (`Pow(x, ConstantOp(c))`, when the file registers `Pow`).
 - At start every field and operator is checked and every problem reported at once, before any LLM call:
   a column missing from the price dataset, a malformed unit, a name clash, a class that is not a KunQuant
   operator, a class or callable from a module not listed, a formula outside the syntax rules.

@@ -150,6 +150,11 @@ STARTUP_ERRORS = {
     "a formula over a later field": (_field(2, formula="close * spread"), None, {}, "spread"),
     "a formula calling a builtin": (_field(2, formula="abs(close)"), None, {}, "abs"),
     "a formula that fails to build": (_field(2, formula="Div(close)"), None, {}, "amount"),
+    "a fix whose match is not a regular expression": (
+        None, lambda o: o.update(fixes=[{"match": "Bad (inputs", "hint": "h"}]), {}, "fix 1"),
+    "a fix without a hint": (None, lambda o: o.update(fixes=[{"match": "Bad inputs"}]), {}, "hint"),
+    "a fix with an unknown key": (
+        None, lambda o: o.update(fixes=[{"match": "Bad inputs", "hint": "h", "example": "x"}]), {}, "example"),
 }
 
 
@@ -186,6 +191,42 @@ def test_a_user_operator_file_needs_no_exclusions_and_refuses_what_it_does_not_r
     refused = gate.check(_candidate("alpha = WindowedAvg(close, 20) / close"), Zoo())
     assert isinstance(refused, Rejected)
     assert any("name WindowedAvg is not in the vocabulary" in r for r in refused.reasons), refused.reasons
+
+
+#: Two fixes, in file order: the first matches either refusal below.
+FIXES = [
+    {"match": "Bad inputs, given|unsupported operand", "hint": "operators take operators: write ConstantOp(1)"},
+    {"match": "unsupported operand", "hint": "this vocabulary has no Pow, so there are no powers"},
+]
+
+
+@pytest.mark.parametrize(
+    ("code", "hints"),
+    [
+        ("alpha = Sub(close, 1)", ["write ConstantOp(1)"]),
+        ("alpha = (close / volume) ** 2", ["write ConstantOp(1)", "there are no powers"]),
+    ],
+)
+def test_a_refusal_the_operator_files_fixes_match_carries_their_hints_in_file_order(tmp_path, code, hints):
+    gate = Gate(GateConfig(timeout_seconds=10.0), Vocabulary.load(*_write(tmp_path, operators={**OPERATORS, "fixes": FIXES})))
+    result = gate.check(_candidate(code), Zoo())
+    assert isinstance(result, Rejected)
+    assert [next(h for h in result.hints if part in h) for part in hints] == list(result.hints), result.hints
+
+
+def test_an_operator_file_without_fixes_adds_no_hint(tmp_path):
+    result = Gate(GateConfig(timeout_seconds=10.0), Vocabulary.load(*_write(tmp_path))).check(
+        _candidate("alpha = Sub(close, 1)"), Zoo(),
+    )
+    assert isinstance(result, Rejected)
+    assert result.hints == ()
+
+
+def test_a_derived_field_may_negate(tmp_path):
+    fields = _changed(FIELDS, _field(2, formula="-(close * volume)"))
+    gate = Gate(GateConfig(timeout_seconds=10.0), Vocabulary.load(*_write(tmp_path, fields)))
+    result = gate.check(_candidate("alpha = amount / WindowedStddev(amount, 20)"), Zoo())
+    assert isinstance(result, Passed), getattr(result, "reasons", None)
 
 
 def test_the_sandbox_reads_the_fields_and_stand_ins_of_the_vocabulary(tmp_path):

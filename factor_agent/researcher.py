@@ -70,6 +70,8 @@ class Attempt:
     item: object
     stage: str
     reasons: tuple[str, ...]
+    #: How to write it instead, from the vocabulary's fixes (``Rejected.hints``); sent with the reasons.
+    hints: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -220,8 +222,8 @@ class Researcher:
 
     def _check(self, direction: Direction, item: object, gate: Gate, zoo: Zoo, attempts: list[Attempt]) -> Proposal:
         """Parse and gate one item; a refusal is appended to ``attempts``."""
-        def refused(stage, reasons, candidate=None, shown=item):
-            attempts.append(Attempt(shown, stage, tuple(reasons)))
+        def refused(stage, reasons, candidate=None, shown=item, hints=()):
+            attempts.append(Attempt(shown, stage, tuple(reasons), tuple(hints)))
             return Proposal(direction, shown, candidate, None, tuple(attempts))
 
         if isinstance(item, _Missing):
@@ -237,13 +239,16 @@ class Researcher:
         checked = gate.check(candidate, zoo)
         if isinstance(checked, Passed):
             return Proposal(direction, item, candidate, checked, tuple(attempts))
-        return refused("gate", checked.reasons, candidate)
+        return refused("gate", checked.reasons, candidate, hints=checked.hints)
 
     def _ask_to_fix(self, number: int, failures: list[tuple[Direction, object, Attempt]]) -> list:
         """Send the refused items back; return one fixed item per failure, in order."""
         items = [item.previous if isinstance(item, _Missing) else item for _, item, _ in failures]
         listed = [
-            {"number": i + 1, "direction": direction.to_dict(), "candidate": item, "refused_because": list(attempt.reasons)}
+            {
+                "number": i + 1, "direction": direction.to_dict(), "candidate": item,
+                "refused_because": list(attempt.reasons), **({"how_to_write_it": list(attempt.hints)} if attempt.hints else {}),
+            }
             for i, ((direction, _, attempt), item) in enumerate(zip(failures, items))
         ]
         prompt = self.prompts.render("retry", round=number, failures=json.dumps(listed, indent=2), n=len(failures))

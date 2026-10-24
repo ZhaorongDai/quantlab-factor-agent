@@ -67,9 +67,15 @@ class Passed:
 
 @dataclass(frozen=True)
 class Rejected:
-    """A candidate refused by the gate, with the reasons sent back to the proposer."""
+    """A candidate refused by the gate, with the reasons sent back to the proposer.
+
+    ``hints`` are the vocabulary's fixes for a writing error (a static check
+    or the graph build), how to write it instead; they go with the reasons
+    into the fix request only.
+    """
 
     reasons: tuple[str, ...]
+    hints: tuple[str, ...] = ()
 
 
 class Gate:
@@ -100,6 +106,8 @@ class Gate:
         """Return ``Passed`` with the candidate's graph, or ``Rejected`` with why not.
 
         ``zoo`` holds the factors the candidate must be original against.
+        A writing error carries the hints of the vocabulary's fixes it
+        matches (``Rejected.hints``).
 
         Raises
         ------
@@ -109,10 +117,10 @@ class Gate:
         """
         reasons = static_reasons(candidate.code, self.vocabulary.names)
         if reasons:
-            return Rejected(tuple(reasons))
+            return self._written_badly(reasons)
         reply = self._build(candidate.code)
         if isinstance(reply, Rejected):
-            return reply
+            return self._written_badly(reply.reasons)
         graph = Graph.from_json(reply, self.vocabulary.classes)
         reasons, stats = _constraints.check(graph, self.config, self.vocabulary)
         reasons += self.vocabulary.bind(candidate.hypothesis, stats["base_fields"], {n.op for n in graph.nodes})
@@ -130,6 +138,10 @@ class Gate:
             ))
         self._seen.add(ranking)
         return Passed(graph, graph.fingerprint(), stats)
+
+    def _written_badly(self, reasons) -> Rejected:
+        """A writing error's refusal, with the hints of the fixes its reasons match."""
+        return Rejected(tuple(reasons), self.vocabulary.fix_hints(reasons))
 
     def _build(self, code: str) -> list | Rejected:
         """Build the graph in the sandbox subprocess; return its nodes or the rejection."""

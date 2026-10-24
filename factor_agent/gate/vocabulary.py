@@ -34,9 +34,10 @@ The operator file lists each operator's class (a KunQuant ``OpBase``
 subclass, what a graph records), the callable candidate code calls under
 its name (the class, or a stand-in such as ``kunquant_nan.Max``), its
 signature, argument and parameter kinds, dimension rule, prompt description
-and binding phrases, plus the parameter value sets and, in the
-repository's example file, every other operator class with why it is
-excluded. A class or a callable must come from KunQuant,
+and binding phrases, plus the parameter value sets, the fixes (each a
+regular expression an operator library's refusal matches, with how to
+write it instead) and, in the repository's example file, every other
+operator class with why it is excluded. A class or a callable must come from KunQuant,
 ``quantlab.factor`` or a module the config lists in ``operator_modules``:
 the path is checked before it is imported, no attribute hop may go through
 another module, and the object must be defined under one of them.
@@ -45,6 +46,7 @@ another module, and the object must be defined under one of them.
 The sandbox rebuilds the same vocabulary from ``sources``, the files' text.
 """
 
+import ast
 import builtins
 import contextlib
 import importlib
@@ -53,7 +55,7 @@ import math
 import re
 import string
 import types
-from collections.abc import Iterable, Iterator, Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from fractions import Fraction
 from functools import cached_property
@@ -94,7 +96,10 @@ _FIELD_FILE_KEYS = {"family", "description", "bar", "phrases", "rules", "fields"
 _PERIOD_LAG_KEYS = {"column", "k", "period"}
 _PERIOD_KEYS = {"description", "key", "days", "tolerance_days", "bars"}
 _FIELD_KEYS = {"name", "column", "formula", "unit", "description", "synonyms"}
-_OPERATOR_FILE_KEYS = {"parameters", "phrases", "operators", "excluded"}
+_OPERATOR_FILE_KEYS = {"parameters", "phrases", "operators", "excluded", "fixes"}
+_FIX_KEYS = {"match", "hint"}
+#: The names ``_ArithmeticCalls`` writes ``-x`` and ``a ** b`` as; candidate code may not use such names.
+_NEGATE, _POWER = "__negate__", "__power__"
 _OPERATOR_KEYS = {"name", "class", "call", "signature", "inputs", "params", "dimension", "description", "binding"}
 
 
@@ -189,6 +194,8 @@ class Vocabulary:
         #: The operator file's excluded classes, with their reasons.
         self.excluded: dict[type, str] = {}
         self._problems: list[str] = []
+        # The operator file's fixes, in file order: what a refusal matches, and its hint.
+        self._fixes: list[tuple[re.Pattern, str]] = []
         self._modules = FRAMEWORK_MODULES + tuple(sources.get("operator_modules") or ())
         self._operators: dict[str, OpSpec] = {}
         self._operator_phrases: dict[str, re.Pattern] = {}
@@ -276,18 +283,30 @@ class Vocabulary:
         used = {node[0] for graph in graphs for node in graph}
         return {name: self.spec(name).path for name in sorted(used)}
 
-    @contextlib.contextmanager
-    def namespace(self) -> Iterator[dict]:
-        """Fresh globals for one execution of candidate code, which runs inside the block.
+    def execute(self, code: str) -> dict:
+        """Run candidate code, which passed ``_checks.static_reasons``, and return the names it bound.
 
         The fields are new operators every time, so two executions share no
-        node; inside the block the NaN-preserving stand-ins add the bar mask.
+        node; the NaN-preserving stand-ins add the bar mask. ``-x`` of an
+        operator is ``MulConst(x, -1)`` and ``a ** b`` is ``Pow(a, b)`` (a
+        number ``b`` as a ``ConstantOp``), when the vocabulary has them.
+
+        Raises
+        ------
+        Exception
+            Whatever the code raises, for the Gate to report back to it.
         """
         fields = self._inputs()
-        callables = {name: spec.call for name, spec in self._operators.items()}
         lag = {"PeriodLag": self._period_lag_call()} if self.period_lags else {}
+        scope = {"__builtins__": dict(BUILTINS), **self._calls(), "Builder": Builder, **lag, **fields, **self._arithmetic()}
         with self._bar_mask(fields):
-            yield {"__builtins__": dict(BUILTINS), **callables, "Builder": Builder, **lag, **fields}
+            exec(compile(_arithmetic_calls(ast.parse(code, mode="exec")), "<candidate>", "exec"), scope)
+        return scope
+
+    def fix_hints(self, reasons: Iterable[str]) -> tuple[str, ...]:
+        """The hint of every fix one of ``reasons`` matches, each once, in the operator file's order."""
+        reasons = list(reasons)
+        return tuple(hint for pattern, hint in self._fixes if any(pattern.search(r) for r in reasons))
 
     def recorded_name(self, op_class: type) -> str | None:
         """Return the name a graph records ``op_class`` under, or None when it is not registered.
@@ -509,8 +528,26 @@ class Vocabulary:
 
     def _derive(self, f: Field, fields: dict[str, OpBase]) -> OpBase:
         """Build a derived field over the ``fields`` before it; its formula passed ``_checks.expression_reasons``."""
-        scope = {"__builtins__": {}, **{name: spec.call for name, spec in self._operators.items()}, **fields}
-        return eval(compile(f.formula, f"<field {f.name}>", "eval"), scope)
+        tree = _arithmetic_calls(ast.parse(f.formula, mode="eval"))
+        return eval(compile(tree, f"<field {f.name}>", "eval"), {"__builtins__": {}, **self._calls(), **fields, **self._arithmetic()})
+
+    def _calls(self) -> dict:
+        """What candidate code calls under each operator's name."""
+        return {name: spec.call for name, spec in self._operators.items()}
+
+    def _arithmetic(self) -> dict:
+        """The functions ``_ArithmeticCalls`` writes ``-x`` and ``a ** b`` as: an operator's, or Python's."""
+        calls = self._calls()
+
+        def negate(x):
+            return calls["MulConst"](x, -1) if isinstance(x, OpBase) and "MulConst" in calls else -x
+
+        def power(a, b):
+            if isinstance(a, OpBase) and not isinstance(b, OpBase) and "Pow" in calls and "ConstantOp" in calls:
+                return calls["Pow"](a, calls["ConstantOp"](b))
+            return a ** b
+
+        return {_NEGATE: negate, _POWER: power}
 
     def _bar_mask(self, fields: dict):
         if not self._bar_columns:
@@ -620,6 +657,8 @@ class Vocabulary:
             else:
                 self.parameters[str(kind)] = tuple(values)
         self._operator_phrases = self._phrases(path, document.get("phrases"))
+        for i, entry in enumerate(document.get("fixes") or [], 1):
+            self._read_fix(f"{path}: fix {i}", entry)
         for i, entry in enumerate(document.get("operators") or []):
             self._read_operator(f"{path}: operator {i + 1}", entry)
         for class_path, reason in (document.get("excluded") or {}).items():
@@ -633,6 +672,25 @@ class Vocabulary:
                 self._problem(where, f"is also registered as {self.operator_classes[cls]}")
             else:
                 self.excluded[cls] = str(reason)
+
+    def _read_fix(self, where: str, entry) -> None:
+        if not isinstance(entry, dict):
+            self._problem(where, "must be a mapping with match and hint")
+            return
+        problems = len(self._problems)
+        self._unknown_keys(where, entry, _FIX_KEYS)
+        if not isinstance(entry.get("hint"), str) or not entry["hint"]:
+            self._problem(where, "needs a hint, the text added to the refusal")
+        pattern = None
+        if not isinstance(entry.get("match"), str) or not entry["match"]:
+            self._problem(where, "needs a match, the regular expression a refusal matches")
+        else:
+            try:
+                pattern = re.compile(entry["match"])
+            except re.error as exc:
+                self._problem(where, f"match is not a regular expression: {exc}")
+        if pattern is not None and len(self._problems) == problems:
+            self._fixes.append((pattern, entry["hint"]))
 
     def _read_operator(self, where: str, entry) -> None:
         if not isinstance(entry, dict):
@@ -911,3 +969,25 @@ def _declared(klass: type) -> bool:
 
 def _number(value) -> bool:
     return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+
+def _arithmetic_calls(tree: ast.AST) -> ast.AST:
+    """``tree`` with ``-x`` and ``a ** b`` written as calls (``_ArithmeticCalls``), ready to compile."""
+    return ast.fix_missing_locations(_ArithmeticCalls().visit(tree))
+
+
+class _ArithmeticCalls(ast.NodeTransformer):
+    """Write ``-x`` and ``a ** b`` as calls, which KunQuant's operators do not support as operators."""
+
+    def visit_UnaryOp(self, node: ast.UnaryOp) -> ast.AST:
+        self.generic_visit(node)
+        if not isinstance(node.op, ast.USub):
+            return node
+        return ast.copy_location(ast.Call(ast.Name(_NEGATE, ast.Load()), [node.operand], []), node)
+
+    def visit_BinOp(self, node: ast.BinOp) -> ast.AST:
+        self.generic_visit(node)
+        if not isinstance(node.op, ast.Pow):
+            return node
+        return ast.copy_location(ast.Call(ast.Name(_POWER, ast.Load()), [node.left, node.right], []), node)

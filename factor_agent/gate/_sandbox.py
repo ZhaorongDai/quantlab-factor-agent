@@ -25,14 +25,13 @@ from factor_agent.gate.vocabulary import PeriodLagError, Vocabulary
 def build(code: str, memory_mb: int, vocabulary: Vocabulary) -> dict:
     """Run ``code`` over ``vocabulary`` and return the message for the parent."""
     try:
-        with vocabulary.namespace() as scope:
-            exec(compile(code, "<candidate>", "exec"), scope)
+        scope = vocabulary.execute(code)
     except MemoryError:
         return {"reasons": [MEMORY_REASON.format(memory_mb=memory_mb)]}
     except PeriodLagError as exc:
         return {"reasons": [str(exc)]}
     except Exception as exc:  # the candidate's own error, reported back to it
-        return {"reasons": [f"graph build failed: {type(exc).__name__}: {exc}{_hint(exc)}"]}
+        return {"reasons": [f"graph build failed: {type(exc).__name__}: {exc}"]}
     if "alpha" not in scope:
         return {"reasons": ["the code never assigns alpha"]}
     alpha = scope["alpha"]
@@ -50,16 +49,6 @@ def build(code: str, memory_mb: int, vocabulary: Vocabulary) -> dict:
     except Exception as exc:
         return {"reasons": [f"graph build failed: {type(exc).__name__}: {exc}"]}
     return {"graph": graph.to_json()}
-
-
-def _hint(exc: Exception) -> str:
-    """How to write what KunQuant refused, for the errors candidates keep making."""
-    if isinstance(exc, RuntimeError) and "Bad inputs, given" in str(exc):
-        return (
-            "; an operator's inputs must be operators: write a number as ConstantOp(1), as in "
-            "Sub(x, ConstantOp(1)), or use x - 1 or SubConst(x, 1)"
-        )
-    return ""
 
 
 def _cap_address_space(memory_mb: int) -> None:

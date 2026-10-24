@@ -25,6 +25,11 @@ Everything a campaign's candidates may write with: the fields of its input famil
 and the parameter values those operators accept.
 _Avoid_: whitelist, registry, DSL
 
+**Fix**:
+A known way the operator library refuses a candidate's code, recognised by the text of its error,
+with how to write it instead; it is added to the refusal the proposer is asked to fix.
+_Avoid_: error library, example library, patch
+
 **Factor direction**:
 Which way a factor predicts: +1 when a higher value went with a higher return, -1 when with a lower
 one. It is the sign of the factor's training IC, read from the data, never stated in advance.

@@ -18,6 +18,10 @@
 #   binding      the phrases under `phrases` the operator satisfies: a hypothesis that names one
 #                needs a graph holding one of its operators
 #
+# Each fix: `match`, a regular expression a refusal's text matches when KunQuant turns code down,
+# and `hint`, how to write it instead; the hint is added to the refusal the proposer is asked to fix.
+# `-x` and `x ** c` need no fix: candidate code may write them (MulConst(x, -1), Pow(x, ConstantOp(c))).
+#
 # A class and a call come from KunQuant, quantlab.factor, or a module the campaign config lists in
 # operator_modules. `excluded` names every other public KunQuant and quantlab operator class with
 # why it is left out; a guard test keeps this file complete. A user's own operator file needs no
@@ -49,6 +53,12 @@ phrases:
   drawdown: '\bdrawdowns?\b'
   moving average: '\bmoving averages?\b'
   exponential weighting: '\bexponential(?:ly)?\b'
+
+fixes:
+  - match: 'Bad inputs, given'
+    hint: "an operator's inputs must be operators: write a number as ConstantOp(1), as in Sub(x, ConstantOp(1)), or use x - 1 or SubConst(x, 1)"
+  - match: 'unsupported operand type'
+    hint: "operators combine with + - * / ** and unary minus only; there is no remainder or floor division"
 
 operators:
   - name: Add

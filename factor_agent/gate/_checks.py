@@ -60,6 +60,8 @@ def _reasons(tree: ast.AST, names: frozenset[str], bound: set[str]) -> list[str]
             reasons.append(f"{where}attribute access (.{node.attr}) is not allowed")
         elif not isinstance(node, _ALLOWED_NODES + (ast.Expression,)):
             reasons.append(f"{where}{type(node).__name__} is not allowed in candidate code")
+        elif isinstance(node, ast.Name) and node.id.startswith("__"):
+            reasons.append(f"{where}the name {node.id} is reserved; candidate code may not read or bind a name with two leading underscores")
         elif (
             isinstance(node, ast.Name)
             and isinstance(node.ctx, ast.Load)

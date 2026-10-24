@@ -57,6 +57,8 @@ def _check(code: str, **limits):
         ("alpha = (close / open, volume)", "exactly one output"),
         ("beta = close", "alpha"),
         ("alpha = 1.0", "operator"),
+        ("__negate__ = Abs\nalpha = -close", "__negate__"),
+        ("if False:\n    __builtins__ = 0\nalpha = close / open", "__builtins__"),
         ("alpha = Div(close, 0)", "graph build failed"),
     ],
 )
@@ -233,13 +235,28 @@ def test_a_candidate_that_only_keeps_or_reverses_an_earlier_ranking_is_a_duplica
         ("alpha = SubConst(close / open, ConstantOp(1))", "SubConst(x, 1)"),
         ("alpha = MulConst(close, Div(open, high))", "MulConst(x, 1)"),
         ("alpha = Sub(close / open, 1)", "ConstantOp(1)"),
+        ("alpha = close % 2", "no remainder"),
     ],
 )
 def test_a_number_where_an_operator_goes_or_the_reverse_is_refused_with_how_to_write_it(code, hint):
     result = _check(code)
     assert isinstance(result, Rejected)
-    assert any(hint in r for r in result.reasons), result.reasons
+    assert any(hint in r for r in result.reasons + result.hints), (result.reasons, result.hints)
     assert not any("Traceback" in r or "/" + "Users" in r or "/home" in r for r in result.reasons), result.reasons
+
+
+@pytest.mark.parametrize(
+    ("code", "same_as"),
+    [
+        ("alpha = -WindowedAvg(close / open, 20)", "alpha = MulConst(WindowedAvg(close / open, 20), -1)"),
+        ("alpha = (close / open) ** 2", "alpha = Pow(close / open, ConstantOp(2))"),
+        ("x = -2\nalpha = WindowedAvg(close, 20) * x", "alpha = MulConst(WindowedAvg(close, 20), -2)"),
+    ],
+)
+def test_negation_and_powers_build_as_the_operators_they_mean(code, same_as):
+    written, meant = _check(code), _check(same_as)
+    assert isinstance(written, Passed), getattr(written, "reasons", None)
+    assert written.fingerprint == meant.fingerprint
 
 def test_a_loop_body_is_kept_in_the_graph():
     code = (
