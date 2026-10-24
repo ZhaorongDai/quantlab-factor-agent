@@ -29,3 +29,9 @@ _Avoid_: whitelist, registry, DSL
 How a factor's raw values become the values that are judged: ranked across the market each day, then
 optionally neutralised and kept on the members of the day.
 _Avoid_: normalisation, preprocessing
+
+**Run snapshot**:
+The copies, with their hashes, of the files a run searched with (field and operator files), and the
+commits it ran on, kept in its run directory; a resume may not change the files, and a replay or
+Acceptance reads the copies.
+_Avoid_: checkpoint, cache, frozen config

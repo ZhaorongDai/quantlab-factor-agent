@@ -17,9 +17,14 @@ One round:
    candidate joins the zoo and the reference pool before the next is admitted;
 6. the round's records go to the ledger and the state to ``state.json``.
 
-Before anything else ``run`` builds the ``Vocabulary`` from the config's
-field and operator files and checks every field's column against the
-price dataset; every problem is reported at once, before any LLM call.
+Before anything else ``run`` opens the run's ``RunSnapshot``: a first
+start copies the config's field and operator files into the run directory,
+a resume fails if they changed since and warns if the commits did; every
+commit is listed in ``state.json``. It then builds the ``Vocabulary`` from
+the snapshot's copies and checks every field's column against the price
+dataset; every problem is reported at once, before any LLM call. A replay
+(roles on the ``replay`` backend) searches with the snapshot of the run
+whose LLM log it replays, whatever the config's files say now.
 
 The planner and the proposer read the context of ``_feedback``: the seed
 directions, the reference factor families, the memory, every earlier
@@ -60,6 +65,8 @@ from factor_agent.llm.base import LLMBackend, make_backend
 from factor_agent.llm.log import LLMLog, RecordingBackend
 from factor_agent.researcher import BudgetExhausted, Proposal, Researcher
 from factor_agent.scoring import Scoring
+from factor_agent.segments import code_version
+from factor_agent.snapshot import RunSnapshot, SnapshotMismatch
 from factor_agent.zoo import Zoo
 
 
@@ -118,6 +125,8 @@ class _State:
     calls: int = 0
     log: list[dict] = field(default_factory=list)
     stop: dict | None = None
+    #: The code versions of every start and resume, as the run's snapshot records them.
+    versions: list[dict] = field(default_factory=list)
 
     @classmethod
     def read(cls, path: Path) -> "_State":
@@ -145,6 +154,7 @@ class Campaign:
     def __init__(self, config: CampaignConfig, backends: dict[str, LLMBackend] | None = None):
         self.config = config
         self._backends = dict(backends or {})
+        self._replaced = set(self._backends)
 
     def estimate(self) -> CostEstimate:
         """The calls and the cost the campaign is expected to take, from its config (see ``_cost``)."""
@@ -166,14 +176,23 @@ class Campaign:
 
         Raises
         ------
+        SnapshotMismatch
+            Before any LLM call, on a resume whose field or operator files differ from the run's snapshot.
         VocabularyError
             Before any LLM call, with every problem of the field and operator files.
+
+        Warns
+        -----
+        CodeVersionChanged
+            On a resume on other commits than the run was last opened with.
         """
         config, run_dir = self.config, Path(self.config.run_dir)
-        prices = config.data.load("prices")
-        vocabulary = config.vocabulary(columns=_columns(prices))
         state_path = run_dir / "state.json"
+        snapshot = self._snapshot(run_dir, state_path)
+        prices = config.data.load("prices")
+        vocabulary = config.vocabulary(columns=_columns(prices), snapshot=snapshot)
         state = _State.read(state_path)
+        state.versions = snapshot.versions
         ledger = Ledger(run_dir / "ledger.jsonl")
         ledger.keep(state.rounds)
         records = ledger.records()
@@ -240,6 +259,31 @@ class Campaign:
             records=records, ledger_path=ledger.path, stop=stop, rounds=state.rounds, spent=state.spent,
             memory=state.memory, not_covered=zoo.not_covered,
         )
+
+    def _snapshot(self, run_dir: Path, state_path: Path) -> RunSnapshot:
+        """Open the run's snapshot: of the config's files, or, in a replay, of the replayed run's snapshot.
+
+        Raises
+        ------
+        SnapshotMismatch
+            If the run directory holds a state but no snapshot (a run started before snapshots).
+        ValueError
+            If the roles replay more than one recorded run.
+        """
+        if state_path.exists() and not RunSnapshot.exists(run_dir):
+            raise SnapshotMismatch(
+                f"campaign: {run_dir} holds a run but no snapshot of its files, so a resume cannot be checked; "
+                f"start a new run directory"
+            )
+        replayed = {
+            Path(self.config.roles[role].options["log"]).parent for role in ROLES
+            if role not in self._replaced and self.config.roles[role].backend == "replay"
+        }
+        replayed = {path for path in replayed if RunSnapshot.exists(path)}
+        if len(replayed) > 1:
+            raise ValueError(f"campaign: the roles replay several runs {sorted(map(str, replayed))}; replay one")
+        files = RunSnapshot.read(replayed.pop()).files if replayed else self.config.snapshot_files()
+        return RunSnapshot.open(run_dir, files, code_version())
 
     def _stop(self, state: _State, records: list[TrialRecord]) -> Stop | None:
         """The first stop condition that holds before the next round, or None."""

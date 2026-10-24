@@ -11,6 +11,7 @@ A second campaign scores without neutralisation and without membership, on
 the label of every symbol.
 """
 
+import dataclasses
 import json
 
 import numpy as np
@@ -247,3 +248,19 @@ def test_without_neutralisation_the_exported_store_holds_the_ranked_graph(unscor
     assert np.isfinite(stored).mean() > 0.9
     assert np.array_equal(stored, evaluated.compute(*window)["evaluated"].values, equal_nan=True)
     assert "not neutralised" in (folder / "README.md").read_text()
+
+
+def test_acceptance_and_export_use_the_run_snapshot_of_the_vocabulary(unscored, tmp_path):
+    # The config's field and operator files are gone; the run's snapshot still holds the ones it scored with.
+    gone = str(tmp_path / "gone.yaml")
+    config = dataclasses.replace(unscored["acceptance"].config, fields=(gone,), operators=gone)
+    acceptance = Acceptance(config)
+    assert acceptance.vocabulary.classes == unscored["acceptance"].vocabulary.classes
+    [folder] = acceptance.export({"volume": "volume_from_snapshot"})
+    stored = load_component(folder).read(*synthetic_market.TRAINING)["volume_from_snapshot"].values
+    assert np.isfinite(stored).mean() > 0.9
+
+
+def test_acceptance_of_a_run_directory_without_a_snapshot_fails(campaign, tmp_path):
+    with pytest.raises(FileNotFoundError, match="no snapshot"):
+        Acceptance(campaign["acceptance"].config, run_dir=tmp_path / "never_run")
