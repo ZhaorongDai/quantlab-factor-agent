@@ -17,14 +17,20 @@ One round:
    candidate joins the zoo and the reference pool before the next is admitted;
 6. the round's records go to the ledger and the state to ``state.json``.
 
-Before anything else ``run`` opens the run's ``RunSnapshot``: a first
-start copies the config's field and operator files into the run directory,
-a resume fails if they changed since and warns if the commits did; every
-commit is listed in ``state.json``. It then builds the ``Vocabulary`` from
-the snapshot's copies and checks every field's column against the price
-dataset; every problem is reported at once, before any LLM call. A replay
-(roles on the ``replay`` backend) searches with the snapshot of the run
-whose LLM log it replays, whatever the config's files say now.
+Before anything else ``run`` checks the replaced prompt templates for
+their placeholders and opens the run's ``RunSnapshot``: a first start
+copies the config's field, operator and template files into the run
+directory, a resume fails if they changed since and warns if the commits
+did; every commit is listed in ``state.json``. It then builds the
+``Vocabulary`` from the snapshot's copies and checks every field's column
+against the price dataset; every problem is reported at once, before any
+LLM call. A replay (roles on the ``replay`` backend) searches with the
+snapshot of the run whose LLM log it replays, whatever the config's files
+say now.
+
+The prompts (``_prompts.Prompts``) describe the config's market, the
+label's horizon (its ``span_bars()``), the scoring, the vocabulary and the
+config's mechanism types, through the snapshot's templates.
 
 The planner and the proposer read the context of ``_feedback``: the seed
 directions, the reference factor families, the memory, every earlier
@@ -55,7 +61,8 @@ import xarray as xr
 
 from factor_agent import _admission, _cost, _feedback, _scheduler
 from factor_agent._cost import CostEstimate
-from factor_agent.config import ROLES, CampaignConfig, load
+from factor_agent._prompts import Prompts, Templates
+from factor_agent.config import ROLES, CampaignConfig, load, snapshot_templates
 from factor_agent.evaluator import CompileFailure, Evaluator, Metrics
 from factor_agent.gate import Gate
 from factor_agent.gate.graph import Graph
@@ -158,11 +165,23 @@ class Campaign:
 
     def estimate(self) -> CostEstimate:
         """The calls and the cost the campaign is expected to take, from its config (see ``_cost``)."""
-        return self._estimate([load(component) for component in self.config.reference], self.config.vocabulary())
+        config = self.config
+        prompts = self._prompts(
+            config.templates(), config.vocabulary(), config.data.load("label"),
+            Scoring.from_config(config.scoring, config.data, njobs=config.evaluator.njobs),
+        )
+        return self._estimate([load(component) for component in config.reference], prompts)
 
-    def _estimate(self, reference: list, vocabulary: Vocabulary) -> CostEstimate:
+    def _estimate(self, reference: list, prompts: Prompts) -> CostEstimate:
         context = {"seed": _seed(self.config.directions), "families": _feedback.families(reference)}
-        return _cost.estimate(self.config.round, self._role_backends(), context, vocabulary)
+        return _cost.estimate(self.config.round, self._role_backends(), context, prompts)
+
+    def _prompts(self, templates: Templates, vocabulary: Vocabulary, label, scoring: Scoring) -> Prompts:
+        """What the prompts say: the config's market and mechanism types, ``label``'s horizon, ``scoring``'s sentence."""
+        return Prompts(
+            templates=templates, market=self.config.market, horizon=label.span_bars(), scoring=scoring.describe(),
+            vocabulary=vocabulary, mechanisms={m.name: m.description for m in self.config.mechanisms},
+        )
 
     def _role_backends(self) -> dict[str, LLMBackend]:
         """Each role's backend: the one passed in, or the one its config names, built once."""
@@ -176,8 +195,10 @@ class Campaign:
 
         Raises
         ------
+        PromptError
+            Before anything is written, naming every placeholder a replaced template lacks or may not use.
         SnapshotMismatch
-            Before any LLM call, on a resume whose field or operator files differ from the run's snapshot.
+            Before any LLM call, on a resume whose field, operator or template files differ from the run's snapshot.
         VocabularyError
             Before any LLM call, with every problem of the field and operator files.
 
@@ -191,6 +212,9 @@ class Campaign:
         snapshot = self._snapshot(run_dir, state_path)
         prices = config.data.load("prices")
         vocabulary = config.vocabulary(columns=_columns(prices), snapshot=snapshot)
+        label = config.data.load("label")
+        scoring = Scoring.from_config(config.scoring, config.data, njobs=config.evaluator.njobs)
+        prompts = self._prompts(config.templates(snapshot), vocabulary, label, scoring)
         state = _State.read(state_path)
         state.versions = snapshot.versions
         ledger = Ledger(run_dir / "ledger.jsonl")
@@ -201,7 +225,7 @@ class Campaign:
             state.write(state_path)
 
         reference = [load(component) for component in config.reference]
-        print(self._estimate(reference, vocabulary).summary(config.round.budget_usd, state.spent), flush=True)
+        print(self._estimate(reference, prompts).summary(config.round.budget_usd, state.spent), flush=True)
         log = LLMLog(run_dir / "llm_log")
         log.drop_after(state.calls)
         researcher = Researcher(
@@ -209,13 +233,13 @@ class Campaign:
                 role: (RecordingBackend(backend, log), config.roles[role].model)
                 for role, backend in self._role_backends().items()
             },
-            spent=state.spent, budget=config.round.budget_usd, on_cost=on_cost,
+            prompts, spent=state.spent, budget=config.round.budget_usd, on_cost=on_cost,
         )
         evaluator = Evaluator.for_segment(
             config.training,
             prices=prices,
-            label=config.data.load("label"),
-            scoring=Scoring.from_config(config.scoring, config.data, njobs=config.evaluator.njobs),
+            label=label,
+            scoring=scoring,
             reference=reference,
             warmup_bars=config.evaluator.warmup_bars,
             njobs=config.evaluator.njobs,
@@ -235,7 +259,7 @@ class Campaign:
                     (run_dir / "memory.md").write_text(state.memory + "\n")
                     state.calls = len(log.files())
                     state.write(state_path)
-                quota = _scheduler.quota(number, records, config.round)
+                quota = _scheduler.quota(number, records, config.round, config.mechanism_types)
                 accepted = [r for r in records if r.status == "accepted"]
                 context = self._context(records, state, reference, evaluator, accepted)
                 directions, issues = researcher.plan(number, quota, context, [_feedback.accepted_label(r) for r in accepted])
@@ -262,8 +286,12 @@ class Campaign:
     def _snapshot(self, run_dir: Path, state_path: Path) -> RunSnapshot:
         """Open the run's snapshot: of the config's files, or, in a replay, of the replayed run's snapshot.
 
+        The replaced templates are checked first, so a broken one is never snapshotted.
+
         Raises
         ------
+        PromptError
+            If a replaced template lacks a placeholder its role needs or uses one it may not.
         SnapshotMismatch
             If the run directory holds a state but no snapshot (a run started before snapshots).
         ValueError
@@ -282,6 +310,7 @@ class Campaign:
         if len(replayed) > 1:
             raise ValueError(f"campaign: the roles replay several runs {sorted(map(str, replayed))}; replay one")
         files = RunSnapshot.read(replayed.pop()).files if replayed else self.config.snapshot_files()
+        snapshot_templates(files)
         return RunSnapshot.open(run_dir, files, code_version())
 
     def _stop(self, state: _State, records: list[TrialRecord]) -> Stop | None:

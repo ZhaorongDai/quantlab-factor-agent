@@ -13,7 +13,7 @@ import json
 import re
 from collections.abc import Callable
 
-from factor_agent.candidate import MECHANISM_TYPES
+from factor_agent.config import DEFAULT_MECHANISMS
 from factor_agent.config import ROLES
 from factor_agent.llm.base import Reply, Request
 
@@ -54,9 +54,9 @@ class FakeLLM:
         ``interrupt(request)`` is true for the request at which the fake
         raises ``Interrupted``, as a crash mid-campaign would.
 
-    An item whose ``mechanism_type`` is one of the five types is given its
-    direction's type, so a script need not know the quotas; an invalid type
-    is left for the parser to refuse.
+    An item whose ``mechanism_type`` is one of the default types is given its
+    direction's type, whatever the config's types, so a script need not know
+    the quotas; any other type is left for the parser to refuse.
     """
 
     def __init__(
@@ -119,6 +119,6 @@ class Interrupted(RuntimeError):
 
 
 def _typed(item, direction: dict):
-    if isinstance(item, dict) and item.get("mechanism_type") in MECHANISM_TYPES:
+    if isinstance(item, dict) and item.get("mechanism_type") in {m.name for m in DEFAULT_MECHANISMS}:
         return {**item, "mechanism_type": direction["mechanism_type"]}
     return item

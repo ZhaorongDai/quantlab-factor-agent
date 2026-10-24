@@ -145,6 +145,8 @@ class Vocabulary:
         self.parameters: dict[str, tuple] = {}
         #: The fields of every family, in file order.
         self.fields: dict[str, Field] = {}
+        #: The description of every family, in file order.
+        self.families: dict[str, str] = {}
         #: The operator file's excluded classes, with their reasons.
         self.excluded: dict[type, str] = {}
         self._problems: list[str] = []
@@ -530,6 +532,7 @@ class Vocabulary:
             return
         self._unknown_keys(path, document, _FIELD_FILE_KEYS)
         family = str(document.get("family", Path(path).stem))
+        self.families[family] = str(document.get("description") or "")
         for name, pattern in self._phrases(path, document.get("phrases")).items():
             if name in self._field_phrases and self._field_phrases[name].pattern != pattern.pattern:
                 self._problem(path, f"phrase {name!r} is defined differently by another field file")
