@@ -149,7 +149,7 @@ reference:
     factor_names: [intraday_20, reversal_3, intraday_5]
 
 # Seed directions (Q37): two per mechanism type, aimed at what the reference families lack on daily
-# price and volume. DRAFT, pending the user's review. Papers are cited without their year, so no
+# price and volume; approved by the user 2026-10-24. Papers are cited without their year, so no
 # prompt names a date after the training segment.
 directions:
   - "behavioural_bias: lottery demand. Investors overpay for stocks with extreme recent daily up-moves, so a high maximum daily return over the past month predicts lower returns; the extreme single-day return, not the high price level (Alpha158 MAX/HIGH) or volatility. Bali, Cakici and Whitelaw, Maxing out: stocks as lotteries, Journal of Financial Economics."
@@ -180,7 +180,7 @@ round:
   max_trials: 600
   patience: 5
   memory_every: 5
-  budget_usd: 30.0     # pending the user's approval of the estimate
+  budget_usd: 10.0     # approved by the user 2026-10-24 (estimate $2.80 for the full 30 rounds)
   seed: 0
 
 acceptance:
