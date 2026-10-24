@@ -21,12 +21,10 @@ FIELDS = {
     "family": "test_family",
     "description": "test bars",
     "bar": True,
-    "phrases": {"volume": r"\bvolumes?\b"},
     "fields": [
         {"name": "close", "column": "adjClose", "unit": "dollars/shares", "description": "closing price"},
-        {"name": "volume", "column": "adjVolume", "unit": "shares", "description": "shares traded",
-         "synonyms": ["volume"]},
-        {"name": "amount", "formula": "close * volume", "description": "dollars traded", "synonyms": ["volume"]},
+        {"name": "volume", "column": "adjVolume", "unit": "shares", "description": "shares traded"},
+        {"name": "amount", "formula": "close * volume", "description": "dollars traded"},
     ],
 }
 
@@ -42,7 +40,6 @@ FUNDAMENTALS = {
 
 OPERATORS = {
     "parameters": {"window": [5, 20], "constant": [0, 1, 2], "lag": [5, 20]},
-    "phrases": {"volatility": r"\bvolatility\b"},
     "operators": [
         {"name": "Add", "class": "KunQuant.ops.Add", "signature": "Add(x, y)", "inputs": ["series", "series"],
          "dimension": "match", "description": "sum"},
@@ -53,8 +50,7 @@ OPERATORS = {
         {"name": "MulConst", "class": "KunQuant.ops.MulConst", "signature": "MulConst(x, c)",
          "params": {"value": "constant", "swap": "flag"}, "dimension": "scale", "description": "x times c"},
         {"name": "WindowedStddev", "class": "KunQuant.ops.WindowedStddev", "signature": "WindowedStddev(x, window)",
-         "params": {"window": "window"}, "dimension": "same", "description": "standard deviation",
-         "binding": ["volatility"]},
+         "params": {"window": "window"}, "dimension": "same", "description": "standard deviation"},
         {"name": "Max", "class": "KunQuant.ops.Max", "call": "quantlab.factor.kunquant_nan.Max",
          "signature": "Max(x, y)", "inputs": ["series", "series"], "dimension": "match", "description": "maximum"},
         {"name": "Rank", "class": "KunQuant.Op.Rank", "signature": "Rank(x)", "dimension": "pure",
@@ -121,8 +117,13 @@ STARTUP_ERRORS = {
     "name of another field": (_field(1, name="close"), None, {}, "close"),
     "column of another field": (_field(1, column="adjClose"), None, {}, "adjClose"),
     "a field with neither column nor formula": (_add_field(name="spread", description="d"), None, {}, "spread"),
-    "an unknown synonym": (_field(0, synonyms=["closing price"]), None, {}, "closing price"),
-    "a rule on an unknown field": (lambda f: f.update(rules=[{"phrase": "volume", "needs": ["open"]}]), None, {}, "open"),
+    # The mechanism binding's keys are gone (Q81): a file that still has one is refused.
+    "a field file's phrases": (lambda f: f.update(phrases={"volume": "volume"}), None, {}, "['phrases']"),
+    "a field file's rules": (lambda f: f.update(rules=[{"phrase": "volume", "needs": ["volume"]}]), None, {},
+                             "['rules']"),
+    "a field's synonyms": (_field(0, synonyms=["closing price"]), None, {}, "['synonyms']"),
+    "an operator file's phrases": (None, lambda o: o.update(phrases={"volatility": "volatility"}), {}, "['phrases']"),
+    "an operator's binding": (None, _operator(4, binding=["volatility"]), {}, "['binding']"),
     "an unknown key": (_field(0, colour="red"), None, {}, "colour"),
     "a class that is not a KunQuant operator": (None, _operator(6, **{"class": "KunQuant.Op.Builder"}), {},
                                                 "not a KunQuant operator"),
@@ -141,7 +142,6 @@ STARTUP_ERRORS = {
     "an unknown dimension rule": (None, _operator(0, dimension="money"), {}, "money"),
     "an unknown parameter set": (None, _operator(4, params={"window": "windows"}), {}, "windows"),
     "an unknown input kind": (None, _operator(0, inputs=["series", "number"]), {}, "number"),
-    "an unknown binding phrase": (None, _operator(4, binding=["dispersion"]), {}, "dispersion"),
     "an operator named like a builtin": (None, _operator(6, name="len"), {}, "len"),
     "two operators of one name": (None, _operator(1, name="Add"), {}, "Add"),
     "a formula with attribute access": (_field(2, formula="close.__class__"), None, {}, "attribute access"),
@@ -311,19 +311,6 @@ def test_hand_set_constants_count_whatever_the_operator_file_names_their_set(tmp
     result = gate.check(_candidate("alpha = close * 2"), Zoo())
     assert isinstance(result, Rejected)
     assert any("1 hand-set constants over 1 operators" in r for r in result.reasons), result.reasons
-
-
-def test_field_synonyms_and_operator_phrases_bind_a_hypothesis(tmp_path):
-    gate = Gate(GateConfig(timeout_seconds=10.0), Vocabulary.load(*_write(tmp_path)))
-    unbound = gate.check(_candidate("alpha = Rank(close)", "Heavy volume and high volatility attract attention."), Zoo())
-    assert isinstance(unbound, Rejected)
-    assert any("names volume" in r and "never reads amount or volume" in r for r in unbound.reasons), unbound.reasons
-    assert any("names volatility" in r and "WindowedStddev" in r for r in unbound.reasons), unbound.reasons
-    bound = gate.check(
-        _candidate("alpha = Rank(WindowedStddev(amount, 20))", "Heavy volume and high volatility attract attention."),
-        Zoo(),
-    )
-    assert isinstance(bound, Passed), getattr(bound, "reasons", None)
 
 
 # Period lags.

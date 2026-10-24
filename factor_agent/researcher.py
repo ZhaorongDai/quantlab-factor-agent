@@ -4,7 +4,8 @@ Four roles, each with its own backend and model: the planner plans the
 round's directions to the quota of each mechanism type, the proposer writes
 one candidate per direction (and fixes those the parser or the Gate
 refuses), the reviewer judges each gated candidate's consistency in a
-separate call, and the distiller turns the ledger into the memory. Every
+separate call (and the proposer rewrites, once, each it finds
+inconsistent: ``revise``), and the distiller turns the ledger into the memory. Every
 call's cost is added to ``spent``; once ``spent`` reaches the budget, the
 next call raises ``BudgetExhausted`` instead of being sent.
 
@@ -60,12 +61,18 @@ class Verdict:
     consistent: bool
     reason: str
 
+    @property
+    def refusal(self) -> str:
+        """The reason an inconsistent candidate is sent back, and rejected, with: the reviewer's own words."""
+        return f"the reviewer found it inconsistent: {self.reason}"
+
 
 @dataclass(frozen=True)
 class Attempt:
     """One refused version of a candidate: what the proposer wrote, where it failed and why.
 
-    ``stage`` is ``"parse"`` (not a valid candidate for its direction) or ``"gate"``.
+    ``stage`` is ``"parse"`` (not a valid candidate for its direction), ``"gate"``
+    or ``"review"`` (the reviewer found it inconsistent).
     """
 
     item: object
@@ -216,6 +223,32 @@ class Researcher:
                 break
         missing = Verdict(False, "the reviewer gave no verdict on this candidate")
         return [verdicts.get(i + 1, missing) for i in range(len(candidates))]
+
+    def revise(
+        self, number: int, inconsistent: list[tuple[Proposal, Verdict]], gate: Gate, zoo: Zoo,
+    ) -> list[Proposal]:
+        """Send each candidate the reviewer found inconsistent back to be rewritten once; return the rewrites, in order.
+
+        Every candidate goes, with the reviewer's reason, in one fix request,
+        and its first review becomes an attempt of stage ``"review"``. Each
+        rewrite is checked by the parser and ``gate`` once, with no further
+        retries: a refused rewrite is a proposal without ``checked``. The
+        refused versions' graphs are withdrawn from ``gate`` first, so a
+        rewrite that keeps its graph is not its own duplicate.
+        """
+        if not inconsistent:
+            return []
+        attempts = []
+        for proposal, verdict in inconsistent:
+            gate.withdraw(proposal.checked.graph)
+            attempts.append([*proposal.attempts, Attempt(proposal.item, "review", (verdict.refusal,))])
+        fixed = self._ask_to_fix(
+            number, [(proposal.direction, proposal.item, tried[-1]) for (proposal, _), tried in zip(inconsistent, attempts)],
+        )
+        return [
+            self._check(proposal.direction, item, gate, zoo, tried)
+            for (proposal, _), item, tried in zip(inconsistent, fixed, attempts)
+        ]
 
     def distill(self, number: int, history: str) -> str:
         """The memory the distiller writes from ``history``, the trials before round ``number``."""

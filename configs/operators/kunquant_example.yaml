@@ -1,5 +1,5 @@
 # The example operator file: the KunQuant operators candidates may call, the values their parameters
-# may take and the phrases that bind a hypothesis to them.
+# may take.
 #
 # Each operator:
 #   name         what candidate code calls, and what a graph records the operator as
@@ -15,8 +15,6 @@
 #                pure, match, product, quotient, scale, square, sqrt, transcendental,
 #                repeated_product, power, select, compare, compare_constant, logic, loop
 #   description  one line in the prompt
-#   binding      the phrases under `phrases` the operator satisfies: a hypothesis that names one
-#                needs a graph holding one of its operators
 #
 # Each fix: `match`, a regular expression a refusal's text matches when KunQuant turns code down,
 # and `hint`, how to write it instead; the hint is added to the refusal the proposer is asked to fix.
@@ -39,20 +37,6 @@ parameters:
   months: [3, 6, 12]
   month_length: [21]
   constant: [0, 1.0e-12, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 1.5, 2, 3, 4, 5, 10, 20, 40, 60, 100, 120, 250]
-
-# Phrases of a hypothesis (regular expressions over its lower-cased text) and the name a refusal
-# gives them.
-phrases:
-  volatility: '\bvolatilit(?:y|ies)\b|\bstandard deviations?\b|\bvariances?\b'
-  correlation: '\bcorrelat(?:ion|ions|ed)\b'
-  covariance: '\bcovariances?\b'
-  beta: '\bbetas?\b'
-  regression: '\bregressions?\b|\bresiduals?\b'
-  skewness: '\bskew(?:ness)?\b'
-  kurtosis: '\bkurtosis\b'
-  drawdown: '\bdrawdowns?\b'
-  moving average: '\bmoving averages?\b'
-  exponential weighting: '\bexponential(?:ly)?\b'
 
 fixes:
   - match: 'Bad inputs, given'
@@ -254,35 +238,30 @@ operators:
     params: {window: window}
     dimension: same
     description: mean of x over the last window bars
-    binding: [moving average]
   - name: WindowedSum
     class: KunQuant.ops.WindowedSum
     signature: "WindowedSum(x, window)"
     params: {window: window}
     dimension: same
     description: sum of x over the last window bars
-    binding: [moving average]
   - name: WindowedStddev
     class: KunQuant.ops.WindowedStddev
     signature: "WindowedStddev(x, window)"
     params: {window: window}
     dimension: same
     description: standard deviation of x over the last window bars
-    binding: [volatility]
   - name: WindowedVar
     class: KunQuant.ops.WindowedVar
     signature: "WindowedVar(x, window)"
     params: {window: window}
     dimension: square
     description: variance of x over the last window bars
-    binding: [volatility]
   - name: WindowedMax
     class: KunQuant.ops.WindowedMax
     signature: "WindowedMax(x, window)"
     params: {window: window}
     dimension: same
     description: maximum of x over the last window bars
-    binding: [drawdown]
   - name: WindowedMin
     class: KunQuant.ops.WindowedMin
     signature: "WindowedMin(x, window)"
@@ -296,7 +275,6 @@ operators:
     params: {window: window}
     dimension: pure
     description: correlation of x and y over the last window bars
-    binding: [correlation]
   - name: WindowedCovariance
     class: KunQuant.ops.WindowedCovariance
     signature: "WindowedCovariance(x, window, y)"
@@ -304,21 +282,18 @@ operators:
     params: {window: window}
     dimension: product
     description: covariance of x and y over the last window bars
-    binding: [covariance, beta]
   - name: WindowedSkew
     class: KunQuant.ops.WindowedSkew
     signature: "WindowedSkew(x, window)"
     params: {window: window}
     dimension: pure
     description: skewness of x over the last window bars
-    binding: [skewness]
   - name: WindowedKurt
     class: KunQuant.ops.WindowedKurt
     signature: "WindowedKurt(x, window)"
     params: {window: window}
     dimension: pure
     description: kurtosis of x over the last window bars
-    binding: [kurtosis]
   - name: WindowedQuantile
     class: KunQuant.ops.WindowedQuantile
     signature: "WindowedQuantile(x, window, q)"
@@ -337,28 +312,24 @@ operators:
     params: {window: window}
     dimension: pure
     description: largest fall of x from a running peak over the last window bars
-    binding: [drawdown]
   - name: WindowedLinearRegressionSlope
     class: KunQuant.ops.WindowedLinearRegressionSlope
     signature: "WindowedLinearRegressionSlope(x, window)"
     params: {window: window}
     dimension: same
     description: slope of x regressed on time over the last window bars
-    binding: [beta, regression]
   - name: WindowedLinearRegressionRSqaure
     class: KunQuant.ops.WindowedLinearRegressionRSqaure
     signature: "WindowedLinearRegressionRSqaure(x, window)"
     params: {window: window}
     dimension: pure
     description: R squared of x regressed on time over the last window bars
-    binding: [regression]
   - name: WindowedLinearRegressionResi
     class: KunQuant.ops.WindowedLinearRegressionResi
     signature: "WindowedLinearRegressionResi(x, window)"
     params: {window: window}
     dimension: same
     description: last residual of x regressed on time over the last window bars
-    binding: [regression]
   - name: TsRank
     class: KunQuant.ops.TsRank
     signature: "TsRank(x, window)"
@@ -383,42 +354,36 @@ operators:
     params: {window: window}
     dimension: same
     description: linearly decaying weighted mean of x over the last window bars
-    binding: [moving average]
   - name: ExpMovingAvg
     class: KunQuant.ops.ExpMovingAvg
     signature: "ExpMovingAvg(x, window)"
     params: {window: window}
     dimension: same
     description: exponential moving average of x with span window
-    binding: [moving average, exponential weighting]
   - name: WindowedZScore
     class: quantlab.factor.kunquant_ts.WindowedZScore
     signature: "WindowedZScore(x, window)"
     params: {window: window}
     dimension: pure
     description: (x - its mean) / its standard deviation over the last window bars
-    binding: [volatility]
   - name: EWSum
     class: quantlab.factor.kunquant_ts.EWSum
     signature: "EWSum(x, window, half_life)"
     params: {window: window, half_life: half_life}
     dimension: same
     description: exponentially weighted sum of x over window bars with the given half-life
-    binding: [moving average, exponential weighting]
   - name: EWMean
     class: quantlab.factor.kunquant_ts.EWMean
     signature: "EWMean(x, window, half_life)"
     params: {window: window, half_life: half_life}
     dimension: same
     description: exponentially weighted mean of x over window bars with the given half-life
-    binding: [moving average, exponential weighting]
   - name: EWVar
     class: quantlab.factor.kunquant_ts.EWVar
     signature: "EWVar(x, window, half_life)"
     params: {window: window, half_life: half_life}
     dimension: square
     description: exponentially weighted variance of x over window bars with the given half-life
-    binding: [volatility, moving average, exponential weighting]
   - name: EWCov
     class: quantlab.factor.kunquant_ts.EWCov
     signature: "EWCov(y, x, window, half_life)"
@@ -426,7 +391,6 @@ operators:
     params: {window: window, half_life: half_life}
     dimension: product
     description: exponentially weighted covariance of y and x
-    binding: [covariance, beta, moving average, exponential weighting]
   - name: EWBeta
     class: quantlab.factor.kunquant_ts.EWBeta
     signature: "EWBeta(y, x, window, half_life)"
@@ -434,7 +398,6 @@ operators:
     params: {window: window, half_life: half_life}
     dimension: quotient
     description: exponentially weighted regression slope of y on x
-    binding: [beta, regression, moving average, exponential weighting]
   - name: EWAlpha
     class: quantlab.factor.kunquant_ts.EWAlpha
     signature: "EWAlpha(y, x, window, half_life)"
@@ -442,7 +405,6 @@ operators:
     params: {window: window, half_life: half_life}
     dimension: first
     description: exponentially weighted regression intercept of y on x
-    binding: [regression, moving average, exponential weighting]
   - name: EWResidualStd
     class: quantlab.factor.kunquant_ts.EWResidualStd
     signature: "EWResidualStd(y, x, window, half_life)"
@@ -450,7 +412,6 @@ operators:
     params: {window: window, half_life: half_life}
     dimension: first
     description: standard deviation of the residual of the exponentially weighted regression of y on x
-    binding: [volatility, regression, moving average, exponential weighting]
   - name: CMRA
     class: quantlab.factor.kunquant_ts.CMRA
     signature: "CMRA(x, months=12, month_length=21)"
@@ -480,7 +441,6 @@ operators:
     signature: "ReduceAdd(item)"
     dimension: same
     description: sum of a loop item over the loop's window
-    binding: [moving average]
   - name: ReduceMul
     class: KunQuant.ops.ReduceMul
     signature: "ReduceMul(item)"
@@ -491,7 +451,6 @@ operators:
     signature: "ReduceMax(item)"
     dimension: same
     description: maximum of a loop item over the loop's window
-    binding: [drawdown]
   - name: ReduceMin
     class: KunQuant.ops.ReduceMin
     signature: "ReduceMin(item)"
@@ -517,7 +476,6 @@ operators:
     signature: "ReduceDecayLinear(item)"
     dimension: same
     description: linearly decaying weighted mean of a loop item
-    binding: [moving average]
   - name: Rank
     class: KunQuant.Op.Rank
     signature: "Rank(x)"

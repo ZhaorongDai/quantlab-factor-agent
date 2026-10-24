@@ -35,252 +35,169 @@ period_lag:
     tolerance_days: 45
     bars: 63
 
-# Phrases of a hypothesis (regular expressions over its lower-cased text), by the name a refusal
-# gives them. Words that are ordinary in a price-volume story (profit, value, size, assets, cash
-# alone) are left out or narrowed.
-phrases:
-  earnings: '(?<!retained )\bearnings\b|\bnet income\b|\bnet profits?\b'
-  EBIT: '\bebit\b'
-  EBITDA: '\bebitda\b'
-  operating income: '\boperating (?:income|profits?|profitability)\b'
-  P/E: '\bp/e\b|\be/p\b'
-  revenue: '\brevenues?\b|\bsales\b'
-  cost of revenue: '\bcost of (?:revenue|sales|goods sold)\b|\bcogs\b'
-  gross profit: '\bgross (?:profits?|profitability|margins?)\b'
-  SG&A: '\bsg&a\b|\bselling,? general and administrative\b'
-  R&D: '\br&d\b|\bresearch and development\b'
-  interest expense: '\binterest (?:expense|coverage)\b'
-  total assets: '\btotal assets\b|\basset (?:growth|base)\b|\breturn on assets\b|\broa\b'
-  current assets: '\bcurrent assets\b'
-  working capital: '\bworking capital\b'
-  cash holdings: '\bcash (?:holdings|balances?|and (?:cash )?equivalents)\b'
-  receivables: '\breceivables?\b'
-  inventory: '\binventor(?:y|ies)\b'
-  PP&E: '\bpp&e\b|\bproperty,? plant,? and equipment\b|\bfixed assets\b'
-  liabilities: '\bliabilities\b'
-  current liabilities: '\bcurrent liabilities\b'
-  debt: '\bdebt\b|\bleverage\b|\bborrowings?\b'
-  book equity: '\bbook (?:value|equity)\b|\bshareholders.? equity\b|\bbook[- ]to[- ]market\b|\breturn on equity\b|\broe\b'
-  retained earnings: '\bretained earnings\b'
-  cash flow: '\b(?:operating )?cash flows?\b|\bcash from operations\b'
-  free cash flow: '\bfree cash flows?\b|\bfcf\b'
-  accruals: '\baccruals?\b'
-  capital expenditure: '\bcapex\b|\bcapital expenditures?\b|\bcapital investment\b'
-  dividends: '\bdividends?\b'
-  payout: '\bpayouts?\b|\bshareholder yield\b'
-  buybacks: '\bbuybacks?\b|\brepurchases?\b|\b(?:share|equity|net) issuance\b'
-  shares outstanding: '\bshares outstanding\b|\bshare count\b'
-  current ratio: '\bcurrent ratio\b'
-  asset turnover: '\basset turnover\b'
-  market cap: '\bmarket cap(?:itali[sz]ation)?s?\b|\bfirm size\b|\bsize (?:effect|premium|anomaly)\b|\bsmall[- ]caps?\b|\blarge[- ]caps?\b'
-  enterprise value: '\benterprise values?\b'
-
-rules:
-  - {phrase: working capital, needs: [assetsc, liabilitiesc]}
-  - {phrase: accruals, needs: [netinc, ncfo]}
-
 fields:
   # Income statement, trailing twelve months.
   - name: revenue
     column: revenue
     unit: dollars
     description: revenue (sales), trailing twelve months
-    synonyms: [revenue]
   - name: cor
     column: cor
     unit: dollars
     description: cost of revenue, trailing twelve months
-    synonyms: [cost of revenue]
   - name: gp
     column: gp
     unit: dollars
     description: gross profit, revenue - cor, trailing twelve months
-    synonyms: [gross profit]
   - name: sgna
     column: sgna
     unit: dollars
     description: selling, general and administrative expense, trailing twelve months
-    synonyms: [SG&A]
   - name: rnd
     column: rnd
     unit: dollars
     description: research and development expense, trailing twelve months
-    synonyms: [R&D]
   - name: opinc
     column: opinc
     unit: dollars
     description: operating income, trailing twelve months
-    synonyms: [operating income, earnings]
   - name: intexp
     column: intexp
     unit: dollars
     description: interest expense, trailing twelve months
-    synonyms: [interest expense]
   - name: ebit
     column: ebit
     unit: dollars
     description: earnings before interest and taxes, trailing twelve months
-    synonyms: [EBIT, operating income, earnings]
   - name: ebitda
     column: ebitda
     unit: dollars
     description: earnings before interest, taxes, depreciation and amortisation, trailing twelve months
-    synonyms: [EBITDA, earnings]
   - name: netinc
     column: netinc
     unit: dollars
     description: net income, trailing twelve months
-    synonyms: [earnings, P/E]
 
   # Balance sheet, as of the report's period end.
   - name: assets
     column: assets
     unit: dollars
     description: total assets
-    synonyms: [total assets]
   - name: assetsavg
     column: assetsavg
     unit: dollars
     description: total assets averaged over the trailing four quarters
-    synonyms: [total assets]
   - name: assetsc
     column: assetsc
     unit: dollars
     description: current assets
-    synonyms: [current assets]
   - name: cashneq
     column: cashneq
     unit: dollars
     description: cash and cash equivalents
-    synonyms: [cash holdings]
   - name: receivables
     column: receivables
     unit: dollars
     description: trade and non-trade receivables
-    synonyms: [receivables]
   - name: inventory
     column: inventory
     unit: dollars
     description: inventory
-    synonyms: [inventory]
   - name: ppnenet
     column: ppnenet
     unit: dollars
     description: property, plant and equipment, net of depreciation
-    synonyms: [PP&E, capital expenditure]
   - name: liabilities
     column: liabilities
     unit: dollars
     description: total liabilities
-    synonyms: [liabilities, debt]
   - name: liabilitiesc
     column: liabilitiesc
     unit: dollars
     description: current liabilities
-    synonyms: [liabilities, current liabilities]
   - name: debt
     column: debt
     unit: dollars
     description: total debt, current and non-current
-    synonyms: [debt]
   - name: debtnc
     column: debtnc
     unit: dollars
     description: non-current (long-term) debt
-    synonyms: [debt]
   - name: equity
     column: equity
     unit: dollars
     description: shareholders' equity (book equity)
-    synonyms: [book equity]
   - name: equityavg
     column: equityavg
     unit: dollars
     description: shareholders' equity averaged over the trailing four quarters
-    synonyms: [book equity]
   - name: retearn
     column: retearn
     unit: dollars
     description: retained earnings (accumulated deficit when negative)
-    synonyms: [retained earnings]
 
   # Cash flow statement, trailing twelve months.
   - name: ncfo
     column: ncfo
     unit: dollars
     description: net cash flow from operations, trailing twelve months
-    synonyms: [cash flow]
   - name: capex
     column: capex
     unit: dollars
     description: capital expenditure, trailing twelve months; negative for investment
-    synonyms: [capital expenditure]
   - name: fcf
     column: fcf
     unit: dollars
     description: free cash flow, ncfo + capex, trailing twelve months
-    synonyms: [free cash flow, cash flow]
   - name: ncfdiv
     column: ncfdiv
     unit: dollars
     description: dividends paid, trailing twelve months; negative when paid
-    synonyms: [dividends, payout]
   - name: ncfcommon
     column: ncfcommon
     unit: dollars
     description: net cash from issuing (positive) or buying back (negative) common stock, trailing twelve months
-    synonyms: [buybacks, payout]
 
   # SF1 ratios.
   - name: currentratio
     column: currentratio
     unit: 1
     description: current ratio, assetsc / liabilitiesc
-    synonyms: [current ratio]
   - name: grossmargin
     column: grossmargin
     unit: 1
     description: gross margin, gp / revenue, trailing twelve months
-    synonyms: [gross profit]
   - name: assetturnover
     column: assetturnover
     unit: 1
     description: asset turnover, revenue / assetsavg, trailing twelve months
-    synonyms: [asset turnover]
 
   # DAILY valuations, computed by the vendor from the day's price and the latest filing.
   - name: marketcap
     column: marketcap
     unit: dollars
     description: market capitalisation of the day
-    synonyms: [market cap]
   - name: ev
     column: ev
     unit: dollars
     description: enterprise value of the day, marketcap + debt - cashneq
-    synonyms: [enterprise value]
   - name: pe
     column: pe
     unit: 1
     description: price-to-earnings, marketcap / trailing net income to common; negative on a loss
-    synonyms: [earnings, P/E]
   - name: pb
     column: pb
     unit: 1
     description: price-to-book, marketcap / equity
-    synonyms: [book equity]
   - name: ps
     column: ps
     unit: 1
     description: price-to-sales, marketcap / trailing revenue
-    synonyms: [revenue]
   - name: evebit
     column: evebit
     unit: 1
     description: enterprise value over trailing EBIT
-    synonyms: [EBIT, earnings, enterprise value]
   - name: evebitda
     column: evebitda
     unit: 1
     description: enterprise value over trailing EBITDA
-    synonyms: [EBITDA, earnings, enterprise value]

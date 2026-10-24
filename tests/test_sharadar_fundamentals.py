@@ -101,17 +101,6 @@ def test_a_sum_of_dimensioned_fields_that_differ_is_refused(vocabulary, code, re
     assert any(reason in r for r in result.reasons), result.reasons
 
 
-EARNINGS = "Investors under-react to earnings, so high earnings relative to price predict returns."
-
-
-def test_a_hypothesis_naming_earnings_needs_a_graph_reading_an_earnings_field(vocabulary):
-    unbound = _check(vocabulary, "alpha = revenue / marketcap", EARNINGS)
-    assert isinstance(unbound, Rejected)
-    assert any("names earnings" in r and "netinc" in r for r in unbound.reasons), unbound.reasons
-    bound = _check(vocabulary, "alpha = netinc / marketcap", EARNINGS)
-    assert isinstance(bound, Passed), getattr(bound, "reasons", None)
-
-
 @pytest.mark.parametrize(
     ("hypothesis", "code"),
     [
@@ -121,23 +110,9 @@ def test_a_hypothesis_naming_earnings_needs_a_graph_reading_an_earnings_field(vo
         ("Book-to-market captures distress risk.", "alpha = 1 / pb"),
     ],
 )
-def test_a_fundamental_hypothesis_bound_to_its_graph_passes(vocabulary, hypothesis, code):
+def test_fundamental_factors_pass_the_gate(vocabulary, hypothesis, code):
     result = _check(vocabulary, code, hypothesis)
     assert isinstance(result, Passed), getattr(result, "reasons", None)
-
-
-@pytest.mark.parametrize(
-    ("hypothesis", "code", "reason"),
-    [
-        ("Accruals reverse as earnings quality is revealed.", "alpha = netinc / assetsavg", "accruals"),
-        ("Working capital tied up in operations predicts low returns.", "alpha = assetsc / assets", "working capital"),
-        ("High research and development spending is under-priced.", "alpha = sgna / marketcap", "R&D"),
-    ],
-)
-def test_a_fundamental_hypothesis_naming_what_the_graph_never_reads_is_refused(vocabulary, hypothesis, code, reason):
-    result = _check(vocabulary, code, hypothesis)
-    assert isinstance(result, Rejected)
-    assert any("mechanism binding" in r and reason in r for r in result.reasons), result.reasons
 
 
 @pytest.fixture(scope="module")

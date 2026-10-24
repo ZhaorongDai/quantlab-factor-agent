@@ -10,8 +10,11 @@ One round:
    (against the zoo of reference factors and accepted factors) and the
    refused ones go back to the proposer to be fixed;
 4. the reviewer, in its own call, judges each gated candidate's hypothesis,
-   description and code for consistency; an inconsistent one is rejected
-   without being evaluated;
+   description and code for consistency, with the data section's fields;
+   the inconsistent ones go back to the proposer once, all in one fix
+   request with the reviewer's reasons; each rewrite passes the Gate once
+   (a refusal fails it) and the reviewer judges the rewrites in one more
+   call: one still inconsistent is rejected without being evaluated;
 5. the Evaluator scores the rest on the training segment in one compile,
    admission decides (``_admission``) in proposal order, and an accepted
    candidate joins the zoo and the reference pool before the next is admitted;
@@ -266,7 +269,7 @@ class Campaign:
                 context = self._context(records, state, reference, evaluator, accepted)
                 directions, issues = researcher.plan(number, quota, context, [_feedback.accepted_label(r) for r in accepted])
                 proposals = researcher.propose(number, directions, context, gate, zoo, config.round.retries)
-                round_records = self._round(number, proposals, researcher, zoo, evaluator, records)
+                round_records = self._round(number, proposals, researcher, gate, zoo, evaluator, records)
             except BudgetExhausted as exc:
                 stop = Stop("budget", f"{exc}; round {number} was stopped and dropped")
                 break
@@ -354,12 +357,15 @@ class Campaign:
         }
 
     def _round(
-        self, number: int, proposals: list[Proposal], researcher: Researcher, zoo: Zoo, evaluator: Evaluator,
+        self, number: int, proposals: list[Proposal], researcher: Researcher, gate: Gate, zoo: Zoo, evaluator: Evaluator,
         earlier: list[TrialRecord],
     ) -> list[TrialRecord]:
         """Review, evaluate and admit one round's proposals; return its records in proposal order.
 
-        The candidates the reviewer finds consistent are tested together, so
+        A candidate the reviewer finds inconsistent is rewritten once
+        (``Researcher.revise``); its record is that of the rewrite, failed if
+        the parser or the Gate refuses it and rejected if the reviewer still
+        finds it inconsistent. The candidates the reviewer finds consistent are tested together, so
         each is judged at the evaluated-trial count after the round: the
         earlier rounds' plus every candidate of the round that ran, whatever
         its place in the proposal order. They are admitted in that order,
@@ -369,15 +375,24 @@ class Campaign:
         records = [self._failed(number, p) if p.checked is None else None for p in proposals]
         gated = [i for i, p in enumerate(proposals) if p.checked is not None]
         verdicts = researcher.review(number, [proposals[i].candidate for i in gated])
-        passed = []
-        for i, verdict in zip(gated, verdicts):
+        passed = [i for i, verdict in zip(gated, verdicts) if verdict.consistent]
+        sent_back = [(i, verdict) for i, verdict in zip(gated, verdicts) if not verdict.consistent]
+        proposals = list(proposals)
+        rewrites = researcher.revise(number, [(proposals[i], verdict) for i, verdict in sent_back], gate, zoo)
+        for (i, _), rewrite in zip(sent_back, rewrites):
+            proposals[i] = rewrite
+            if rewrite.checked is None:
+                records[i] = self._failed(number, rewrite)
+        rewritten = [i for i, _ in sent_back if proposals[i].checked is not None]
+        for i, verdict in zip(rewritten, researcher.review(number, [proposals[i].candidate for i in rewritten])):
             if verdict.consistent:
                 passed.append(i)
             else:
                 records[i] = TrialRecord(
-                    status="rejected", stage="review", reasons=[f"the reviewer found it inconsistent: {verdict.reason}"],
+                    status="rejected", stage="review", reasons=[verdict.refusal],
                     **self._common(number, proposals[i]),
                 )
+        passed.sort()
 
         def admit(position: int, metrics: Metrics, ran: int) -> str | None:
             proposal = proposals[passed[position]]

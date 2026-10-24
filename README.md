@@ -2,7 +2,8 @@
 
 LLM-driven, mechanism-first formulaic factor research on [quantlab](https://github.com/ZhaorongDai/quantlab).
 An LLM proposes economic-mechanism hypotheses and writes each factor as KunQuant code; candidates pass
-deterministic gates (sandboxed graph build, originality, complexity, mechanism binding), are evaluated on
+deterministic gates (sandboxed graph build, originality, complexity) and an LLM reviewer's consistency check
+(whether the code computes what the hypothesis says the factor is built from), are evaluated on
 quantlab's whole-market panels for incremental value over the existing factor set, and only the training
 segment is ever shown to the model.
 
@@ -12,10 +13,12 @@ the rest go by Thompson sampling on each type's admission rate; the planner plan
 slot (a new mechanism, an orthogonal mutation of an accepted factor, or a refinement of one); the
 proposer writes one candidate per direction; the `Gate` builds each in a sandboxed subprocess and
 refuses rewrites of the zoo (the KunQuant graphs of the `reference` factors plus the accepted ones),
-parameter-only variants, large shared subtrees and hypotheses that name an input or transformation
-the graph never uses, sending the refused ones back to be fixed; the reviewer, in its own call
-(possibly another backend), judges each candidate's hypothesis, description and code for
-consistency and an inconsistent one is rejected unevaluated. The `Evaluator` compiles the rest as
+parameter-only variants and large shared subtrees, sending the refused ones back to be fixed; the
+reviewer, in its own call (possibly another backend) and with the data section's field descriptions,
+judges each candidate's hypothesis, description and code for consistency, the inputs and
+transformations the hypothesis says the factor is built from included. An inconsistent candidate is
+sent back once to be rewritten, with the reviewer's reason; the rewrite passes the Gate once (a
+refusal fails it) and is reviewed once more, and one still inconsistent is rejected unevaluated. The `Evaluator` compiles the rest as
 one KunQuant graph and scores them on the training segment, as the config's `scoring` says (ranked
 over the whole market; neutralised against `scoring.neutralize`'s exposures, size and industry columns, or
 not when it is null; masked to the day-t members of `data.membership`, or on every symbol without one),
@@ -49,13 +52,12 @@ operator_modules: []                          # modules besides KunQuant and qua
 
 - A field file lists its family's fields: each with the price dataset's `column` it reads and its `unit`
   (a product of powers of `dollars` and `shares`: a price is `dollars/shares`, volume `shares`), or a
-  derived field's `formula` over the family's earlier fields (under candidate code's syntax rules), a
-  description, and the `synonyms` (phrases) that bind a hypothesis to it; `rules` name phrases that need
-  several fields (overnight needs open and close). `bar: true` makes a missing value in the family's
+  derived field's `formula` over the family's earlier fields (under candidate code's syntax rules), and a
+  description, which the prompts and the reviewer read. `bar: true` makes a missing value in the family's
   columns a missing bar, which quantlab's NaN-preserving stand-ins keep NaN.
 - The operator file lists each operator's KunQuant `class`, the `call` candidate code uses (such as
-  `quantlab.factor.kunquant_nan.Max`), its signature, argument and parameter kinds, dimension rule,
-  description and binding phrases, plus the parameter value sets. The repository's example file also
+  `quantlab.factor.kunquant_nan.Max`), its signature, argument and parameter kinds, dimension rule
+  and description, plus the parameter value sets. The repository's example file also
   lists every other KunQuant and quantlab operator class under `excluded` with a reason, which a guard
   test checks; a user's own file needs no such section.
 - An operator file may list `fixes`: each a `match` (a regular expression a refusal's text matches when

@@ -51,8 +51,10 @@ class FakeLLM:
         with its ``direction``, ``refused_version`` and ``refused_because``);
         by default each refused version comes back unchanged.
     consistent : callable, optional
-        ``consistent(candidate)`` is the reviewer's verdict; by default
-        every candidate whose description does not say "inconsistent" passes.
+        ``consistent(candidate)`` is the reviewer's verdict, on the first
+        review and on the review of a rewrite alike (a rewrite reads as the
+        fix made it); by default every candidate whose description does not
+        say "inconsistent" passes.
     cost : float
         The cost of every reply.
     interrupt : callable, optional

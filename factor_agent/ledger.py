@@ -11,13 +11,15 @@ class TrialRecord:
 
     ``status`` is ``"accepted"``, ``"rejected"`` (refused by the reviewer,
     unevaluated, or evaluated and refused by admission) or ``"failed"``
-    (never evaluated: refused by the parser or the Gate after every retry,
-    or its graph did not compile). Only an evaluated trial, one with
+    (never evaluated: refused by the parser or the Gate after every retry
+    or, for the rewrite of a candidate the reviewer sent back, once, or its
+    graph did not compile). Only an evaluated trial, one with
     ``metrics``, counts toward the evaluated-trial count. ``stage`` is
     where it ended: ``"parse"``, ``"gate"``, ``"review"``, ``"evaluate"``
     or ``"admission"``. ``candidate`` is the last version the proposer
     wrote, ``attempts`` every refused version before it (``item``,
-    ``stage``, ``reasons``). ``direction`` is the planned direction the
+    ``stage``, ``reasons``), the one the reviewer sent back to be rewritten
+    with stage ``"review"`` and the reviewer's reason. ``direction`` is the planned direction the
     candidate was written for (``mechanism_type``, ``action``, ``parent``,
     ``direction``). ``stats`` holds the Gate's statistics, ``graph`` the
     graph it built (``Graph.to_json``) and ``metrics`` the evaluation, once

@@ -8,8 +8,7 @@ run in this order:
 1. static checks on the code (syntax allow-list, names in the vocabulary, ``alpha`` assigned);
 2. the graph build in a sandboxed subprocess (timeout, memory limit,
    bubblewrap filesystem isolation where it is installed);
-3. the graph's size, parameter values, dimensions and complexity, and
-   the mechanism binding of the hypothesis to the graph, all reported together;
+3. the graph's size, parameter values, dimensions and complexity, all reported together;
 4. originality against the zoo: not a rewrite of a zoo factor, not one with
    other windows or parameters only, and no common subtree with one larger
    than the limit. The reasons name the zoo factor and quote the subtree;
@@ -123,7 +122,6 @@ class Gate:
             return self._written_badly(reply.reasons)
         graph = Graph.from_json(reply, self.vocabulary.classes)
         reasons, stats = _constraints.check(graph, self.config, self.vocabulary)
-        reasons += self.vocabulary.bind(candidate.hypothesis, stats["base_fields"], {n.op for n in graph.nodes})
         if reasons:
             return Rejected(tuple(reasons))
         reasons = _originality.reasons(graph, zoo, self.config.max_common_subtree_nodes, self.vocabulary)
@@ -138,6 +136,15 @@ class Gate:
             ))
         self._seen.add(ranking)
         return Passed(graph, graph.fingerprint(), stats)
+
+    def withdraw(self, graph: Graph) -> None:
+        """Forget that ``graph`` passed, so a rewrite of its candidate is not refused as its duplicate.
+
+        A candidate the reviewer sends back is rewritten, and its rewrite
+        often keeps the graph; the refused version is never evaluated, so
+        its ranking no longer counts as taken.
+        """
+        self._seen.discard(graph.ranking())
 
     def _written_badly(self, reasons) -> Rejected:
         """A writing error's refusal, with the hints of the fixes its reasons match."""

@@ -16,7 +16,7 @@ import pytest
 from factor_agent.config import DEFAULT_MECHANISMS
 from tests import synthetic_market
 from tests.campaign_runner import candidate, run, write_config
-from tests.fake_llm import FakeLLM, Interrupted, round_of, tagged
+from tests.fake_llm import FakeLLM, Interrupted, has_tag, round_of, tagged
 
 SIGNALS = [
     candidate("intraday move", "alpha = close / open"),
@@ -129,18 +129,73 @@ def only_noise(number, directions):
     return [noise(number, slot) for slot in range(len(directions))]
 
 
-def test_a_candidate_the_reviewer_finds_inconsistent_is_rejected_without_evaluation(tmp_path, market):
-    fake = make_fake(consistent=lambda c: c["description"] != "intraday move")
+REWRITTEN = "Rewritten: the move from the open to the close persists."
+REVIEW_REASON = "the reviewer found it inconsistent: the code does not compute what the description says"
+
+
+def _ledger(result) -> list[dict]:
+    return [json.loads(line) for line in result.ledger_path.read_text().splitlines()]
+
+
+def _fix_requests(fake: FakeLLM) -> list:
+    return [r for r in fake.of_role("proposer") if has_tag(r.prompt, "refused_candidates")]
+
+
+def test_a_candidate_still_inconsistent_after_its_rewrite_is_rejected_without_evaluation(tmp_path, market):
+    fake = make_fake(consistent=lambda c: c["description"] != "intraday move")  # the default fix changes nothing
     result = _campaign(tmp_path, market, fake, max_rounds=1)
     record = next(r for r in result.records if r.candidate["description"] == "intraday move")
     assert (record.status, record.stage) == ("rejected", "review")
     assert record.metrics is None and record.fingerprint
-    assert "the reviewer found it inconsistent" in record.reasons[0]
+    assert record.reasons == [REVIEW_REASON]
+    assert [a["stage"] for a in record.attempts] == ["review"]
     assert result.evaluated_trials == 9
     assert [r.candidate["description"] for r in result.accepted] == ["volume shock"]
-    (review,) = fake.of_role("reviewer")
-    assert review.model == "model-reviewer"
-    assert "intraday move" in review.prompt and "alpha = close / open" in review.prompt
+    first, second = fake.of_role("reviewer")
+    assert first.model == second.model == "model-reviewer"
+    assert "intraday move" in first.prompt and "alpha = close / open" in first.prompt
+    assert [c["description"] for c in tagged(second.prompt, "candidates")] == ["intraday move"]
+    assert len(_fix_requests(fake)) == 1
+
+
+def test_an_inconsistent_candidate_rewritten_to_agree_is_reviewed_again_and_evaluated(tmp_path, market):
+    def fix(number, failures):
+        return [{**f["refused_version"], "hypothesis": REWRITTEN} for f in failures]
+
+    fake = make_fake(consistent=lambda c: c["description"] != "intraday move" or c["hypothesis"] == REWRITTEN, fix=fix)
+    result = _campaign(tmp_path, market, fake, max_rounds=1)
+    [record] = [r for r in _ledger(result) if r["candidate"]["description"] == "intraday move"]
+    assert (record["status"], record["stage"]) == ("accepted", "admission")
+    assert record["candidate"]["hypothesis"] == REWRITTEN and record["metrics"] is not None
+    [attempt] = record["attempts"]
+    assert attempt["stage"] == "review" and attempt["reasons"] == [REVIEW_REASON]
+    assert attempt["item"]["hypothesis"] == "Hypothesis behind intraday move."
+    assert result.evaluated_trials == 10
+    [fix_request] = _fix_requests(fake)
+    [entry] = tagged(fix_request.prompt, "refused_candidates")
+    assert entry["refused_because"] == [REVIEW_REASON]
+    first, second = fake.of_role("reviewer")
+    assert len(tagged(first.prompt, "candidates")) == 10
+    assert [c["hypothesis"] for c in tagged(second.prompt, "candidates")] == [REWRITTEN]
+
+
+def test_a_rewrite_the_gate_refuses_fails_at_the_gate_without_further_retries(tmp_path, market):
+    def fix(number, failures):
+        return [
+            {**f["refused_version"], "code": "alpha = close /"} if f["refused_because"] == [REVIEW_REASON]
+            else f["refused_version"]
+            for f in failures
+        ]
+
+    fake = make_fake(consistent=lambda c: c["description"] != "intraday move", fix=fix)
+    result = _campaign(tmp_path, market, fake, max_rounds=1, retries=2)
+    [record] = [r for r in _ledger(result) if r["candidate"]["description"] == "intraday move"]
+    assert (record["status"], record["stage"]) == ("failed", "gate")
+    assert record["candidate"]["code"] == "alpha = close /" and record["metrics"] is None
+    assert [a["stage"] for a in record["attempts"]] == ["review", "gate"]
+    assert len(_fix_requests(fake)) == 1
+    assert len(fake.of_role("reviewer")) == 1
+    assert result.evaluated_trials == 9
 
 
 _DATE = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")

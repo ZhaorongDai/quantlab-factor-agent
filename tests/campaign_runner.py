@@ -13,7 +13,7 @@ from tests import synthetic_market
 from tests.vocabulary_files import EXAMPLE_OPERATORS, PRICE_VOLUME
 
 def candidate(description: str, code: str, **overrides) -> dict:
-    """A candidate item with neutral text: no keyword the mechanism binding acts on, no date, no number."""
+    """A candidate item with neutral text: no date, no number."""
     return {
         "hypothesis": f"Hypothesis behind {description}.",
         "mechanism_type": "behavioural_bias",

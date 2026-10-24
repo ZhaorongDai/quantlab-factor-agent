@@ -2,8 +2,10 @@
 
 The estimate assumes the run goes the full number of rounds (``max_rounds``,
 or fewer if ``max_trials`` comes first) and that every round makes a plan,
-a proposal and ``retries`` fix requests and one review, with a distillation
-every ``memory_every`` rounds. Prompt sizes come from the real templates
+a proposal, ``retries`` fix requests, a review, and the rewrite of the
+candidates the reviewer finds inconsistent and their second review (each
+sized here as a whole round's candidates), with a distillation every
+``memory_every`` rounds. Prompt sizes come from the real templates
 with the data description, the seed directions and the reference families;
 the history every later prompt carries grows by a fixed number of
 characters per trial. Replies are sized per candidate, plus an allowance
@@ -94,7 +96,8 @@ def estimate(settings: RoundConfig, backends: dict, context: dict[str, str], pro
         calls["planner"].append((planner_base + trials * _HISTORY_CHARS + feedback, n * _REPLY_TOKENS["planner"]))
         calls["proposer"].append((proposer_base + n * _DIRECTION_CHARS + feedback, n * _REPLY_TOKENS["proposer"]))
         calls["proposer"] += [(retry_base + n * _CANDIDATE_CHARS, n * _REPLY_TOKENS["proposer"])] * settings.retries
-        calls["reviewer"].append((review_base + n * _CANDIDATE_CHARS, n * _REPLY_TOKENS["reviewer"]))
+        calls["proposer"].append((retry_base + n * _CANDIDATE_CHARS, n * _REPLY_TOKENS["proposer"]))
+        calls["reviewer"] += [(review_base + n * _CANDIDATE_CHARS, n * _REPLY_TOKENS["reviewer"])] * 2
 
     usd = {}
     for role in ROLES:

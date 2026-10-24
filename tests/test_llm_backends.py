@@ -34,7 +34,22 @@ def _propose(number, directions):
         candidate(f"noise {number}.{slot}", f"alpha = BackRef(volume, {(5, 10, 20, 40, 60)[slot]}) / WindowedAvg(volume, {(20, 60)[number - 1]})")
         for slot in range(len(directions))
     ]
+    if number == 1:
+        noise[1] = {**noise[1], "description": "inconsistent noise"}  # sent back by the reviewer, then rewritten
     return (planted + noise)[:len(directions)]
+
+
+def _rewrite(number, failures):
+    """Rewrite the hypothesis of a candidate the reviewer sent back; return any other refused version unchanged."""
+    return [
+        {**f["refused_version"], "hypothesis": "Rewritten."} if f["refused_because"][0].startswith("the reviewer")
+        else f["refused_version"]
+        for f in failures
+    ]
+
+
+def _consistent(candidate) -> bool:
+    return "inconsistent" not in candidate["description"] or candidate["hypothesis"] == "Rewritten."
 
 
 @pytest.fixture(scope="module")
@@ -46,8 +61,9 @@ def market(tmp_path_factory):
 @pytest.fixture(scope="module")
 def recorded(tmp_path_factory, market):
     root = tmp_path_factory.mktemp("recorded")
-    fake = FakeLLM(_propose, cost=0.25)
+    fake = FakeLLM(_propose, fix=_rewrite, consistent=_consistent, cost=0.25)
     result = run(write_config(root, market["components"], round=SETTINGS), fake, market["cache"])
+    assert len([r for r in fake.of_role("reviewer") if round_of(r.prompt) == 1]) == 2, "round 1 reviews a rewrite"
     return {"root": root, "result": result, "fake": fake}
 
 
@@ -296,9 +312,10 @@ def test_the_cost_estimate_grows_with_the_rounds_and_counts_every_call(tmp_path,
                             round={**SETTINGS, "max_rounds": rounds, "memory_every": 5})
         estimates[rounds] = Campaign(CampaignConfig.from_file(path)).estimate()
     five, ten = estimates[5], estimates[10]
-    # Per round: a plan, a proposal and one fix, a review; a distillation every five rounds after the first five.
-    assert five.calls == {"planner": 5, "proposer": 10, "reviewer": 5, "distiller": 0}
-    assert ten.calls == {"planner": 10, "proposer": 20, "reviewer": 10, "distiller": 1}
+    # Per round: a plan, a proposal, one fix and a review rewrite, two reviews; a distillation every five
+    # rounds after the first five.
+    assert five.calls == {"planner": 5, "proposer": 15, "reviewer": 10, "distiller": 0}
+    assert ten.calls == {"planner": 10, "proposer": 30, "reviewer": 20, "distiller": 1}
     assert ten.total > 2 * five.total > 0  # the history every prompt carries grows with the rounds
 
 
@@ -307,7 +324,7 @@ def test_the_cost_estimate_is_printed_before_the_run(tmp_path, market, capsys):
     run(write_config(tmp_path, market["components"], round={**SETTINGS, "max_rounds": 1, "budget_usd": 2.5}),
         fake, market["cache"])
     out = capsys.readouterr().out
-    assert "Estimated LLM cost" in out and "4 calls" in out and "budget $2.50" in out
+    assert "Estimated LLM cost" in out and "6 calls" in out and "budget $2.50" in out
     assert "unknown" in out  # the fake cannot price its calls
 
 

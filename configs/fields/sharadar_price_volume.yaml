@@ -9,11 +9,9 @@
 #   unit         a product of powers of dollars and shares (dollars/shares, shares, dollars^2, 1);
 #                a derived field's follows from its formula
 #   description  one line in the prompt
-#   synonyms     the phrases under `phrases` that bind a hypothesis to the field: a hypothesis that
-#                names one needs a graph reading one of the fields that list it
 #
-# `rules` are phrases that need several fields together. `bar: true` makes a value missing in any of
-# the family's columns a missing bar, which the NaN-preserving operators keep NaN.
+# `bar: true` makes a value missing in any of the family's columns a missing bar, which the
+# NaN-preserving operators keep NaN.
 #
 # A family of periodic data (financial statements) may declare a period lag, which lets candidate
 # code write `PeriodLag(x, k)` for a field x of the family read from a column; this one has none:
@@ -30,55 +28,30 @@ family: price_volume
 description: adjusted daily bars
 bar: true
 
-# Phrases of a hypothesis (regular expressions over its lower-cased text), by the name a refusal
-# gives them. Phrases that are also ordinary words ("high price", "the low end", "open") are left out.
-phrases:
-  volume: '\bvolumes?\b(?![- ]weighted)'
-  turnover: '(?<!asset )(?<!inventory )(?<!receivables )\bturnover\b'   # not a statement ratio's turnover
-  traded value: '\btraded value\b'
-  VWAP: '\bvwap\b|\bvolume[- ]weighted average price\b'
-  opening price: '\bopen(?:ing)? prices?\b|\bopening\b|\bthe open\b'
-  closing price: '\bclos(?:e|ing) prices?\b|\bclosing\b|\bthe close\b'
-  the intraday high: '\b(?:intraday|daily|session) highs?\b'
-  the intraday low: '\b(?:intraday|daily|session) lows?\b'
-  the high-low range: '\bhigh[- ]low\b|\b(?:intraday|daily|trading) range\b'
-  overnight: '\bovernight\b'
-
-rules:
-  - {phrase: the high-low range, needs: [high, low]}
-  - {phrase: overnight, needs: [open, close]}
-
 fields:
   - name: open
     column: adjOpen
     unit: dollars/shares
     description: opening price
-    synonyms: [opening price]
   - name: high
     column: adjHigh
     unit: dollars/shares
     description: highest price of the day
-    synonyms: [the intraday high]
   - name: low
     column: adjLow
     unit: dollars/shares
     description: lowest price of the day
-    synonyms: [the intraday low]
   - name: close
     column: adjClose
     unit: dollars/shares
     description: closing price
-    synonyms: [closing price]
   - name: volume
     column: adjVolume
     unit: shares
     description: shares traded in the day
-    synonyms: [volume, turnover, traded value]
   - name: vwap
     formula: (high + low + close) / 3.0
     description: typical price of the day, (high + low + close) / 3
-    synonyms: [VWAP]
   - name: amount
     formula: vwap * volume
     description: dollars traded in the day, vwap * volume
-    synonyms: [volume, turnover, traded value, VWAP]

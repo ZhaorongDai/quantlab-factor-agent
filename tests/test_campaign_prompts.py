@@ -128,6 +128,18 @@ def test_the_reviewer_is_asked_for_the_reason_before_the_verdict(lunar):
     assert "length of the code" in review
 
 
+def test_the_reviewer_reads_the_fields_and_judges_whether_the_code_uses_what_the_factor_is_built_from(lunar):
+    review = next(r for r in lunar.requests if r.role == "reviewer").prompt
+    data = review[review.index("<data>"):review.index("</data>")]
+    assert "- volume (volume): shares traded in the day" in data
+    assert review.index("</data>") < review.index("\n<candidates>\n")
+    criteria = review[review.index("</candidates>"):review.index("Otherwise it is consistent")]
+    assert "5. " in criteria and "built from" in criteria
+    assert all(word in criteria for word in ("background", "consequence", "contrast"))
+    assert "earnings surprise" in criteria and "price and volume" in criteria
+    assert "gross profit" in criteria
+
+
 def test_the_distiller_prompt_ends_with_the_three_parts_of_the_memory(lunar):
     distill = lunar.of_role("distiller")[0].prompt.rstrip()
     assert distill.endswith("```")
@@ -142,7 +154,7 @@ def test_the_built_in_templates_load_as_replaced_templates(tmp_path):
         files[name] = tmp_path / f"{name}.txt"
         files[name].write_text(text)
     loaded = Templates.load(files)
-    assert loaded.format("review", market="M", horizon=3, round=1, candidates="[]").rstrip().endswith("```")
+    assert loaded.format("review", market="M", horizon=3, round=1, data="D", candidates="[]").rstrip().endswith("```")
 
 
 def test_no_prompt_shouts(lunar):

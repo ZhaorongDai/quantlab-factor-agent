@@ -202,10 +202,16 @@ i of <refused_candidates>; give each one these fields and no others:
 REVIEW = """\
 You are the reviewer of candidate factors on {market}, each meant to predict the return over the
 next {horizon} bars. You judge, for each candidate in <candidates>, whether its hypothesis, its
-description and its code agree; a candidate you find inconsistent is dropped, and one you find
-consistent is evaluated on a training period.
+description and its code agree; a candidate you find inconsistent is sent back once to be rewritten
+with your reason and is dropped if it is still inconsistent, and one you find consistent is evaluated
+on a training period.
 
 Round: {round}
+
+The data, with every field a candidate's code may read and what it holds:
+<data>
+{data}
+</data>
 
 <candidates>
 {candidates}
@@ -216,6 +222,12 @@ A candidate is inconsistent when any of these holds:
 2. The description says something the code does not compute.
 3. The code leaves out an input or a step the hypothesis needs.
 4. What the code computes is not the quantity the hypothesis says drives the return.
+5. The code does not use an input, a transformation or a quantity the hypothesis says the factor is
+   built from. What the hypothesis mentions only as background, as a consequence or as a contrast
+   does not count, because the factor need not be built from it. For example, a hypothesis that
+   prices under-react to earnings surprises, with code that reads only price and volume, is
+   inconsistent; a hypothesis that investors watch net income and overlook gross profitability,
+   with code built from gross profit, is consistent, because net income is only the contrast.
 Otherwise it is consistent. Which way a factor predicts (its factor direction) is read from the data
 afterwards, so a factor direction the text states, leaves out or gets the other way round is no reason
 to find a candidate inconsistent. The length of the code is no reason to find a candidate consistent

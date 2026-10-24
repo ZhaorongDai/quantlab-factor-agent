@@ -385,37 +385,9 @@ def test_a_refinement_that_changes_the_structure_passes():
     assert isinstance(result, Passed), getattr(result, "reasons", None)
 
 
-@pytest.mark.parametrize(
-    ("hypothesis", "code", "reason"),
-    [
-        ("Heavy trading volume after a strong day signals attention.", "alpha = close / open", "volume"),
-        ("Share turnover proxies for disagreement.", "alpha = close / open", "turnover"),
-        ("The closing price drifts toward the opening price.", "alpha = WindowedAvg(close, 5) / close", "opening price"),
-        ("Return volatility is priced as risk.", "alpha = close / BackRef(close, 20)", "volatility"),
-        ("The correlation of returns with volume reveals informed trading.",
-         "alpha = (close / open) * volume / WindowedAvg(volume, 20)", "correlation"),
-    ],
-)
-def test_a_hypothesis_naming_what_the_graph_never_uses_fails_mechanism_binding(hypothesis, code, reason):
-    result = Gate(GateConfig(), price_volume()).check(_candidate(code, hypothesis), Zoo())
-    assert isinstance(result, Rejected)
-    assert any("mechanism binding" in r and reason in r for r in result.reasons), result.reasons
-
-
-@pytest.mark.parametrize(
-    ("hypothesis", "code"),
-    [
-        ("Heavy trading volume after a strong day signals attention.",
-         "alpha = (close / open) * volume / WindowedAvg(volume, 20)"),
-        ("Dollar volume, not share volume, measures attention.", "alpha = amount / WindowedAvg(amount, 20)"),
-        ("Return volatility is priced as risk.", "alpha = EWVar(close / BackRef(close, 1), 60, 20)"),
-        ("Stocks with a high price relative to peers attract lottery demand.", "alpha = close / open"),
-        ("Price far above the volume-weighted average price reverts.", "alpha = vwap / close"),
-        ("Stocks at the low end of the return distribution rebound.", "alpha = close / open"),
-    ],
-)
-def test_a_hypothesis_bound_to_its_graph_passes(hypothesis, code):
-    result = Gate(GateConfig(), price_volume()).check(_candidate(code, hypothesis), Zoo())
+def test_the_gate_leaves_whether_the_code_uses_what_the_hypothesis_names_to_the_reviewer():
+    hypothesis = "Heavy trading volume and high return volatility attract attention."
+    result = Gate(GateConfig(), price_volume()).check(_candidate("alpha = close / open", hypothesis), Zoo())
     assert isinstance(result, Passed), getattr(result, "reasons", None)
 
 

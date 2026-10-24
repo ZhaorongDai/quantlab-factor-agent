@@ -10,9 +10,7 @@ syntax of ``_checks``), the ``Input`` a graph reads a column with, and the
 A field file lists its family's fields. A field reads a column of the price
 dataset, in a unit that is a product of powers of dollars and shares, or is
 derived: a formula over the family's earlier fields, checked under the
-syntax rules of candidate code and built with the operators. Its synonyms
-name the family's phrases that bind a hypothesis to it, and the family's
-rules name phrases that need several fields. A family with ``bar: true``
+syntax rules of candidate code and built with the operators. A family with ``bar: true``
 makes a missing value in any of its columns a missing bar: candidate code
 runs inside quantlab's ``missing_bars_only`` over those columns, so the
 NaN-preserving stand-ins of ``quantlab.factor.kunquant_nan`` keep such a
@@ -33,8 +31,8 @@ in dimensions.
 The operator file lists each operator's class (a KunQuant ``OpBase``
 subclass, what a graph records), the callable candidate code calls under
 its name (the class, or a stand-in such as ``kunquant_nan.Max``), its
-signature, argument and parameter kinds, dimension rule, prompt description
-and binding phrases, plus the parameter value sets, the fixes (each a
+signature, argument and parameter kinds, dimension rule and prompt
+description, plus the parameter value sets, the fixes (each a
 regular expression an operator library's refusal matches, with how to
 write it instead) and, in the repository's example file, every other
 operator class with why it is excluded. A class or a callable must come from KunQuant,
@@ -92,15 +90,15 @@ _RESERVED = frozenset({"Builder", "Input", "PeriodLag", "alpha"})
 _UNIT_BASES = ("dollars", "shares")
 _UNIT_FACTOR = re.compile(r"(dollars|shares|1)(?:\^(-?\d+))?")
 
-_FIELD_FILE_KEYS = {"family", "description", "bar", "phrases", "rules", "fields", "period_lag"}
+_FIELD_FILE_KEYS = {"family", "description", "bar", "fields", "period_lag"}
 _PERIOD_LAG_KEYS = {"column", "k", "period"}
 _PERIOD_KEYS = {"description", "key", "days", "tolerance_days", "bars"}
-_FIELD_KEYS = {"name", "column", "formula", "unit", "description", "synonyms"}
-_OPERATOR_FILE_KEYS = {"parameters", "phrases", "operators", "excluded", "fixes"}
+_FIELD_KEYS = {"name", "column", "formula", "unit", "description"}
+_OPERATOR_FILE_KEYS = {"parameters", "operators", "excluded", "fixes"}
 _FIX_KEYS = {"match", "hint"}
 #: The names ``_ArithmeticCalls`` writes ``-x`` and ``a ** b`` as; candidate code may not use such names.
 _NEGATE, _POWER = "__negate__", "__power__"
-_OPERATOR_KEYS = {"name", "class", "call", "signature", "inputs", "params", "dimension", "description", "binding"}
+_OPERATOR_KEYS = {"name", "class", "call", "signature", "inputs", "params", "dimension", "description"}
 
 
 class PeriodLagError(ValueError):
@@ -148,7 +146,6 @@ class OpSpec:
     params: dict
     dimension: str
     description: str
-    binding: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -170,7 +167,7 @@ class PeriodLag:
 
 
 #: ``Input``, which every graph records and no candidate calls.
-INPUT = OpSpec("Input", Input, "KunQuant.Op.Input", None, "", (), {"name": FLAG}, "input", "", ())
+INPUT = OpSpec("Input", Input, "KunQuant.Op.Input", None, "", (), {"name": FLAG}, "input", "")
 
 
 class Vocabulary:
@@ -198,10 +195,6 @@ class Vocabulary:
         self._fixes: list[tuple[re.Pattern, str]] = []
         self._modules = FRAMEWORK_MODULES + tuple(sources.get("operator_modules") or ())
         self._operators: dict[str, OpSpec] = {}
-        self._operator_phrases: dict[str, re.Pattern] = {}
-        self._field_phrases: dict[str, re.Pattern] = {}
-        self._synonyms: dict[str, list[str]] = {}
-        self._rules: list[tuple[str, tuple[str, ...]]] = []
         self._bar_columns: list[str] = []
         #: The declared period lags, by family.
         self.period_lags: dict[str, PeriodLag] = {}
@@ -333,36 +326,6 @@ class Vocabulary:
         reasons = self._parameter_reasons(graph) or self._effective_reasons(graph)
         dimension, dimension_reasons = _dimension.infer(graph, self)
         return reasons + dimension_reasons, _dimension.name(dimension)
-
-    def bind(self, hypothesis: str, fields: Iterable[str], operators: Iterable[str]) -> list[str]:
-        """Return the mechanism-binding failures of ``hypothesis`` against the graph's ``fields`` and ``operators``.
-
-        A deterministic check of the text against the graph (after
-        FactorMiner's ``mechanism_binding``, MIT): it does not judge whether
-        the story is right, only that the code uses what the story says it
-        uses. A field phrase the hypothesis names needs one of the fields
-        listing it as a synonym, and each field of a rule on it; an operator
-        phrase needs one of the operators bound to it. Negations are not
-        understood: the check errs toward passing.
-        """
-        text, read, used = hypothesis.lower(), set(fields), set(operators)
-        found = []
-        for name, pattern in self._field_phrases.items():
-            if not pattern.search(text):
-                continue
-            groups = [set(self._synonyms[name])] if name in self._synonyms else []
-            groups += [{field} for phrase, needs in self._rules if phrase == name for field in needs]
-            missing = [group for group in groups if not group & read]
-            if missing:
-                wanted = " and ".join(" or ".join(sorted(group)) for group in missing)
-                found.append(f"mechanism binding: the hypothesis names {name}, but the graph never reads {wanted}")
-        for name, pattern in self._operator_phrases.items():
-            ops = {op for op, spec in self._operators.items() if name in spec.binding}
-            if ops and pattern.search(text) and not ops & used:
-                found.append(
-                    f"mechanism binding: the hypothesis names {name}, but the graph has none of {', '.join(sorted(ops))}"
-                )
-        return found
 
     @cached_property
     def constant_set(self) -> str | None:
@@ -611,15 +574,6 @@ class Vocabulary:
         if unknown:
             self._problem(where, f"unknown key(s) {sorted(unknown)}")
 
-    def _phrases(self, where: str, raw) -> dict[str, re.Pattern]:
-        phrases = {}
-        for name, pattern in (raw or {}).items():
-            try:
-                phrases[str(name)] = re.compile(str(pattern))
-            except re.error as exc:
-                self._problem(where, f"phrase {name!r} is not a regular expression: {exc}")
-        return phrases
-
     def _resolve(self, where: str, path, what: str) -> object | None:
         """Import ``path`` from an allowed module; None, with the problem recorded, if it cannot be."""
         if not isinstance(path, str) or not path:
@@ -656,7 +610,6 @@ class Vocabulary:
                 self._problem(path, f"parameter set {kind!r} must be a list of numbers")
             else:
                 self.parameters[str(kind)] = tuple(values)
-        self._operator_phrases = self._phrases(path, document.get("phrases"))
         for i, entry in enumerate(document.get("fixes") or [], 1):
             self._read_fix(f"{path}: fix {i}", entry)
         for i, entry in enumerate(document.get("operators") or []):
@@ -724,14 +677,10 @@ class Vocabulary:
         dimension = entry.get("dimension")
         if dimension not in _dimension.OPERATOR_RULES:
             self._problem(where, f"dimension rule {dimension!r} is not one of {list(_dimension.OPERATOR_RULES)}")
-        binding = tuple(entry.get("binding") or ())
-        for phrase in binding:
-            if phrase not in self._operator_phrases:
-                self._problem(where, f"binding phrase {phrase!r} is not under the file's phrases")
         if ok and cls is not None and call is not None:
             self._operators[name] = OpSpec(
                 name, cls, entry["class"], call, str(entry.get("signature", name)), inputs, params, dimension,
-                str(entry.get("description", "")), binding,
+                str(entry.get("description", "")),
             )
 
     def _read_fields(self, path: str, document: dict | None) -> None:
@@ -740,10 +689,6 @@ class Vocabulary:
         self._unknown_keys(path, document, _FIELD_FILE_KEYS)
         family = str(document.get("family", Path(path).stem))
         self.families[family] = str(document.get("description") or "")
-        for name, pattern in self._phrases(path, document.get("phrases")).items():
-            if name in self._field_phrases and self._field_phrases[name].pattern != pattern.pattern:
-                self._problem(path, f"phrase {name!r} is defined differently by another field file")
-            self._field_phrases[name] = pattern
         mine: list[str] = []
         declared: list[str] = []  # every name the file gives, so a formula over a refused field adds no problem
         for i, entry in enumerate(document.get("fields") or []):
@@ -756,17 +701,6 @@ class Vocabulary:
             self._bar_columns += [self.fields[n].column for n in mine if self.fields[n].column is not None]
         if document.get("period_lag") is not None:
             self._read_period_lag(f"{path}: period_lag", family, document["period_lag"])
-        for i, rule in enumerate(document.get("rules") or []):
-            where = f"{path}: rule {i + 1}"
-            if not isinstance(rule, dict) or set(rule) != {"phrase", "needs"}:
-                self._problem(where, "must be a mapping of phrase and needs")
-                continue
-            if rule["phrase"] not in self._field_phrases:
-                self._problem(where, f"phrase {rule['phrase']!r} is not under the file's phrases")
-            unknown = [f for f in rule["needs"] if f not in mine]
-            if unknown:
-                self._problem(where, f"needs field(s) {unknown} the family does not have")
-            self._rules.append((rule["phrase"], tuple(rule["needs"])))
 
     def _read_field(self, where: str, family: str, entry, earlier: list[str]) -> str | None:
         if not isinstance(entry, dict):
@@ -800,11 +734,6 @@ class Vocabulary:
             for reason in _checks.expression_reasons(str(formula), frozenset(earlier) | frozenset(self._operators)):
                 self._problem(where, f"formula {formula!r}: {reason}")
                 ok = False
-        for phrase in entry.get("synonyms") or ():
-            if phrase not in self._field_phrases:
-                self._problem(where, f"synonym {phrase!r} is not under the file's phrases")
-            elif ok:
-                self._synonyms.setdefault(phrase, []).append(name)
         if not ok:
             return None
         self.fields[name] = Field(name, family, column, formula, dimension, str(entry.get("description", "")))
