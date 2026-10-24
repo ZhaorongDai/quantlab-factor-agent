@@ -50,7 +50,6 @@ comparisons work on operators; a comparison is only a Select condition."""
 FIELDS = """\
 - "hypothesis": the economic mechanism, in one or two sentences
 - "mechanism_type": the direction's mechanism type
-- "expected_sign": 1 if a higher value predicts a higher return, -1 if lower
 - "horizon_rationale": why the effect plays out over about {horizon} bars
 - "description": what the code computes, in words
 - "code": the Python code"""
@@ -75,12 +74,9 @@ of these actions:
 - "mutation": a mechanism orthogonal to one that works (an accepted factor named in "parent"),
   exploiting a different economic channel;
 - "refinement": a different expression of the same mechanism as an accepted factor named in
-  "parent"; only changing its windows or parameters is refused;
-- "reversal": a mechanism that predicts the direction the data showed for a refuted hypothesis
-  named in "parent"; code that only negates, rescales or ranks the refuted factor is refused.
-"parent" is an accepted factor's name exactly as listed under the current best mechanisms for a
-mutation or a refinement, a refuted hypothesis's name exactly as listed under the refuted
-hypotheses for a reversal, or "" for a new direction.
+  "parent"; only changing its windows or parameters is refused.
+"parent" is an accepted factor's name exactly as listed under the current best mechanisms, or ""
+for a new direction.
 
 Answer with a JSON array of objects with the fields "mechanism_type", "action", "parent" and
 "direction" (the idea to pursue, in one or two sentences). Directions per mechanism type:
@@ -143,7 +139,8 @@ You are the reviewer of proposed factors on {market}.
 Each is meant to predict the return over the next {horizon} bars.
 For each candidate below judge, strictly, whether the hypothesis, the description and the code
 agree: the description says what the code computes, and the code computes what the hypothesis
-says drives returns, with the expected sign. Do not rewrite or improve any candidate; only judge
+says drives returns. Which way the factor predicts is read from the data, so a direction the text
+states or leaves out is no reason to find it inconsistent. Do not rewrite or improve any candidate; only judge
 it. A candidate whose code does something its text does not say, or leaves out what its
 hypothesis needs, is inconsistent.
 
@@ -165,9 +162,8 @@ Below is every trial so far with its outcome. Distil it into a short memory for 
 who plan and write the next rounds, in three parts:
 - "Working mechanism patterns": the kinds of mechanism and construction that were accepted;
 - "Failure constraints": what keeps being refused and why, as rules to follow;
-- "Directional findings": the mechanisms the data showed working the other way round (a trial
-  rejected with the opposite sign), said as the direction they do work in, such as "volume surges
-  are followed by outperformance".
+- "Directional findings": which way the evaluated mechanisms worked, as the feedback's direction
+  shows them, such as "volume surges are followed by outperformance".
 Write no numbers, no statistics and no factor code; describe patterns in words. Answer with the
 memory as plain text.
 
@@ -184,7 +180,6 @@ SECTIONS = (
     ("history", "All history (every earlier trial)"),
     ("last_round", "Last round's feedback (training period only)"),
     ("best", "Current best mechanisms (the accepted factors)"),
-    ("refuted", "Refuted hypotheses (the training IC had the opposite sign to the one stated)"),
 )
 
 #: The built-in templates, by the name a config's ``prompts`` replaces them under.

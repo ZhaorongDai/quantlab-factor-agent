@@ -93,6 +93,8 @@
 | Q74 | 模块划分（2026-10-24 codebase-design）：新建深 module `Vocabulary`（`load`、`namespace`、`check`、`bind`、`columns`、`prompt`；只按数据不同、不设可替换实现）、`Scoring`（`from_config`、`apply`、`read`、`describe`；收走 Evaluator 与 Acceptance 重复的打分代码）、`RunSnapshot`（`open`、`path`；Campaign 与 Acceptance 共用）；`Researcher` 接口不变，模板与机制类由配置注入；`vocabulary.py` 不再存常量 |
 | Q75 | （2026-10-24 用户）框架不要求文献支持：候选去掉 `reference` 字段，提示词不再要求写文献；种子方向是否附文献由写配置的人决定，框架不检查 |
 | Q76 | （2026-10-24，#20）被数据证伪的假设可以跟进：planner 新增 `reversal` 动作，parent 为方向相反被拒的试验（"…(refuted in round N)"），须给出预测观察到的方向的机制，不要求文献；Gate 去重按"保持或反转排名"（`Graph.ranking`）比较，只取负、缩放、rank 的写法算重复；全部历史保留押的方向和"opposite sign"类别；distiller 记忆新增"Directional findings"（仍不写数字）；拒绝理由改为提示可另提反方向机制。Q11 不翻转不变 |
+| Q77 | （2026-10-25 拷问，取代 Q10 的 `expected_sign`、Q11、Q76 的 reversal 部分）去掉方向要求：候选不再声明方向（删 `expected_sign`）；因子的方向 = 训练段 IC 的符号，偏 IC 的 NW t 与十分组单调性都按这个方向算；多重检验门槛把每个候选算两次检验（Bonferroni 分母 n → 2n，起点 3.0 不变：1 次 3.21、100 次 4.35、600 次 4.73）；撤掉 reversal 动作、被证伪假设列表、历史里的方向类别、distiller 的 Directional findings；保留 `Graph.ranking` 去重；导出的因子乘以方向（值越大训练段收益越高），README 与 component.json 记方向和训练段 IC；reviewer 只查代码与描述、描述与机制是否一致，不查方向；已接受因子与上一轮反馈标出数据显示的方向，distiller 可用文字记机制的实际方向（不写数字） |
+| Q78 | （2026-10-25）回放可复现与构图错误：沙箱崩溃的拒绝理由只留最后一行异常且不含绝对路径（不同目录回放也逐字节一致）；数值参数位置放了算子（如 `SubConst(x, ConstantOp(1))`）在 Gate 里按普通理由提前拒绝，并提示写法；`Sub(x, 1)` 这类整数输入的构图失败给出同样的写法提示 |
 
 ## 3. 一轮的流程
 

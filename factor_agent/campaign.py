@@ -264,10 +264,7 @@ class Campaign:
                 quota = _scheduler.quota(number, records, config.round, prompts.mechanism_types)
                 accepted = [r for r in records if r.status == "accepted"]
                 context = self._context(records, state, reference, evaluator, accepted)
-                directions, issues = researcher.plan(
-                    number, quota, context, [_feedback.accepted_label(r) for r in accepted],
-                    refuted=[_feedback.refuted_label(r) for r in records if _feedback.refuted(r)],
-                )
+                directions, issues = researcher.plan(number, quota, context, [_feedback.accepted_label(r) for r in accepted])
                 proposals = researcher.propose(number, directions, context, gate, zoo, config.round.retries)
                 round_records = self._round(number, proposals, researcher, zoo, evaluator, records)
             except BudgetExhausted as exc:
@@ -354,7 +351,6 @@ class Campaign:
             "history": _feedback.history(records),
             "last_round": _feedback.last_round([r for r in records if r.round == state.rounds]),
             "best": _feedback.best(accepted, evaluator.contributions(labels) if labels else {}),
-            "refuted": _feedback.refuted_hypotheses(records),
         }
 
     def _round(
@@ -412,7 +408,7 @@ class Campaign:
 
     def _admit(self, number: int, proposal: Proposal, metrics: Metrics, trials: int) -> TrialRecord:
         """Decide one evaluated candidate, the ``trials``-th evaluated trial of the campaign."""
-        reasons = _admission.reasons(proposal.candidate, metrics, trials, self.config.admission)
+        reasons = _admission.reasons(metrics, trials, self.config.admission)
         return TrialRecord(
             status="rejected" if reasons else "accepted", stage="admission", reasons=reasons,
             metrics=metrics.to_dict(), **self._common(number, proposal),

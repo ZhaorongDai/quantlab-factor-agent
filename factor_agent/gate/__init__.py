@@ -14,8 +14,8 @@ run in this order:
    other windows or parameters only, and no common subtree with one larger
    than the limit. The reasons name the zoo factor and quote the subtree;
 5. not a duplicate of a candidate this gate passed before: the same canonical
-   graph up to what keeps or reverses its ranking (``Graph.ranking``), so a
-   reversal that only negates a refuted trial is refused.
+   graph up to what keeps or reverses its ranking (``Graph.ranking``): a
+   factor and its negation predict alike, in opposite directions.
 """
 
 import ctypes
@@ -23,6 +23,7 @@ import ctypes.util
 import importlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -158,7 +159,7 @@ class Gate:
                 raise RuntimeError(f"Gate: the sandbox cannot import factor_agent:\n{tail}")
             if "MemoryError" in tail:
                 return Rejected((MEMORY_REASON.format(memory_mb=self.config.memory_mb),))
-            return Rejected((f"graph build crashed (exit {process.returncode}): {tail}",))
+            return Rejected((f"graph build crashed (exit {process.returncode}): {_last_line(tail)}",))
         try:
             message = json.loads(stdout)
         except json.JSONDecodeError as exc:
@@ -210,6 +211,12 @@ def _memory(process: psutil.Process) -> int:
 def _libproc() -> ctypes.CDLL:
     """macOS's libproc, loaded once."""
     return ctypes.CDLL(ctypes.util.find_library("proc"))
+
+
+def _last_line(stderr: str) -> str:
+    """The last line of a crash's stderr, its exception, with no file path, so a replay elsewhere reads the same."""
+    lines = [line for line in stderr.splitlines() if line.strip()]
+    return re.sub(r"(?<![\w.])(?:/[\w.-]+){2,}/", "", lines[-1].strip()) if lines else "no output"
 
 
 @cache

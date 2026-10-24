@@ -9,9 +9,7 @@ segment is ever shown to the model.
 Status: the multi-round research loop (#5) and acceptance (#7, see below). `Campaign(CampaignConfig.from_file(path)).run()` runs
 rounds until a stop condition holds. Each round, every mechanism type gets `min_per_type` slots and
 the rest go by Thompson sampling on each type's admission rate; the planner plans one direction per
-slot (a new mechanism, an orthogonal mutation of an accepted factor, a refinement of one, or a reversal of a
-refuted hypothesis: a trial whose training IC had the opposite sign, followed up with a mechanism that predicts that
-direction, never by negating it); the
+slot (a new mechanism, an orthogonal mutation of an accepted factor, or a refinement of one); the
 proposer writes one candidate per direction; the `Gate` builds each in a sandboxed subprocess and
 refuses rewrites of the zoo (the KunQuant graphs of the `reference` factors plus the accepted ones),
 parameter-only variants, large shared subtrees and hypotheses that name an input or transformation
@@ -22,8 +20,10 @@ one KunQuant graph and scores them on the training segment, as the config's `sco
 over the whole market; neutralised against `scoring.neutralize`'s exposures, size and industry columns, or
 not when it is null; masked to the day-t members of `data.membership`, or on every symbol without one),
 against the label (rank IC, partial IC residualised on the reference and accepted factors, correlation with each,
-deciles). Admission requires the stated sign, correlation at most 0.7, a partial-IC Newey-West t above
-a threshold that rises with the evaluated trials, and monotone deciles.
+deciles). A candidate states no direction: its direction is the sign of its training IC, and the
+statistics are read in it. Admission requires a direction, correlation at most 0.7, a partial-IC
+Newey-West t above a threshold that rises with the evaluated trials (each counted in both directions),
+and monotone deciles. An exported factor is turned to its direction: a higher value, a higher return.
 
 The planner and the proposer see the data, the seed `directions`, the reference factor families, the
 memory, every earlier trial, the last round's training statistics and rejection reasons, and the

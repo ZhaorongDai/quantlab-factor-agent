@@ -25,8 +25,10 @@ SIGNALS = [
 _FIELDS = ("open", "high", "low", "close", "volume")
 _LAGS = (5, 10, 20, 40, 60, 120, 250)
 _WINDOWS = (5, 10, 20, 40, 60)
+#: Noise: every bar either side reads is five or more bars old, which no planted shock reaches (a
+#: moving average over the latest bars would carry today's shocks, a signal in one direction or the other).
 NOISE_CODES = [
-    f"alpha = BackRef({field}, {lag}) / WindowedAvg({field}, {window})"
+    f"alpha = BackRef({field}, {lag}) / BackRef(WindowedAvg({field}, {window}), 5)"
     for window in _WINDOWS for lag in _LAGS for field in _FIELDS
 ]
 

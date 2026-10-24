@@ -68,7 +68,7 @@ def _kmid(market) -> Alpha158Stock:
 
 def _graph(code: str) -> Graph:
     candidate = Candidate.from_dict({
-        "hypothesis": "A test hypothesis.", "mechanism_type": "behavioural_bias", "expected_sign": 1,
+        "hypothesis": "A test hypothesis.", "mechanism_type": "behavioural_bias",
         "horizon_rationale": "A week.", "description": "test", "code": code,
     }, ["behavioural_bias"])
     checked = Gate(GateConfig(), price_volume()).check(candidate, Zoo())

@@ -25,15 +25,15 @@ Everything a campaign's candidates may write with: the fields of its input famil
 and the parameter values those operators accept.
 _Avoid_: whitelist, registry, DSL
 
-**Refuted hypothesis**:
-A trial that admission rejected because its training IC had the opposite sign to the one its
-hypothesis stated. It is never flipped, but it may be the parent of a reversal.
-_Avoid_: wrong-sign factor, flipped factor
+**Factor direction**:
+Which way a factor predicts: +1 when a higher value went with a higher return, -1 when with a lower
+one. It is the sign of the factor's training IC, read from the data, never stated in advance.
+_Avoid_: expected sign, sign of the hypothesis
 
-**Reversal**:
-A planner action that follows up a refuted hypothesis with a mechanism that predicts the direction the
-data showed; code that only negates, rescales or ranks the refuted factor is a duplicate.
-_Avoid_: flip, inversion
+**Research direction**:
+One planned slot of a round: a mechanism type, an action (a new mechanism, or a mutation or refinement
+of an accepted factor) and the idea the proposer is to write a candidate for.
+_Avoid_: plan item, slot (for the idea itself)
 
 **Scoring**:
 How a factor's raw values become the values that are judged: ranked across the market each day, then

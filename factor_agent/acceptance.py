@@ -274,11 +274,14 @@ class Acceptance:
             module.write_text(_module_source(
                 name, record, self.run_dir, self.vocabulary.class_paths([record.graph]),
                 GraphFactor.period_lags({name: record.graph}, self.vocabulary.lag_columns),
+                _admission.direction(record.metrics["ic_mean"]),
             ))
             try:
                 importlib.invalidate_caches()
                 factor_class = getattr(importlib.import_module(f"{package.__name__}.{name}"), _class_name(name))
-                factor = factor_class(self._factor_config(factor_class.GRAPHS, factor_class.PERIOD_LAGS))
+                factor = factor_class(self._factor_config(factor_class.GRAPHS, factor_class.PERIOD_LAGS, kwargs={
+                    "directions": dict(factor_class.DIRECTIONS), "training_ic": {name: record.metrics["ic_mean"]},
+                }))
                 scored = self._scoring().apply(factor, folder / f"{name}.zarr")
                 scored.build(start, end)
                 save_component(scored, folder, readme=self._readme(name, record, factor_class, start, end))
@@ -378,9 +381,10 @@ class Acceptance:
         graphs = dict(zip(outputs, (r.graph for r in records)))
         classes = self.vocabulary.class_paths(graphs.values())
         lags = GraphFactor.period_lags(graphs, self.vocabulary.lag_columns)
-        factor = GraphFactor(self._factor_config(
-            graphs, lags, kwargs={"graphs": graphs, "classes": classes, **({"period_lags": lags} if lags else {})},
-        ))
+        directions = {name: _admission.direction(r.metrics["ic_mean"]) for name, r in zip(outputs, records)}
+        factor = GraphFactor(self._factor_config(graphs, lags, kwargs={
+            "graphs": graphs, "classes": classes, "directions": directions, **({"period_lags": lags} if lags else {}),
+        }))
         folder = self.run_dir / "acceptance" / "accepted"
         scored = self._scoring().apply(factor, folder / "accepted.zarr")
         start = self.config.segments.training.start
@@ -438,14 +442,17 @@ class Acceptance:
         return out
 
     def _readme(self, name: str, record: TrialRecord, factor_class: type, start: str, end: str) -> str:
-        candidate = record.candidate
+        candidate, ic = record.candidate, record.metrics["ic_mean"]
         validation = self.run_dir / "acceptance" / "validation.json"
         lines = [
             f"# {name}", "",
             f"{candidate['description']}", "",
             "## What it is", "",
             f"- Hypothesis: {candidate['hypothesis']}",
-            f"- Mechanism type: {candidate['mechanism_type']}; expected sign: {candidate['expected_sign']:+d}.",
+            f"- Mechanism type: {candidate['mechanism_type']}; {_feedback.direction_text(ic)}"
+            + ("; the factor is turned to it (one minus its rank) before scoring, so a higher value means a higher return."
+               if _admission.direction(ic) < 0 else "; a higher value means a higher return.")
+            + f" Training IC {ic:+.4f}.",
             f"- Horizon: {candidate['horizon_rationale']}",
             f"- Output `{name}`: the graph's whole-market values as the campaign scored them "
             f"({self._scoring().describe()}); the store is not masked to members.", "",
@@ -476,11 +483,13 @@ def _class_name(name: str) -> str:
     return "".join(part.capitalize() for part in name.split("_") if part) or "Factor"
 
 
-def _module_source(name: str, record: TrialRecord, run_dir: Path, classes: dict, period_lags: dict) -> str:
+def _module_source(
+    name: str, record: TrialRecord, run_dir: Path, classes: dict, period_lags: dict, direction: int,
+) -> str:
     """The module of an exported factor: the candidate as data and a ``GraphFactor`` subclass fixing its graph.
 
     ``classes`` are the class paths of the graph's operators and ``period_lags`` how its lag columns are
-    computed, both from the campaign's vocabulary.
+    computed, both from the campaign's vocabulary; ``direction`` is the sign of its training IC.
     """
     code = "\n".join(f"#     {line}" for line in record.candidate["code"].splitlines())
     return (
@@ -497,4 +506,5 @@ def _module_source(name: str, record: TrialRecord, run_dir: Path, classes: dict,
         f"    GRAPHS = {{{name!r}: {pprint.pformat(record.graph, width=100)}}}\n"
         f"    CLASSES = {pprint.pformat(classes, width=100)}\n"
         + (f"    PERIOD_LAGS = {pprint.pformat(period_lags, width=100)}\n" if period_lags else "")
+        + f"    DIRECTIONS = {{{name!r}: {direction}}}\n"
     )

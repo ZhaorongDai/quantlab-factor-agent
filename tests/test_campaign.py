@@ -166,8 +166,9 @@ def _run(root: Path, rounds: list[list[dict]], reference=(), **sections) -> dict
     sections["round"] = {"min_per_type": 0, "max_rounds": len(rounds), **sections.get("round", {})}
     made = [factor(prices, exposures).get_config() for factor in reference]
     config_path = write_config(root, components, made, **sections)
-    result = run(config_path, FakeLLM(lambda number, directions: rounds[number - 1]), root / "kunquant_cache")
-    return {"result": result, "run_dir": root / "run"}
+    fake = FakeLLM(lambda number, directions: rounds[number - 1])
+    result = run(config_path, fake, root / "kunquant_cache")
+    return {"result": result, "run_dir": root / "run", "fake": fake}
 
 
 def _alpha158(prices, names=None) -> Alpha158Stock:
@@ -258,7 +259,6 @@ def test_a_neutralised_reference_factor_is_known_by_the_factor_it_neutralises(ag
 # One round against KMID, the planted intraday signal up to a constant. Each
 # candidate meets one admission check; the volume signal passes them all.
 ADMISSION = [
-    _candidate("wrong sign", "alpha = high / Max(open, close)", expected_sign=-1),
     _candidate("noisy copy", "alpha = (close - open) / (high - low)"),
     _candidate("averaged copy", "alpha = WindowedAvg(close / open, 5)"),
     _candidate("incremental", "alpha = volume / WindowedAvg(volume, 20)"),
@@ -280,17 +280,38 @@ def admission(tmp_path_factory):
     return {**outcome, "records": _by_description(result.accepted + result.rejected)}
 
 
-def test_a_signal_with_the_wrong_stated_sign_is_rejected_not_flipped(admission):
-    record = admission["records"]["wrong sign"]
-    assert record.status == "rejected"
-    assert record.stage == "admission"
-    assert record.metrics["ic_mean"] > 0
-    assert record.metrics["ic_t"] > 3
-    assert record.candidate["expected_sign"] == -1
+#: The planted signal read backwards: a higher value goes with a lower return.
+BACKWARDS = [_candidate("backwards", "alpha = open / close")]
+#: A second round, so the first round's acceptance shows in the prompts.
+AFTER = [_candidate("noise", "alpha = BackRef(volume, 10) / WindowedAvg(volume, 60)")]
+
+
+@pytest.fixture(scope="module")
+def backwards(tmp_path_factory):
+    return _run(tmp_path_factory.mktemp("backwards"), [BACKWARDS, AFTER], round={"candidates": 1, "retries": 0})
+
+
+def test_a_signal_read_backwards_is_accepted_with_the_direction_its_training_ic_shows(backwards):
+    [record] = [r for r in backwards["result"].accepted if r.candidate["description"] == "backwards"]
+    assert record.metrics["ic_mean"] < -0.1
+    assert "expected_sign" not in record.candidate
+
+
+def test_the_prompts_name_an_accepted_factors_direction(backwards):
+    prompt = backwards["fake"].of_role("proposer")[-1].prompt
+    best = prompt.split("Current best mechanisms", 1)[1]
+    assert "direction -1 (a higher value went with a lower return)" in best
+    assert "expected sign" not in prompt.lower() and "expected_sign" not in prompt
+
+
+def test_one_trial_is_judged_as_two_tests_one_per_direction(weak_alone, tmp_path):
+    strict = _run(tmp_path, [[WEAK]], admission={"t_threshold": 3.3}, round={"candidates": 1, "retries": 0})
+    [record] = strict["result"].rejected
+    assert 3.3 < record.metrics["partial_ic_t"] < 3.49
     assert record.reasons == [
-        f"the training IC {record.metrics['ic_mean']:+.4f} has the opposite sign to the hypothesis (expected sign "
-        "-1); the candidate is not flipped, but a reversal of it, a mechanism that predicts this direction, may be "
-        "planned"
+        f"the partial IC's Newey-West t {record.metrics['partial_ic_t']:.2f} (residualised against the reference "
+        "set and the accepted factors, in the factor's direction) is below the threshold 3.49 at 1 evaluated "
+        "trial(s), each counted in both directions"
     ]
 
 

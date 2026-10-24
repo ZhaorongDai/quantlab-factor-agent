@@ -98,7 +98,7 @@ def _add_field(**field):
 
 def _candidate(code: str, hypothesis: str = "A test mechanism.") -> Candidate:
     return Candidate(
-        hypothesis=hypothesis, mechanism_type="behavioural_bias", expected_sign=1,
+        hypothesis=hypothesis, mechanism_type="behavioural_bias",
         horizon_rationale="Within a week.", description="Test factor.", code=code,
     )
 

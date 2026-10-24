@@ -263,7 +263,7 @@ def ranked_root(term):
     A cross-sectional rank, scale or z-score, a constant offset and a
     nonzero scale keep or reverse the factor's cross-sectional order, so
     ``Rank(x) * 2 - 1`` and ``1 - x`` are ``x`` to the originality check
-    (the sign is the hypothesis's ``expected_sign``, not a new factor).
+    (the sign is the factor's direction, read from its training IC, not a new factor).
     """
     while isinstance(term, _Node) and (
         term.op in _RANK_PRESERVING

@@ -12,15 +12,21 @@ factor, a subclass of ``GraphFactor`` that fixes ``GRAPHS`` and the
 from collections.abc import Mapping
 
 from KunQuant.Op import OpBase, Output, Rank
-from KunQuant.ops import MulConst
+from KunQuant.ops import AddConst, MulConst
 from KunQuant.Stage import Function
 from factor_agent import period_lag
 from factor_agent.gate.graph import Graph
 from factor_agent.gate.vocabulary import resolve_classes
 
 
-def ranked_function(graphs: Mapping[str, Graph], presence: Mapping[str, str] | None = None) -> Function:
+def ranked_function(
+    graphs: Mapping[str, Graph], presence: Mapping[str, str] | None = None, directions: Mapping[str, int] | None = None,
+) -> Function:
     """One KunQuant function with an output per graph, named after it, ranked across the market.
+
+    A graph whose ``directions`` entry is -1 (a higher value went with a lower
+    return) is output as one minus its rank, so every output reads the same
+    way: a higher value, a higher return.
 
     KunQuant's ``Rank`` ranks a missing value too, so the ranked output has a
     value wherever the symbol has a bar. ``presence`` maps a graph's name to
@@ -32,7 +38,12 @@ def ranked_function(graphs: Mapping[str, Graph], presence: Mapping[str, str] | N
     for name, graph in graphs.items():
         output, new = graph.build(inputs)
         ranked = Rank(output)
-        ops += [*new, ranked, Output(ranked, name)]
+        ops += [*new, ranked]
+        if directions and directions.get(name) == -1:
+            flipped = MulConst(ranked, -1.0)
+            ranked = AddConst(flipped, 1.0)
+            ops += [flipped, ranked]
+        ops.append(Output(ranked, name))
         if presence and name in presence:
             zero = MulConst(output, 0.0)
             ops += [zero, Output(zero, presence[name])]
@@ -48,8 +59,10 @@ class GraphFactor(period_lag.PeriodLagFactor):
     ``config.kwargs["classes"]`` (``Vocabulary.class_paths``); how each lag
     column they read is computed, ``PERIOD_LAGS`` or
     ``config.kwargs["period_lags"]`` (``period_lags``), none when neither is
-    set. ``config.data_columns`` must hold every dataset column the graphs
-    and their lags read (``data_columns``).
+    set; each output's direction, ``DIRECTIONS`` or
+    ``config.kwargs["directions"]`` (+1 when unset), turns it so a higher
+    value means a higher return. ``config.data_columns`` must hold every
+    dataset column the graphs and their lags read (``data_columns``).
     """
 
     #: Output name -> ``Graph.to_json()``; set by an exported subclass.
@@ -58,6 +71,8 @@ class GraphFactor(period_lag.PeriodLagFactor):
     CLASSES: dict = {}
     #: Lag column -> how it is computed, of every lag column ``GRAPHS`` reads; set by an exported subclass.
     PERIOD_LAGS: dict = {}
+    #: Output name -> its direction, +1 or -1; set by an exported subclass.
+    DIRECTIONS: dict = {}
 
     def _recorded(self) -> dict:
         return type(self).GRAPHS or dict((self.config.kwargs or {})["graphs"])
@@ -68,12 +83,16 @@ class GraphFactor(period_lag.PeriodLagFactor):
     def _period_lags(self) -> dict:
         return type(self).PERIOD_LAGS or dict((self.config.kwargs or {}).get("period_lags") or {})
 
+    def _directions(self) -> dict:
+        return type(self).DIRECTIONS or dict((self.config.kwargs or {}).get("directions") or {})
+
     def _get_factor_names(self) -> tuple[str, ...]:
         return tuple(self._recorded())
 
     def _get_factor_func(self) -> Function:
         classes = self._classes()
-        return ranked_function({name: Graph.from_json(graph, classes) for name, graph in self._recorded().items()})
+        graphs = {name: Graph.from_json(graph, classes) for name, graph in self._recorded().items()}
+        return ranked_function(graphs, directions=self._directions())
 
     @staticmethod
     def data_columns(graphs: Mapping[str, list], period_lags: Mapping[str, Mapping] | None = None) -> tuple[str, ...]:

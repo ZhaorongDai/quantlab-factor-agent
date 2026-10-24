@@ -31,7 +31,6 @@ def _candidate(code: str, hypothesis: str = "Intraday strength carries into the 
     return Candidate(
         hypothesis=hypothesis,
         mechanism_type="behavioural_bias",
-        expected_sign=1,
         horizon_rationale="Under-reaction resolves over a few days.",
         description="Close over open.",
         code=code,
@@ -226,6 +225,21 @@ def test_a_candidate_that_only_keeps_or_reverses_an_earlier_ranking_is_a_duplica
     result = gate.check(_candidate(second), Zoo())
     assert isinstance(result, Rejected)
     assert any("keeps or reverses the ranking of an earlier candidate" in r for r in result.reasons), result.reasons
+
+
+@pytest.mark.parametrize(
+    ("code", "hint"),
+    [
+        ("alpha = SubConst(close / open, ConstantOp(1))", "SubConst(x, 1)"),
+        ("alpha = MulConst(close, Div(open, high))", "MulConst(x, 1)"),
+        ("alpha = Sub(close / open, 1)", "ConstantOp(1)"),
+    ],
+)
+def test_a_number_where_an_operator_goes_or_the_reverse_is_refused_with_how_to_write_it(code, hint):
+    result = _check(code)
+    assert isinstance(result, Rejected)
+    assert any(hint in r for r in result.reasons), result.reasons
+    assert not any("Traceback" in r or "/" + "Users" in r or "/home" in r for r in result.reasons), result.reasons
 
 def test_a_loop_body_is_kept_in_the_graph():
     code = (

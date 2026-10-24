@@ -17,7 +17,6 @@ def candidate(description: str, code: str, **overrides) -> dict:
     return {
         "hypothesis": f"Hypothesis behind {description}.",
         "mechanism_type": "behavioural_bias",
-        "expected_sign": 1,
         "horizon_rationale": "Resolves within a week.",
         "description": description,
         "code": code,

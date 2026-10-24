@@ -10,13 +10,12 @@ class Candidate:
     """One proposed factor.
 
     ``code`` is a Python body over the vocabulary's operators that ends by
-    assigning the factor to ``alpha``. ``expected_sign`` is +1 when a higher
-    value is expected to predict a higher forward return, -1 when lower.
+    assigning the factor to ``alpha``. A candidate states no direction:
+    which way it predicts is read from its training IC.
     """
 
     hypothesis: str
     mechanism_type: str
-    expected_sign: int
     horizon_rationale: str
     description: str
     code: str
@@ -29,8 +28,7 @@ class Candidate:
         ------
         ValueError
             If a field is missing or extra, ``mechanism_type`` is not one of
-            ``mechanism_types``, ``expected_sign`` is not +1 or -1, or a text
-            field is not a string.
+            ``mechanism_types``, or a field is not a string.
         """
         if not isinstance(item, dict):
             raise ValueError(f"a candidate must be a JSON object, got {type(item).__name__}")
@@ -43,10 +41,8 @@ class Candidate:
             raise ValueError(
                 f"mechanism_type {item['mechanism_type']!r} is not one of {list(mechanism_types)}"
             )
-        if item["expected_sign"] not in (1, -1) or isinstance(item["expected_sign"], bool):
-            raise ValueError(f"expected_sign must be 1 or -1, got {item['expected_sign']!r}")
         for name in names:
-            if name != "expected_sign" and not isinstance(item[name], str):
+            if not isinstance(item[name], str):
                 raise ValueError(f"{name} must be a string, got {type(item[name]).__name__}")
         return cls(**{name: item[name] for name in names})
 

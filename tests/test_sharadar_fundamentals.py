@@ -52,7 +52,6 @@ def _candidate(code: str, hypothesis: str = "Cheap firms earn a premium.") -> Ca
     return Candidate(
         hypothesis=hypothesis,
         mechanism_type="risk_premium",
-        expected_sign=1,
         horizon_rationale="Valuation spreads close slowly.",
         description="A fundamental ratio.",
         code=code,

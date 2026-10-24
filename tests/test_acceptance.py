@@ -18,6 +18,7 @@ import numpy as np
 import pytest
 import xarray as xr
 from KunQuant.Op import Output, Rank
+from KunQuant.ops.ElewiseOp import AddConst, MulConst
 from KunQuant.Stage import Function
 from quantlab.core.component import rebuild
 from quantlab.core.store_folder import load_component
@@ -44,7 +45,8 @@ SEGMENTS = {
 TINY_XGB = {"training_target": "cs_rank", "num_boost_round": 20, "max_depth": 3, "eta": 0.3, "nthread": 4, "device": "cpu"}
 CANDIDATES = [
     candidate("planted", "alpha = close / open"),
-    candidate("volume", "alpha = volume / WindowedAvg(volume, 20)"),
+    # A volume shock written backwards: a higher value goes with a lower return, so its direction is -1.
+    candidate("volume", "alpha = WindowedAvg(volume, 20) / volume"),
 ]
 PACKAGE = "exported_for_test"
 #: The first bar of the momentum store, inside the training segment.
@@ -150,7 +152,10 @@ def test_the_hold_out_opens_once_and_a_forced_reopen_is_stated(campaign, validat
 
 
 class _Evaluated(FactorKunQuant):
-    """A recorded graph ranked across the market, as the Evaluator compiles it."""
+    """A recorded graph ranked across the market, as the Evaluator compiles it, turned to its direction.
+
+    The volume shock's direction is -1, so the exported factor is one minus its rank.
+    """
 
     graph: list = []
 
@@ -160,7 +165,9 @@ class _Evaluated(FactorKunQuant):
     def _get_factor_func(self) -> Function:
         output, ops = Graph.from_json(self.graph, price_volume().classes).build({})
         ranked = Rank(output)
-        return Function([*ops, ranked, Output(ranked, "evaluated")])
+        flipped = MulConst(ranked, -1.0)
+        turned = AddConst(flipped, 1.0)
+        return Function([*ops, ranked, flipped, turned, Output(turned, "evaluated")])
 
 
 @pytest.fixture(scope="module")
@@ -193,9 +200,11 @@ def test_the_exported_store_has_its_readme_and_component(exported):
     folder = exported["folder"]
     assert folder.name == "volume_shock"
     readme = (folder / "README.md").read_text()
-    assert "Hypothesis behind volume." in readme and "alpha = volume / WindowedAvg(volume, 20)" in readme
+    assert "Hypothesis behind volume." in readme and "alpha = WindowedAvg(volume, 20) / volume" in readme
+    assert "direction -1 (a higher value went with a lower return); the factor is turned to it" in readme
     assert "accepted in round 1 of the factor-agent campaign" in readme
-    assert json.loads((folder / "component.json").read_text())
+    component = (folder / "component.json").read_text()
+    assert '"directions"' in component and '"volume_shock": -1' in component and '"training_ic"' in component
     assert (folder / "volume_shock.zarr").exists()
 
 

@@ -71,6 +71,9 @@ class Graph:
                 attrs = tuple((k, v if isinstance(v, (bool, int, float, str)) else repr(v)) for k, v in attrs)
             if name is None:
                 raise ValueError(f"operator {type(op).__name__} is not an operator of the vocabulary")
+            for key, value in attrs:
+                if strict and isinstance(value, OpBase):
+                    raise ValueError(_operator_in_a_number_slot(name, key))
             extra = set(vars(op)) - _OP_STATE
             if extra and strict:
                 raise ValueError(f"operator {name} carries state the gate cannot record: {sorted(extra)}")
@@ -164,3 +167,11 @@ class Graph:
         ``x``, ``-x`` and ``Rank(x) * 3 + 1`` share it.
         """
         return hashlib.sha256(term_key(ranked_root(canonical_terms(self)[-1])).encode()).hexdigest()
+
+
+def _operator_in_a_number_slot(name: str, key: str) -> str:
+    """The reason for an operator passed where ``name`` takes a number, with how to write it."""
+    reason = f"{name}'s {key} must be a number, not an operator"
+    if name.endswith("Const"):
+        reason += f": write {name}(x, 1), or {name.removesuffix('Const')}(x, ConstantOp(1)) to combine two operators"
+    return reason
