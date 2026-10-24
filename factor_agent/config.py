@@ -8,7 +8,7 @@ original against (the ``Zoo``) and, in admission, uncorrelated with and
 incremental to; a factor's ``factor_names`` selects its columns.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +17,7 @@ from quantlab.core.component import rebuild
 from quantlab.core.store_folder import load_component
 
 from factor_agent.candidate import MECHANISM_TYPES
-from factor_agent.segments import Segment
+from factor_agent.segments import PURGE_BARS, Segment, Segments
 
 
 @dataclass(frozen=True)
@@ -120,6 +120,48 @@ class RoundConfig:
             )
 
 
+#: SEL0's xgb_deep (quantlab-experiment 2026-10-18-us3000-factor-selection-xgb), without its thread count.
+XGB_DEEP = {
+    "training_target": "cs_rank", "early_stopping": True, "early_stopping_patience": 100,
+    "objective": "reg:squarederror", "num_boost_round": 2000, "eta": 0.03, "max_depth": 6,
+    "min_child_weight": 1000, "subsample": 0.8, "colsample_bytree": 0.5,
+}
+
+
+@dataclass(frozen=True)
+class AcceptanceConfig:
+    """How ``Acceptance`` validates, opens the hold-out and exports.
+
+    ``features`` are the baseline model's features (SEL0's), as components;
+    empty, the reference set is used. Every feature, and each accepted
+    factor's neutralised values, is read on the members of day t.
+    """
+
+    features: tuple = ()
+    #: The xgb hyperparameters (``ModelConfig.hyperparameters``).
+    hyperparameters: dict = field(default_factory=lambda: dict(XGB_DEEP))
+    #: The seeds every model is trained with.
+    seeds: tuple[int, ...] = (0, 1, 2)
+    #: Share of the training window the xgb validates (early-stops) on, at its end.
+    val_size: float = 0.2
+    #: Members held by the plain TopK book.
+    top_k: int = 100
+    #: Where exported stores go, ``<factor_root>/<name>/``; None: quantlab's ``factors/market``.
+    factor_root: str | None = None
+    #: The package the exported ``FactorKunQuant`` subclasses are written into, one module each.
+    package: str = "factor_agent.accepted"
+    #: First date of an exported store; None: the training segment's start.
+    export_start: str | None = None
+    #: Last date of an exported store; None: the hold-out's end, else the validation's.
+    export_end: str | None = None
+
+    def __post_init__(self):
+        object.__setattr__(self, "features", tuple(self.features))
+        object.__setattr__(self, "seeds", tuple(self.seeds))
+        if not self.seeds:
+            raise ValueError("acceptance: at least one seed is needed")
+
+
 @dataclass(frozen=True)
 class RoleConfig:
     """One role's LLM: the backend name, the model and the backend's own settings."""
@@ -153,7 +195,7 @@ class CampaignConfig:
     """
 
     run_dir: str
-    training: Segment
+    segments: Segments
     data: DataConfig
     roles: dict
     #: The reference factors, as components; see the module docstring.
@@ -163,6 +205,12 @@ class CampaignConfig:
     gate: GateConfig = GateConfig()
     admission: AdmissionConfig = AdmissionConfig()
     round: RoundConfig = RoundConfig()
+    acceptance: AcceptanceConfig = AcceptanceConfig()
+
+    @property
+    def training(self) -> Segment:
+        """The segment the campaign evaluates."""
+        return self.segments.training
 
     @classmethod
     def from_file(cls, path: str | Path) -> "CampaignConfig":
@@ -180,7 +228,7 @@ class CampaignConfig:
         raw = yaml.safe_load(Path(path).read_text())
         sections = {
             "evaluator": EvaluatorConfig, "gate": GateConfig,
-            "admission": AdmissionConfig, "round": RoundConfig,
+            "admission": AdmissionConfig, "round": RoundConfig, "acceptance": AcceptanceConfig,
         }
         unknown = set(raw) - {"run_dir", "segments", "data", "reference", "directions", "llm", *sections}
         if unknown:
@@ -188,13 +236,30 @@ class CampaignConfig:
         unknown_roles = set(raw["llm"]) - set(ROLES)
         if unknown_roles:
             raise TypeError(f"campaign config: unknown LLM role(s) {sorted(unknown_roles)}; known: {list(ROLES)}")
-        training = raw["segments"]["training"]
         return cls(
             run_dir=raw["run_dir"],
-            training=Segment("training", str(training["start"]), str(training["end"])),
+            segments=_segments(raw["segments"]),
             data=DataConfig(**raw["data"]),
             roles={role: RoleConfig.from_dict(raw["llm"][role]) for role in ROLES},
             reference=tuple(raw.get("reference") or ()),
             directions=tuple(raw.get("directions") or ()),
             **{name: klass(**raw[name]) for name, klass in sections.items() if name in raw},
         )
+
+
+def _segments(raw: dict) -> Segments:
+    """The ``segments`` section: ``training`` and, optionally, ``validation``, ``holdout`` and ``purge_bars``.
+
+    Raises
+    ------
+    TypeError
+        If the section holds another key.
+    """
+    unknown = set(raw) - {"training", "validation", "holdout", "purge_bars"}
+    if unknown:
+        raise TypeError(f"campaign config: unknown segment key(s) {sorted(unknown)}")
+    segments = {
+        name: Segment(name, str(raw[name]["start"]), str(raw[name]["end"]))
+        for name in ("training", "validation", "holdout") if name in raw
+    }
+    return Segments(**segments, purge_bars=int(raw.get("purge_bars", PURGE_BARS)))

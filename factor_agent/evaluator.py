@@ -10,8 +10,9 @@ the members of day t (``IndexConstituentDataset.mask``). A batch that does
 not compile or run is bisected until the failing graphs are found; they
 become ``CompileFailure`` and the rest are evaluated.
 
-Only dates whose label lies entirely inside the segment are scored, and on
-each date only the members with a label. The statistics of a candidate:
+Only dates whose label lies entirely inside the segment are scored (the
+purge of ``segments``), and on each date only the members with a label.
+The statistics of a candidate:
 
 - IC: the daily rank IC against the forward label, its mean and the
   Newey-West t of the mean.
@@ -45,7 +46,6 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 import xarray as xr
-from KunQuant.Op import OpBase, Output, Rank
 from KunQuant.Stage import Function
 from quantlab.analysis.factor_report import newey_west_lags, newey_west_t_stat
 from quantlab.factor.config import FactorConfig, NeutralizedConfig
@@ -54,8 +54,9 @@ from quantlab.factor.predefined.neutralized import NeutralizedFactor
 from quantlab.model.evaluation import cross_sectional_rank_ic_series
 from scipy import stats
 
+from factor_agent.exported import ranked_function
 from factor_agent.gate.graph import Graph
-from factor_agent.segments import Segment
+from factor_agent.segments import PURGE_BARS, Segment, purge
 
 #: Groups the daily cross section is cut into for the decile returns.
 DECILES = 10
@@ -141,13 +142,7 @@ class _RoundGraph(FactorKunQuant):
         return tuple(_output_name(i) for i in range(len(self._graphs)))
 
     def _get_factor_func(self) -> Function:
-        inputs: dict[str, OpBase] = {}
-        ops: list[OpBase] = []
-        for i, graph in enumerate(self._graphs):
-            output, new = graph.build(inputs)
-            ranked = Rank(output)
-            ops += [*new, ranked, Output(ranked, _output_name(i))]
-        return Function(ops)
+        return ranked_function({_output_name(i): graph for i, graph in enumerate(self._graphs)})
 
     def compute(self, start, end) -> xr.Dataset:
         """Compute the batch from ``start`` to ``end``, reusing the last result for the same range."""
@@ -172,9 +167,10 @@ class Evaluator:
 
     def __init__(
         self, segment: Segment, prices, label, membership, exposures, reference: Sequence,
-        warmup_bars: int, njobs: int,
+        warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS,
     ):
         self._segment = segment
+        self._purge_bars = purge_bars
         self._prices = prices
         self._label = label
         self._membership = membership
@@ -187,7 +183,7 @@ class Evaluator:
     @classmethod
     def for_segment(
         cls, segment: Segment, *, prices, label, membership, exposures, reference: Sequence = (),
-        warmup_bars: int, njobs: int,
+        warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS,
     ) -> "Evaluator":
         """Return an evaluator of ``segment``.
 
@@ -211,8 +207,10 @@ class Evaluator:
             a store is read from it, any other is computed.
         warmup_bars, njobs : int
             Warm-up bars and KunQuant executor threads.
+        purge_bars : int
+            The fewest bars dropped at the end of the segment (``segments.purge``).
         """
-        return cls(segment, prices, label, membership, exposures, reference, warmup_bars, njobs)
+        return cls(segment, prices, label, membership, exposures, reference, warmup_bars, njobs, purge_bars)
 
     @property
     def segment(self) -> Segment:
@@ -285,7 +283,7 @@ class Evaluator:
         if self._frame is None:
             name = self._label.get_factor_names()[0]
             label = self._label.read(self._segment.start, self._segment.end)[name]
-            keep = label.sizes["timestamp"] - self._label.lookahead_bars()
+            keep = label.sizes["timestamp"] - purge(self._label.lookahead_bars(), self._purge_bars)
             self._frame = _Frame(label.isel(timestamp=slice(0, max(keep, 0))))
             self._frame.add_to_pool(dict(item for factor in self._reference for item in self._reference_scores(factor)))
         return self._frame
@@ -401,7 +399,7 @@ class _Scores:
         return Metrics(
             ic_mean=ic_mean, ic_t=ic_t, partial_ic_mean=partial_mean, partial_ic_t=partial_t,
             nearest=nearest, nearest_correlation=correlation,
-            decile_returns=_decile_returns(values, frame.target),
+            decile_returns=decile_returns(values, frame.target),
             n_days=int(scored.sum()),
             start=days[0].strftime("%Y-%m-%d") if len(days) else "",
             end=days[-1].strftime("%Y-%m-%d") if len(days) else "",
@@ -455,7 +453,7 @@ def _mean_and_t(ic: np.ndarray, horizon: int) -> tuple[float, float]:
     return float(series.mean()), float(t_stat)
 
 
-def _decile_returns(values: np.ndarray, target: np.ndarray) -> tuple[float, ...]:
+def decile_returns(values: np.ndarray, target: np.ndarray) -> tuple[float, ...]:
     """The mean label of each decile of the daily cross section, averaged over dates."""
     daily = np.full((len(values), DECILES), np.nan)
     for d in range(len(values)):

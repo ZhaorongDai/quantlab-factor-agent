@@ -6,7 +6,7 @@ deterministic gates (sandboxed graph build, originality, complexity, mechanism b
 quantlab's whole-market panels for incremental value over the existing factor set, and only the training
 segment is ever shown to the model.
 
-Status: the multi-round research loop (#5). `Campaign(CampaignConfig.from_file(path)).run()` runs
+Status: the multi-round research loop (#5) and acceptance (#7, see below). `Campaign(CampaignConfig.from_file(path)).run()` runs
 rounds until a stop condition holds. Each round, every mechanism type gets `min_per_type` slots and
 the rest go by Thompson sampling on each type's admission rate; the planner plans one direction per
 slot (a new mechanism, an orthogonal mutation of an accepted factor, or a refinement of one); the
@@ -57,6 +57,35 @@ llm:
   reproduces byte for byte without calling a provider; a request the log has no reply for fails.
 - Before the first round `run()` prints the estimated cost per role against `budget_usd`
   (`Campaign(config).estimate()`); the run stops once the calls have cost the budget.
+
+## Acceptance
+
+After the campaign, `Acceptance(config)` judges the accepted factors by what they add to SEL0 xgb:
+
+```yaml
+segments:
+  training:   {start: 2000-02-02, end: 2014-12-31}
+  validation: {start: 2015-01-02, end: 2019-12-31}
+  holdout:    {start: 2020-01-02, end: 2026-10-23}
+  purge_bars: 5          # at least; a label that reads further purges more (ret_5: 6)
+acceptance:
+  features: [...]        # SEL0's features as components; empty: the reference set
+  seeds: [0, 1, 2]
+  top_k: 100
+  # hyperparameters: xgb_deep by default; factor_root: quantlab's factors/market by default
+```
+
+- `validate()` trains the xgb per seed on the baseline features and on those plus every accepted
+  factor (ranked, neutralised and read on the day-t members, as the Evaluator scored it), up to the
+  purged end of training, and predicts the purged validation segment. It reports, per seed and on
+  average, rank IC, IC, decile monotonicity, D10−D1, and the fee-free plain TopK return and excess
+  (`<run_dir>/acceptance/validation.{json,md}`).
+- `open_holdout(force=False)` writes `<run_dir>/holdout.lock` (when, with which commits), then makes the
+  same comparison on the hold-out, trained through validation. A second open raises `HoldoutLocked`;
+  `force=True` runs it, appends to the lock, and the report says the hold-out was opened again.
+- `export({"<description>": "<name>"})` writes `factor_agent/accepted/<name>.py` (a `GraphFactor`, i.e.
+  `FactorKunQuant`, subclass fixing the scored graph) and the whole-market store
+  `<factor_root>/<name>/` (`NeutralizedFactor` of the ranked graph) with `README.md` and `component.json`.
 
 ## Setup
 

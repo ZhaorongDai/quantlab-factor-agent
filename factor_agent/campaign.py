@@ -185,6 +185,7 @@ class Campaign:
             reference=reference,
             warmup_bars=config.evaluator.warmup_bars,
             njobs=config.evaluator.njobs,
+            purge_bars=config.segments.purge_bars,
         )
         zoo = Zoo.from_reference(reference)
         _write_zoo(run_dir / "zoo.json", zoo)
