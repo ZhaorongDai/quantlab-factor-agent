@@ -278,7 +278,7 @@ class Acceptance:
             try:
                 importlib.invalidate_caches()
                 factor_class = getattr(importlib.import_module(f"{package.__name__}.{name}"), _class_name(name))
-                factor = factor_class(self._factor_config(factor_class.GRAPHS))
+                factor = factor_class(self._factor_config(factor_class.GRAPHS, factor_class.PERIOD_LAGS))
                 scored = self._scoring().apply(factor, folder / f"{name}.zarr")
                 scored.build(start, end)
                 save_component(scored, folder, readme=self._readme(name, record, factor_class, start, end))
@@ -379,7 +379,7 @@ class Acceptance:
         classes = self.vocabulary.class_paths(graphs.values())
         lags = GraphFactor.period_lags(graphs, self.vocabulary.lag_columns)
         factor = GraphFactor(self._factor_config(
-            graphs, kwargs={"graphs": graphs, "classes": classes, **({"period_lags": lags} if lags else {})},
+            graphs, lags, kwargs={"graphs": graphs, "classes": classes, **({"period_lags": lags} if lags else {})},
         ))
         folder = self.run_dir / "acceptance" / "accepted"
         scored = self._scoring().apply(factor, folder / "accepted.zarr")
@@ -394,10 +394,11 @@ class Acceptance:
 
     # Shared.
 
-    def _factor_config(self, graphs: dict, kwargs: dict | None = None) -> FactorConfig:
+    def _factor_config(self, graphs: dict, lags: dict, kwargs: dict | None = None) -> FactorConfig:
+        """The config of a factor of the recorded ``graphs``, which read the period ``lags``."""
         return FactorConfig(
             warmup_bars=self.config.evaluator.warmup_bars, dataset=self._data("prices"), mode="batch",
-            data_columns=GraphFactor.data_columns(graphs, GraphFactor.period_lags(graphs, self.vocabulary.lag_columns)),
+            data_columns=GraphFactor.data_columns(graphs, lags),
             njobs=self.config.evaluator.njobs, kwargs=kwargs,
         )
 

@@ -255,13 +255,13 @@ class Evaluator:
         if not graphs:
             return []
         frame = self._scored_frame()
-        results: list[Metrics | CompileFailure] = list(self._values(graphs, frame))
+        results: list[Metrics | CompileFailure | _Values] = list(self._values(graphs, frame))
         computed = [i for i, v in enumerate(results) if not isinstance(v, CompileFailure)]
         if not computed:
             return results
-        scores = _Scores(frame, [results[i][0] for i in computed])
+        scores = _Scores(frame, [results[i].values for i in computed])
         for k, i in enumerate(computed):
-            results[i] = scores.metrics(k, self._label.span_bars(), coverage(results[i][1], frame.rows))
+            results[i] = scores.metrics(k, self._label.span_bars(), coverage(results[i].presence, frame.rows))
             name = admit(i, results[i], len(computed)) if admit is not None else None
             if name is not None:
                 scores.admit(k, name)
@@ -316,10 +316,10 @@ class Evaluator:
         for name, values in self._scoring.read(factor, self._segment.start, self._segment.end):
             yield f"{name} ({source})", self._frame.daily_scores(self._frame.on_axes(values))
 
-    def _values(self, graphs: list[Graph], frame: "_Frame") -> list["tuple[np.ndarray, np.ndarray] | CompileFailure"]:
+    def _values(self, graphs: list[Graph], frame: "_Frame") -> list["_Values | CompileFailure"]:
         """Each graph's scored values and its own (unranked) presence, bisecting a batch that fails."""
         inputs = {name for graph in graphs for name in graph.input_names}
-        lags = {name: self._period_lags[name] for name in sorted(inputs) if name in self._period_lags}
+        lags = period_lag.read(inputs, self._period_lags)
         factor = _RoundGraph(
             FactorConfig(
                 warmup_bars=self._warmup_bars, dataset=self._prices, mode="batch",
@@ -339,8 +339,17 @@ class Evaluator:
         names = tuple(_output_name(i) for i in range(len(graphs)))
         panel = self._scoring.mask(self._scoring.apply(factor, names=names).compute(start, end))
         return [
-            (frame.on_axes(panel[_output_name(i)]), frame.on_axes(raw[_presence_name(i)])) for i in range(len(graphs))
+            _Values(frame.on_axes(panel[_output_name(i)]), frame.on_axes(raw[_presence_name(i)]))
+            for i in range(len(graphs))
         ]
+
+
+@dataclass(frozen=True)
+class _Values:
+    """A graph's scored values and its own (unranked) presence, on the frame's axes."""
+
+    values: np.ndarray
+    presence: np.ndarray
 
 
 class _Frame:

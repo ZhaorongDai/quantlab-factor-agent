@@ -28,6 +28,11 @@ from quantlab.factor.kunquant import FactorKunQuant
 from quantlab.factor.predefined.fundamental_alpha import report_lags
 
 
+def read(inputs: Iterable[str], lag_columns: Mapping[str, Mapping]) -> dict[str, dict]:
+    """The entries of ``lag_columns`` (``Vocabulary.lag_columns``) for the columns ``inputs``, by sorted name."""
+    return {name: dict(lag_columns[name]) for name in sorted(inputs) if name in lag_columns}
+
+
 def data_columns(inputs: Iterable[str], lags: Mapping[str, Mapping]) -> tuple[str, ...]:
     """The dataset columns to read for graph ``inputs``: each lag column becomes its field's column and key, sorted."""
     columns = set()

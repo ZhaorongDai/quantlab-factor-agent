@@ -83,7 +83,7 @@ class GraphFactor(period_lag.PeriodLagFactor):
     @staticmethod
     def period_lags(graphs: Mapping[str, list], lag_columns: Mapping[str, Mapping]) -> dict:
         """The entries of ``lag_columns`` (``Vocabulary.lag_columns``) the recorded graphs read."""
-        return {name: dict(lag_columns[name]) for name in sorted(_inputs(graphs)) if name in lag_columns}
+        return period_lag.read(_inputs(graphs), lag_columns)
 
 
 def _inputs(graphs: Mapping[str, list]) -> set[str]:
