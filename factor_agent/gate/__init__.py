@@ -76,11 +76,14 @@ class Gate:
     ----------
     config : GateConfig
         The sandbox limits and the graph constraints.
+    seen : iterable of str, optional
+        Fingerprints of candidates passed before, such as those of a
+        campaign that is resumed.
     """
 
-    def __init__(self, config: "GateConfig"):
+    def __init__(self, config: "GateConfig", seen=()):
         self.config = config
-        self._seen: set[str] = set()
+        self._seen: set[str] = set(seen)
 
     def check(self, candidate: Candidate, zoo: "Zoo") -> Passed | Rejected:
         """Return ``Passed`` with the candidate's graph, or ``Rejected`` with why not.

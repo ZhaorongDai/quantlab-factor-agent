@@ -1,50 +1,116 @@
 """The Campaign: the research loop, from one config to accepted and rejected candidates.
 
-One round: the proposer writes candidates, the Gate checks each (against
-the zoo of reference factors and the factors accepted in earlier rounds) and
-the refused ones go back to the proposer to be fixed, the Evaluator scores
-the survivors on the training segment in one compile, admission decides
-(``_admission``: sign, correlation, partial IC against a threshold that
-rises with the number of evaluated trials, decile monotonicity), every
-candidate goes to the ledger and the accepted ones join the zoo and the
-Evaluator's reference pool, before the next candidate of the round is
-admitted.
+One round:
+
+1. the quota: every mechanism type gets ``min_per_type`` slots and the rest
+   go by Thompson sampling on each type's admission rate (``_scheduler``);
+2. the planner plans one direction per slot: a new mechanism, an
+   orthogonal mutation of an accepted factor, or a refinement of one;
+3. the proposer writes one candidate per direction; the Gate checks each
+   (against the zoo of reference factors and accepted factors) and the
+   refused ones go back to the proposer to be fixed;
+4. the reviewer, in its own call, judges each gated candidate's hypothesis,
+   description and code for consistency; an inconsistent one is rejected
+   without being evaluated;
+5. the Evaluator scores the rest on the training segment in one compile,
+   admission decides (``_admission``) in proposal order, and an accepted
+   candidate joins the zoo and the reference pool before the next is admitted;
+6. the round's records go to the ledger and the state to ``state.json``.
+
+The planner and the proposer read the context of ``_feedback``: the seed
+directions, the reference factor families, the memory, every earlier
+trial, the last round's feedback and the current best mechanisms. Every
+``memory_every`` rounds the distiller turns the ledger into the memory
+(``memory.md``), which every later prompt carries.
+
+Before each round the stop conditions are checked: the round limit, the
+trial limit, ``patience`` rounds in a row without an acceptance, and the
+budget; the first that holds ends the run and is recorded. The budget is
+also checked before every call: a round that reaches it is stopped there
+and dropped, and the spending, written after every call, is kept. ``run`` resumes
+a run directory from its state: the rounds written are kept, a round a
+crash left half written is dropped and run again, and the zoo, the pool and
+the Gate's fingerprints are restored from the ledger.
 """
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from factor_agent import _admission
-from factor_agent.config import CampaignConfig, load
+from factor_agent import _admission, _feedback, _scheduler
+from factor_agent.config import ROLES, CampaignConfig, load
 from factor_agent.evaluator import CompileFailure, Evaluator, Metrics
 from factor_agent.gate import Gate
+from factor_agent.gate.graph import Graph
 from factor_agent.ledger import Ledger, TrialRecord
-from factor_agent.llm.base import make_backend
-from factor_agent.researcher import Proposal, Researcher
+from factor_agent.llm.base import LLMBackend, make_backend
+from factor_agent.researcher import BudgetExhausted, Proposal, Researcher
 from factor_agent.zoo import Zoo
 
 
 @dataclass(frozen=True)
-class CampaignResult:
-    """The trial records of the run, split by outcome, and where the ledger is.
+class Stop:
+    """Why the campaign stopped: ``by`` is ``"max_rounds"``, ``"max_trials"``, ``"patience"`` or ``"budget"``."""
 
-    ``evaluated_trials`` counts the candidates that were evaluated, accepted
-    or rejected; failed trials are not among them. ``not_covered`` names the
-    reference factors without a KunQuant graph, which the Gate's originality
-    check cannot compare a candidate with.
+    by: str
+    reason: str
+
+
+@dataclass(frozen=True)
+class CampaignResult:
+    """Every trial record of the run, why it stopped, and where the ledger is.
+
+    ``evaluated_trials`` counts the candidates the Evaluator scored.
+    ``not_covered`` names the reference factors without a KunQuant graph,
+    which the Gate's originality check cannot compare a candidate with.
     """
 
-    accepted: list[TrialRecord]
-    rejected: list[TrialRecord]
-    failed: list[TrialRecord]
+    records: list[TrialRecord]
     ledger_path: Path
+    stop: Stop
+    rounds: int
+    spent: float
+    memory: str = ""
     not_covered: tuple[str, ...] = ()
+
+    @property
+    def accepted(self) -> list[TrialRecord]:
+        return [r for r in self.records if r.status == "accepted"]
+
+    @property
+    def rejected(self) -> list[TrialRecord]:
+        return [r for r in self.records if r.status == "rejected"]
+
+    @property
+    def failed(self) -> list[TrialRecord]:
+        return [r for r in self.records if r.status == "failed"]
 
     @property
     def evaluated_trials(self) -> int:
         """The number of evaluated candidates."""
-        return len(self.accepted) + len(self.rejected)
+        return sum(r.evaluated for r in self.records)
+
+
+@dataclass
+class _State:
+    """What ``state.json`` holds after every round; the ledger holds the trials."""
+
+    rounds: int = 0
+    spent: float = 0.0
+    memory: str = ""
+    memory_round: int = 0
+    log: list[dict] = field(default_factory=list)
+    stop: dict | None = None
+
+    @classmethod
+    def read(cls, path: Path) -> "_State":
+        return cls(**json.loads(path.read_text())) if path.exists() else cls()
+
+    def write(self, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps(asdict(self), indent=2) + "\n")
+        tmp.replace(path)
 
 
 class Campaign:
@@ -54,17 +120,34 @@ class Campaign:
     ----------
     config : CampaignConfig
         Every setting of the run.
+    backends : dict, optional
+        Backends by role that replace the ones the config names (the model
+        still comes from the config), such as a test's fake.
     """
 
-    def __init__(self, config: CampaignConfig):
+    def __init__(self, config: CampaignConfig, backends: dict[str, LLMBackend] | None = None):
         self.config = config
+        self._backends = dict(backends or {})
 
     def run(self) -> CampaignResult:
-        """Run the campaign and return every candidate's outcome."""
-        config = self.config
-        ledger = Ledger(Path(config.run_dir) / "ledger.jsonl")
-        researcher = Researcher(make_backend(config.proposer.spec()), config.proposer.model)
-        gate = Gate(config.gate)
+        """Run, or resume, the campaign until a stop condition holds; return every candidate's outcome."""
+        config, run_dir = self.config, Path(self.config.run_dir)
+        state_path = run_dir / "state.json"
+        state = _State.read(state_path)
+        ledger = Ledger(run_dir / "ledger.jsonl")
+        ledger.keep(state.rounds)
+        records = ledger.records()
+        def on_cost(spent: float) -> None:
+            state.spent = spent
+            state.write(state_path)
+
+        researcher = Researcher(
+            {
+                role: (self._backends.get(role) or make_backend(config.roles[role].spec()), config.roles[role].model)
+                for role in ROLES
+            },
+            spent=state.spent, budget=config.round.budget_usd, on_cost=on_cost,
+        )
         reference = [load(component) for component in config.reference]
         evaluator = Evaluator.for_segment(
             config.training,
@@ -77,35 +160,100 @@ class Campaign:
             njobs=config.evaluator.njobs,
         )
         zoo = Zoo.from_reference(reference)
-        _write_zoo(Path(config.run_dir) / "zoo.json", zoo)
-        records = []
-        for number in range(1, config.round.max_rounds + 1):
-            evaluated = sum(r.status != "failed" for r in records)
-            round_records = self._round(number, researcher, gate, zoo, evaluator, evaluated)
+        _write_zoo(run_dir / "zoo.json", zoo)
+        gate = Gate(config.gate, seen=[r.fingerprint for r in records if r.fingerprint])
+        _restore(records, zoo, evaluator)
+        while (stop := self._stop(state, records)) is None:
+            number = state.rounds + 1
+            spent_before = researcher.spent
+            try:
+                if state.rounds - state.memory_round >= config.round.memory_every:
+                    state.memory = researcher.distill(number, _feedback.history(records, statistics=False))
+                    state.memory_round = state.rounds
+                    (run_dir / "memory.md").write_text(state.memory + "\n")
+                    state.write(state_path)
+                quota = _scheduler.quota(number, records, config.round)
+                accepted = [r for r in records if r.status == "accepted"]
+                context = self._context(records, state, reference, evaluator, accepted)
+                directions, issues = researcher.plan(number, quota, context, [_feedback.accepted_label(r) for r in accepted])
+                proposals = researcher.propose(number, directions, context, gate, zoo, config.round.retries)
+                round_records = self._round(number, proposals, researcher, zoo, evaluator, records)
+            except BudgetExhausted as exc:
+                stop = Stop("budget", f"{exc}; round {number} was stopped and dropped")
+                break
             ledger.append(round_records)
             records += round_records
+            state.rounds, state.spent = number, researcher.spent
+            state.log.append({
+                "round": number, "quota": quota, "plan_issues": issues, "cost": researcher.spent - spent_before,
+                "accepted": sum(r.status == "accepted" for r in round_records),
+            })
+            state.write(state_path)
+        state.stop = asdict(stop)
+        state.write(state_path)
         return CampaignResult(
-            accepted=[r for r in records if r.status == "accepted"],
-            rejected=[r for r in records if r.status == "rejected"],
-            failed=[r for r in records if r.status == "failed"],
-            ledger_path=ledger.path,
-            not_covered=zoo.not_covered,
+            records=records, ledger_path=ledger.path, stop=stop, rounds=state.rounds, spent=state.spent,
+            memory=state.memory, not_covered=zoo.not_covered,
         )
 
-    def _round(
-        self, number: int, researcher: Researcher, gate: Gate, zoo: Zoo, evaluator: Evaluator, evaluated: int,
-    ) -> list[TrialRecord]:
-        """Propose, gate, evaluate and admit one round; return its records in proposal order.
+    def _stop(self, state: _State, records: list[TrialRecord]) -> Stop | None:
+        """The first stop condition that holds before the next round, or None."""
+        settings = self.config.round
+        if state.rounds >= settings.max_rounds:
+            return Stop("max_rounds", f"the round limit of {settings.max_rounds} rounds is reached")
+        if len(records) + settings.candidates > settings.max_trials:
+            return Stop(
+                "max_trials",
+                f"another round of {settings.candidates} candidates would pass the trial limit of "
+                f"{settings.max_trials} ({len(records)} trials so far)",
+            )
+        recent = range(state.rounds - settings.patience + 1, state.rounds + 1)
+        if state.rounds >= settings.patience and not any(r.status == "accepted" and r.round in recent for r in records):
+            return Stop("patience", f"no candidate was accepted in the last {settings.patience} rounds")
+        if settings.budget_usd is not None and state.spent >= settings.budget_usd:
+            return Stop("budget", f"the LLM calls cost ${state.spent:.2f}, the budget is ${settings.budget_usd:.2f}")
+        return None
 
-        ``evaluated`` counts the trials evaluated in earlier rounds. A round's
-        candidates are tested together, so each is judged at the count after
-        the round: ``evaluated`` plus every candidate of the round that ran,
-        whatever its place in the proposal order. They are admitted in that
-        order, and the accepted ones are added to ``zoo``.
+    def _context(
+        self, records: list[TrialRecord], state: _State, reference: list, evaluator: Evaluator,
+        accepted: list[TrialRecord],
+    ) -> dict[str, str]:
+        """The sections the planner and the proposer read; see ``_feedback``."""
+        labels = [_feedback.accepted_label(r) for r in accepted]
+        return {
+            "seed": "\n".join(f"- {direction}" for direction in self.config.directions),
+            "families": _feedback.families(reference),
+            "memory": state.memory,
+            "history": _feedback.history(records),
+            "last_round": _feedback.last_round([r for r in records if r.round == state.rounds]),
+            "best": _feedback.best(accepted, evaluator.contributions(labels) if labels else {}),
+        }
+
+    def _round(
+        self, number: int, proposals: list[Proposal], researcher: Researcher, zoo: Zoo, evaluator: Evaluator,
+        earlier: list[TrialRecord],
+    ) -> list[TrialRecord]:
+        """Review, evaluate and admit one round's proposals; return its records in proposal order.
+
+        The candidates the reviewer finds consistent are tested together, so
+        each is judged at the evaluated-trial count after the round: the
+        earlier rounds' plus every candidate of the round that ran, whatever
+        its place in the proposal order. They are admitted in that order,
+        and the accepted ones are added to ``zoo``.
         """
-        proposals = researcher.propose(self.config.round.candidates, gate, zoo, self.config.round.retries)
-        passed = [i for i, p in enumerate(proposals) if p.checked is not None]
+        evaluated = sum(r.evaluated for r in earlier)
         records = [self._failed(number, p) if p.checked is None else None for p in proposals]
+        gated = [i for i, p in enumerate(proposals) if p.checked is not None]
+        verdicts = researcher.review(number, [proposals[i].candidate for i in gated])
+        passed = []
+        for i, verdict in zip(gated, verdicts):
+            if verdict.consistent:
+                passed.append(i)
+            else:
+                records[i] = TrialRecord(
+                    status="rejected", stage="review", reasons=[f"the reviewer found it inconsistent: {verdict.reason}"],
+                    **self._common(number, proposals[i]),
+                )
 
         def admit(position: int, metrics: Metrics, ran: int) -> str | None:
             proposal = proposals[passed[position]]
@@ -113,7 +261,7 @@ class Campaign:
             records[passed[position]] = record
             if record.status != "accepted":
                 return None
-            return zoo.add(proposal.candidate.description, f"accepted in round {number}", proposal.checked.graph).label
+            return zoo.add(proposal.candidate.description, _feedback.accepted_source(number), proposal.checked.graph).label
 
         results = evaluator.evaluate([proposals[i].checked.graph for i in passed], admit)
         for i, result in zip(passed, results):
@@ -131,6 +279,7 @@ class Campaign:
         return TrialRecord(
             round=number, candidate=item if isinstance(item, dict) else {"raw": item}, status="failed",
             stage=last.stage, reasons=list(last.reasons), attempts=_attempts(proposal),
+            direction=proposal.direction.to_dict(),
         )
 
     def _admit(self, number: int, proposal: Proposal, metrics: Metrics, trials: int) -> TrialRecord:
@@ -147,8 +296,29 @@ class Campaign:
         checked = proposal.checked
         return dict(
             round=number, candidate=proposal.candidate.to_dict(), fingerprint=checked.fingerprint,
-            stats=checked.stats, attempts=_attempts(proposal),
+            stats=checked.stats, attempts=_attempts(proposal), direction=proposal.direction.to_dict(),
+            graph=checked.graph.to_json(),
         )
+
+
+def _restore(records: list[TrialRecord], zoo: Zoo, evaluator: Evaluator) -> None:
+    """Put the factors accepted in the rounds already written back into ``zoo`` and the reference pool.
+
+    Raises
+    ------
+    RuntimeError
+        If an accepted factor's graph no longer compiles (the code or the
+        quantlab version changed under the run directory).
+    """
+    accepted = [r for r in records if r.status == "accepted"]
+    if not accepted:
+        return
+    graphs = [Graph.from_json(r.graph) for r in accepted]
+    labels = [zoo.add(r.candidate["description"], _feedback.accepted_source(r.round), g).label for r, g in zip(accepted, graphs)]
+    results = evaluator.evaluate(graphs, lambda position, metrics, ran: labels[position])
+    broken = [label for label, result in zip(labels, results) if isinstance(result, CompileFailure)]
+    if broken:
+        raise RuntimeError(f"Campaign: cannot resume, accepted factor(s) no longer compile: {broken}")
 
 
 def _write_zoo(path: Path, zoo: Zoo) -> None:

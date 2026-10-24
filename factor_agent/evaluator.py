@@ -97,6 +97,21 @@ class Metrics:
 
 
 @dataclass(frozen=True)
+class Contribution:
+    """A pool factor's part in a group of pool factors.
+
+    ``weight`` is its mean daily coefficient in the least-squares regression
+    of the label's normal scores on the group's normal scores (with an
+    intercept): a unitless marginal weight. ``residual_ic`` is the mean
+    daily rank IC of what is left of it after regressing it on the rest of
+    the group.
+    """
+
+    weight: float
+    residual_ic: float
+
+
+@dataclass(frozen=True)
 class CompileFailure:
     """The candidate's graph did not compile or run; the error KunQuant gave."""
 
@@ -139,6 +154,10 @@ class _RoundGraph(FactorKunQuant):
         if self._computed is None or self._computed[0] != (start, end):
             self._computed = ((start, end), super().compute(start, end))
         return self._computed[1]
+
+
+def _missing(name: str):
+    raise KeyError(f"{name!r} is not in the reference pool")
 
 
 def _output_name(i: int) -> str:
@@ -227,6 +246,39 @@ class Evaluator:
             if name is not None:
                 scores.admit(k, name)
         return results
+
+    def contributions(self, names: Sequence[str]) -> dict[str, Contribution]:
+        """Each named pool factor's ``Contribution`` within the group of ``names``.
+
+        Raises
+        ------
+        KeyError
+            If a name is not in the pool.
+        """
+        frame = self._scored_frame()
+        columns = [frame.pool_names.index(name) if name in frame.pool_names else _missing(name) for name in names]
+        if not columns:
+            return {}
+        weights = np.full((len(frame.rows), len(columns)), np.nan)
+        residual_ic = np.full((len(frame.rows), len(columns)), np.nan)
+        for d, rows in enumerate(frame.rows):
+            if len(rows) <= len(columns) + 1:
+                continue
+            target = frame.target[d, rows]
+            design = np.column_stack([np.ones(len(rows)), frame.pool[d][:, columns].astype(np.float64)])
+            # Column j + 1 of design @ pinv(design' design) is, up to a positive scale, the
+            # residual of factor j regressed on the intercept and the other factors.
+            dual = design @ np.linalg.pinv(design.T @ design)
+            weights[d] = (dual.T @ _normal_scores(target, axis=0))[1:]
+            ranked_target = stats.rankdata(target)
+            for j in range(len(columns)):
+                residual = dual[:, j + 1]
+                if np.ptp(residual) > _SPANNED_NORM:
+                    residual_ic[d, j] = np.corrcoef(stats.rankdata(residual), ranked_target)[0, 1]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)  # a factor spanned on every day stays NaN
+            weight, ic = np.nanmean(weights, axis=0), np.nanmean(residual_ic, axis=0)
+        return {name: Contribution(float(weight[j]), float(ic[j])) for j, name in enumerate(names)}
 
     def _scored_frame(self) -> "_Frame":
         """The scored dates, the label and the reference pool, read once."""

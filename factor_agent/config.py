@@ -16,6 +16,7 @@ import yaml
 from quantlab.core.component import rebuild
 from quantlab.core.store_folder import load_component
 
+from factor_agent.candidate import MECHANISM_TYPES
 from factor_agent.segments import Segment
 
 
@@ -89,14 +90,34 @@ class AdmissionConfig:
 
 @dataclass(frozen=True)
 class RoundConfig:
-    """The size of a round."""
+    """The size of a round, the planner's quotas and when the campaign stops."""
 
     #: Candidates asked for per round.
     candidates: int = 20
+    #: Candidates of every mechanism type per round; the rest are allocated by Thompson sampling.
+    min_per_type: int = 3
     #: Times a candidate the parser or the Gate refused is sent back to the proposer to fix.
     retries: int = 2
-    #: Rounds the campaign runs.
-    max_rounds: int = 1
+    #: Rounds the campaign runs at most.
+    max_rounds: int = 30
+    #: Trials (candidates, failed ones included) the campaign runs at most; a round that
+    #: would go past it is not started.
+    max_trials: int = 600
+    #: Consecutive rounds without an acceptance after which the campaign stops.
+    patience: int = 5
+    #: US dollars the LLM calls may cost; the campaign stops once they have. None: no limit.
+    budget_usd: float | None = None
+    #: Rounds between two distillations of the ledger into the memory.
+    memory_every: int = 5
+    #: Seed of the Thompson sampling; round n draws from ``(seed, n)``.
+    seed: int = 0
+
+    def __post_init__(self):
+        if self.candidates < self.min_per_type * len(MECHANISM_TYPES):
+            raise ValueError(
+                f"round: {self.candidates} candidates cannot hold {self.min_per_type} of each of "
+                f"{len(MECHANISM_TYPES)} mechanism types"
+            )
 
 
 @dataclass(frozen=True)
@@ -118,16 +139,26 @@ class RoleConfig:
         return {"backend": self.backend, "model": self.model, **self.options}
 
 
+#: The LLM roles of a round, each configured under ``llm``.
+ROLES = ("planner", "proposer", "reviewer", "distiller")
+
+
 @dataclass(frozen=True)
 class CampaignConfig:
-    """Every setting of a campaign, read from one YAML file with ``from_file``."""
+    """Every setting of a campaign, read from one YAML file with ``from_file``.
+
+    ``roles`` maps each of ``ROLES`` to its LLM; the roles may use
+    different backends, so the reviewer can be another provider's model.
+    ``directions`` are the seed research directions the planner is shown.
+    """
 
     run_dir: str
     training: Segment
     data: DataConfig
-    proposer: RoleConfig
+    roles: dict
     #: The reference factors, as components; see the module docstring.
     reference: tuple = ()
+    directions: tuple = ()
     evaluator: EvaluatorConfig = EvaluatorConfig()
     gate: GateConfig = GateConfig()
     admission: AdmissionConfig = AdmissionConfig()
@@ -142,22 +173,28 @@ class CampaignConfig:
         TypeError
             If a section holds a key its config class does not have.
         KeyError
-            If a required section is missing.
+            If a required section or role is missing.
+        ValueError
+            If a section's values do not fit together.
         """
         raw = yaml.safe_load(Path(path).read_text())
         sections = {
             "evaluator": EvaluatorConfig, "gate": GateConfig,
             "admission": AdmissionConfig, "round": RoundConfig,
         }
-        unknown = set(raw) - {"run_dir", "segments", "data", "reference", "llm", *sections}
+        unknown = set(raw) - {"run_dir", "segments", "data", "reference", "directions", "llm", *sections}
         if unknown:
             raise TypeError(f"campaign config: unknown section(s) {sorted(unknown)}")
+        unknown_roles = set(raw["llm"]) - set(ROLES)
+        if unknown_roles:
+            raise TypeError(f"campaign config: unknown LLM role(s) {sorted(unknown_roles)}; known: {list(ROLES)}")
         training = raw["segments"]["training"]
         return cls(
             run_dir=raw["run_dir"],
             training=Segment("training", str(training["start"]), str(training["end"])),
             data=DataConfig(**raw["data"]),
-            proposer=RoleConfig.from_dict(raw["llm"]["proposer"]),
+            roles={role: RoleConfig.from_dict(raw["llm"][role]) for role in ROLES},
             reference=tuple(raw.get("reference") or ()),
+            directions=tuple(raw.get("directions") or ()),
             **{name: klass(**raw[name]) for name, klass in sections.items() if name in raw},
         )

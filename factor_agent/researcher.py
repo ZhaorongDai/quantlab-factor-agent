@@ -1,8 +1,17 @@
-"""The Researcher: the LLM roles of a round, from prompt to checked candidates."""
+"""The Researcher: the LLM roles of a round, from prompt to checked candidates.
+
+Four roles, each with its own backend and model: the planner plans the
+round's directions to the quota of each mechanism type, the proposer writes
+one candidate per direction (and fixes those the parser or the Gate
+refuses), the reviewer judges each gated candidate's consistency in a
+separate call, and the distiller turns the ledger into the memory. Every
+call's cost is added to ``spent``; once ``spent`` reaches the budget, the
+next call raises ``BudgetExhausted`` instead of being sent.
+"""
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 
 from factor_agent import _prompts
 from factor_agent.candidate import MECHANISM_TYPES, Candidate
@@ -13,12 +22,45 @@ from factor_agent.zoo import Zoo
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 
+#: The planner's actions: a new mechanism, an orthogonal mutation of an accepted one, a refinement of one.
+ACTIONS = ("new", "mutation", "refinement")
+
+#: The context sections each role reads (see ``_prompts.SECTIONS``).
+_PLANNER_SECTIONS = ("seed", "families", "memory", "history", "last_round", "best")
+_PROPOSER_SECTIONS = ("families", "memory", "last_round", "best")
+
+
+@dataclass(frozen=True)
+class Direction:
+    """One planned slot of a round: its mechanism type, the action, the parent factor and the idea.
+
+    ``parent`` names an accepted factor for a mutation or a refinement, and
+    is empty for a new direction.
+    """
+
+    mechanism_type: str
+    action: str
+    parent: str
+    direction: str
+
+    def to_dict(self) -> dict:
+        """The direction as the ledger and the prompts hold it."""
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class Verdict:
+    """The reviewer's judgement of one candidate."""
+
+    consistent: bool
+    reason: str
+
 
 @dataclass(frozen=True)
 class Attempt:
     """One refused version of a candidate: what the proposer wrote, where it failed and why.
 
-    ``stage`` is ``"parse"`` (not a valid candidate) or ``"gate"``.
+    ``stage`` is ``"parse"`` (not a valid candidate for its direction) or ``"gate"``.
     """
 
     item: object
@@ -28,7 +70,7 @@ class Attempt:
 
 @dataclass(frozen=True)
 class Proposal:
-    """One candidate slot of a round after its retries.
+    """One direction of a round after its retries.
 
     ``checked`` is set when the last version passed the Gate; otherwise the
     slot is a failed trial and the last of ``attempts`` says why. ``item``
@@ -36,111 +78,241 @@ class Proposal:
     (None if it did not parse), and ``attempts`` every refused version in order.
     """
 
+    direction: Direction
     item: object
     candidate: Candidate | None
     checked: Passed | None
     attempts: tuple[Attempt, ...]
 
 
+class BudgetExhausted(RuntimeError):
+    """The calls have cost the budget; no further call is sent."""
+
+
 class Researcher:
-    """Ask the proposer for candidates, gate them and send the refused ones back to be fixed.
+    """The LLM roles of a campaign.
 
     Parameters
     ----------
-    proposer : LLMBackend
-        The proposer role's backend.
-    model : str
-        The model the proposer requests.
+    roles : dict
+        Maps each role (``planner``, ``proposer``, ``reviewer``,
+        ``distiller``) to its ``(backend, model)``.
+    spent : float
+        US dollars already spent, by the rounds a resumed campaign ran.
+    budget : float, optional
+        US dollars the calls may cost; None for no limit.
+    on_cost : callable, optional
+        Called with ``spent`` after every call, so the spending survives a crash.
     """
 
-    def __init__(self, proposer: LLMBackend, model: str):
-        self.proposer = proposer
-        self.model = model
+    def __init__(
+        self, roles: dict[str, tuple[LLMBackend, str]], spent: float = 0.0, budget: float | None = None,
+        on_cost=None,
+    ):
+        self.roles = dict(roles)
+        #: US dollars spent on calls so far.
+        self.spent = spent
+        self._budget = budget
+        self._on_cost = on_cost or (lambda spent: None)
 
-    def propose(self, n: int, gate: Gate, zoo: Zoo, retries: int) -> list[Proposal]:
-        """Ask for ``n`` candidates and return one ``Proposal`` per item of the reply.
+    def plan(
+        self, number: int, quota: dict[str, int], context: dict[str, str], parents: list[str],
+    ) -> tuple[list[Direction], list[str]]:
+        """Return round ``number``'s directions, ``quota[type]`` of each type in type order, and the plan's issues.
 
-        Every candidate the parser or ``gate`` (checking originality against
+        ``parents`` are the accepted factors a mutation or a refinement may
+        name. A direction the planner leaves out, or writes with an unknown
+        type, action or parent, is replaced by a new direction of its type;
+        each such repair is one issue.
+        """
+        prompt = _prompts.PLAN.format(round=number, context=_render(context, _PLANNER_SECTIONS), quota=json.dumps(quota))
+        issues, by_type = [], {kind: [] for kind in MECHANISM_TYPES}
+        try:
+            items = _json_array(self._ask("planner", prompt))
+        except ValueError as exc:
+            items, issues = [], [f"planner: {exc}"]
+        for i, item in enumerate(items, 1):
+            problem = _direction_problem(item, parents)
+            if problem:
+                issues.append(f"planner: direction {i} {problem}")
+            else:
+                by_type[item["mechanism_type"]].append(Direction(**{k: item[k] for k in Direction.__annotations__}))
+        directions = []
+        for kind in MECHANISM_TYPES:
+            if len(by_type[kind]) > quota[kind]:
+                issues.append(f"planner: {len(by_type[kind])} {kind} directions for {quota[kind]} slots; the first are kept")
+            planned = by_type[kind][:quota[kind]]
+            if len(planned) < quota[kind]:
+                issues.append(f"planner: {len(planned)} of {quota[kind]} {kind} directions; the rest are new directions")
+            planned += [
+                Direction(kind, "new", "", f"a {kind} mechanism not tried before")
+                for _ in range(quota[kind] - len(planned))
+            ]
+            directions += planned
+        return directions, issues
+
+    def propose(
+        self, number: int, directions: list[Direction], context: dict[str, str], gate: Gate, zoo: Zoo, retries: int,
+    ) -> list[Proposal]:
+        """Ask for one candidate per direction and return one ``Proposal`` per direction, in order.
+
+        A candidate must have its direction's mechanism type. Every
+        candidate the parser or ``gate`` (checking originality against
         ``zoo``) refuses is sent back with its reasons, all of a round's in
         one request, up to ``retries`` times.
-
-        Raises
-        ------
-        ValueError
-            If the first reply holds no JSON array.
         """
-        prompt = _prompts.PROPOSE.format(n=n, mechanism_types=", ".join(MECHANISM_TYPES), **describe())
-        items = _json_array(self._ask(prompt))
-        attempts: list[list[Attempt]] = [[] for _ in items]
-        proposals: list[Proposal | None] = [None] * len(items)
-        pending = list(range(len(items)))
+        prompt = _prompts.PROPOSE.format(
+            round=number, context=_render(context, _PROPOSER_SECTIONS), n=len(directions),
+            directions=json.dumps([{"number": i + 1, **d.to_dict()} for i, d in enumerate(directions)], indent=2),
+            **_rules(),
+        )
+        items = _items(self._ask("proposer", prompt), [None] * len(directions))
+        attempts: list[list[Attempt]] = [[] for _ in directions]
+        proposals: list[Proposal | None] = [None] * len(directions)
+        pending = list(range(len(directions)))
         for retry in range(retries + 1):
             for slot in pending:
-                proposals[slot] = self._check(items[slot], gate, zoo, attempts[slot])
+                proposals[slot] = self._check(directions[slot], items[slot], gate, zoo, attempts[slot])
             pending = [slot for slot in pending if proposals[slot].checked is None]
             if not pending or retry == retries:
                 break
-            fixed = self._ask_to_fix([(items[slot], attempts[slot][-1]) for slot in pending])
+            fixed = self._ask_to_fix(number, [(directions[slot], items[slot], attempts[slot][-1]) for slot in pending])
             for slot, item in zip(pending, fixed):
                 items[slot] = item
         return proposals
 
-    def _check(self, item: object, gate: Gate, zoo: Zoo, attempts: list[Attempt]) -> Proposal:
+    def review(self, number: int, candidates: list[Candidate]) -> list[Verdict]:
+        """Judge each candidate's consistency, in one call.
+
+        A reply with no usable verdict at all is asked for once more; a
+        candidate still without a verdict is inconsistent.
+        """
+        if not candidates:
+            return []
+        listed = [{"number": i + 1, **c.to_dict()} for i, c in enumerate(candidates)]
+        prompt = _prompts.REVIEW.format(round=number, candidates=json.dumps(listed, indent=2))
+        verdicts: dict[int, Verdict] = {}
+        for _ in range(2):
+            try:
+                items = _json_array(self._ask("reviewer", prompt))
+            except ValueError:
+                items = []
+            for item in items:
+                if isinstance(item, dict) and isinstance(item.get("consistent"), bool) and isinstance(item.get("number"), int):
+                    verdicts.setdefault(item["number"], Verdict(item["consistent"], str(item.get("reason", ""))))
+            if verdicts:
+                break
+        missing = Verdict(False, "the reviewer gave no verdict on this candidate")
+        return [verdicts.get(i + 1, missing) for i in range(len(candidates))]
+
+    def distill(self, number: int, history: str) -> str:
+        """The memory the distiller writes from ``history``, the trials before round ``number``."""
+        return self._ask("distiller", _prompts.DISTILL.format(round=number, history=history)).strip()
+
+    def _check(self, direction: Direction, item: object, gate: Gate, zoo: Zoo, attempts: list[Attempt]) -> Proposal:
         """Parse and gate one item; a refusal is appended to ``attempts``."""
+        def refused(stage, reasons, candidate=None, shown=item):
+            attempts.append(Attempt(shown, stage, tuple(reasons)))
+            return Proposal(direction, shown, candidate, None, tuple(attempts))
+
         if isinstance(item, _Missing):
-            attempts.append(Attempt(item.previous, "parse", (item.reason,)))
-            return Proposal(item.previous, None, None, tuple(attempts))
+            return refused("parse", [item.reason], shown=item.previous)
         try:
             candidate = Candidate.from_dict(item)
         except ValueError as exc:
-            attempts.append(Attempt(item, "parse", (str(exc),)))
-            return Proposal(item, None, None, tuple(attempts))
+            return refused("parse", [str(exc)])
+        if candidate.mechanism_type != direction.mechanism_type:
+            return refused("parse", [
+                f"mechanism_type {candidate.mechanism_type!r} is not its direction's {direction.mechanism_type!r}"
+            ])
         checked = gate.check(candidate, zoo)
         if isinstance(checked, Passed):
-            return Proposal(item, candidate, checked, tuple(attempts))
-        attempts.append(Attempt(item, "gate", checked.reasons))
-        return Proposal(item, candidate, None, tuple(attempts))
+            return Proposal(direction, item, candidate, checked, tuple(attempts))
+        return refused("gate", checked.reasons, candidate)
 
-    def _ask_to_fix(self, failures: list[tuple[object, Attempt]]) -> list:
+    def _ask_to_fix(self, number: int, failures: list[tuple[Direction, object, Attempt]]) -> list:
         """Send the refused items back; return one fixed item per failure, in order."""
-        items = [item.previous if isinstance(item, _Missing) else item for item, _ in failures]
-        blocks = [
-            _prompts.FAILURE.format(
-                number=i + 1,
-                item=json.dumps(item, indent=2),
-                reasons="\n".join(f"- {reason}" for reason in attempt.reasons),
-            )
-            for i, (item, (_, attempt)) in enumerate(zip(items, failures))
+        items = [item.previous if isinstance(item, _Missing) else item for _, item, _ in failures]
+        listed = [
+            {"number": i + 1, "direction": direction.to_dict(), "candidate": item, "refused_because": list(attempt.reasons)}
+            for i, ((direction, _, attempt), item) in enumerate(zip(failures, items))
         ]
-        text = self._ask(_prompts.RETRY.format(failures="\n".join(blocks), n=len(failures), **describe()))
-        try:
-            fixed = _json_array(text)
-        except ValueError as exc:
-            return [_Missing(str(exc), item) for item in items]
-        short = f"the reply to the fix request had {len(fixed)} items for {len(failures)} candidates"
-        return [fixed[i] if i < len(fixed) else _Missing(short, item) for i, item in enumerate(items)]
+        prompt = _prompts.RETRY.format(round=number, failures=json.dumps(listed, indent=2), n=len(failures), **_rules())
+        return _items(self._ask("proposer", prompt), items)
 
-    def _ask(self, prompt: str) -> str:
-        """Send ``prompt`` to the proposer and return the reply's text."""
-        return self.proposer.complete(Request(role="proposer", model=self.model, prompt=prompt)).text
+    def _ask(self, role: str, prompt: str) -> str:
+        """Send ``prompt`` to ``role``'s backend, count its cost and return the reply's text.
+
+        Raises
+        ------
+        BudgetExhausted
+            If the calls so far have cost the budget.
+        """
+        if self._budget is not None and self.spent >= self._budget:
+            raise BudgetExhausted(f"the LLM calls cost ${self.spent:.2f}, the budget is ${self._budget:.2f}")
+        backend, model = self.roles[role]
+        reply = backend.complete(Request(role=role, model=model, prompt=prompt))
+        self.spent += reply.cost
+        self._on_cost(self.spent)
+        return reply.text
 
 
 @dataclass(frozen=True)
 class _Missing:
-    """No usable item came back for a candidate the proposer was asked to fix; ``previous`` is its last version."""
+    """No usable item came back for a slot; ``previous`` is its last version (None before the first)."""
 
     reason: str
     previous: object
 
 
+def _items(text: str, previous: list) -> list:
+    """One item per slot of ``previous`` from a reply's JSON array; a slot without one is ``_Missing``."""
+    try:
+        items = _json_array(text)
+    except ValueError as exc:
+        return [_Missing(str(exc), item) for item in previous]
+    short = f"the reply had {len(items)} items for {len(previous)} candidates"
+    return [items[i] if i < len(items) else _Missing(short, item) for i, item in enumerate(previous)]
+
+
+def _direction_problem(item: object, parents: list[str]) -> str:
+    """Why a planner item is not a usable direction, or an empty string."""
+    if not isinstance(item, dict) or not all(isinstance(item.get(k), str) for k in Direction.__annotations__):
+        return f"needs the string fields {list(Direction.__annotations__)}"
+    if item["mechanism_type"] not in MECHANISM_TYPES:
+        return f"has the unknown mechanism type {item['mechanism_type']!r}"
+    if item["action"] not in ACTIONS:
+        return f"has the unknown action {item['action']!r}"
+    if item["action"] != "new" and item["parent"] not in parents:
+        return f"names {item['parent']!r}, which is not an accepted factor"
+    return ""
+
+
+def _render(context: dict[str, str], keys: tuple[str, ...]) -> str:
+    """The data description and the non-empty sections of ``context`` among ``keys``."""
+    parts = [_prompts.DATA]
+    for key, heading in _prompts.SECTIONS:
+        if key in keys and context.get(key):
+            parts.append(f"## {heading}\n{context[key]}")
+    return "\n\n".join(parts)
+
+
+def _rules() -> dict:
+    """The code rules, the vocabulary and the fields, as the proposer's templates take them."""
+    return {
+        "code_rules": _prompts.CODE_RULES, "vocabulary": _prompts.VOCABULARY.format(**describe()),
+        "fields": _prompts.FIELDS,
+    }
+
+
 def _json_array(text: str) -> list:
-    """Return the JSON array in ``text``: a fenced block if there is one, else the whole text."""
-    fenced = _FENCE.search(text)
-    body = fenced.group(1) if fenced else text
+    """Return the JSON array in ``text``: the last fenced block if there is one, else the whole text."""
+    fenced = _FENCE.findall(text)
+    body = fenced[-1] if fenced else text
     try:
         value = json.loads(body)
     except json.JSONDecodeError as exc:
-        raise ValueError(f"the proposer's reply is not JSON ({exc}): {text[:200]!r}") from exc
+        raise ValueError(f"the reply is not JSON ({exc}): {text[:200]!r}") from exc
     if not isinstance(value, list):
-        raise ValueError(f"the proposer's reply is a JSON {type(value).__name__}, not an array")
+        raise ValueError(f"the reply is a JSON {type(value).__name__}, not an array")
     return value

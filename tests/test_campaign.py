@@ -1,8 +1,10 @@
 """Campaign.run(): one round end to end, with a scripted LLM as the only fake.
 
-The proposer's first reply holds every kind of candidate; the next two
-answer the Gate's fix requests: the syntax error is fixed on the first
-retry, every other refused candidate comes back unchanged and fails.
+The proposer fills the round's directions with every kind of candidate, in
+order; the fix requests are answered by fixing the syntax error on the
+first retry and sending every other refused candidate back unchanged, so it
+fails. The planner and the reviewer of ``tests/fake_llm`` plan to the quota
+and pass every candidate.
 
 The Gate builds every graph in a real subprocess and the Evaluator compiles
 the round with KunQuant and reads the synthetic store of
@@ -13,29 +15,14 @@ import json
 from pathlib import Path
 
 import pytest
-import yaml
 
-from factor_agent.campaign import Campaign
-from factor_agent.config import CampaignConfig
 from quantlab.core.component import rebuild
 from quantlab.factor.config import FactorConfig, PolarsFactorConfig
-from quantlab.factor.kunquant_compile import CACHE_ENV
 from quantlab.factor.predefined.alpha158 import Alpha158Stock
 from tests import synthetic_market
-
-
-def _candidate(description: str, code: str, **overrides) -> dict:
-    return {
-        "hypothesis": f"Hypothesis behind {description}.",
-        "mechanism_type": "behavioural_bias",
-        "expected_sign": 1,
-        "horizon_rationale": "Resolves within a week.",
-        "reference": "Synthetic test reference",
-        "description": description,
-        "code": code,
-        **overrides,
-    }
-
+from tests.campaign_runner import candidate as _candidate
+from tests.campaign_runner import run, write_config
+from tests.fake_llm import FakeLLM
 
 CANDIDATES = [
     _candidate("planted", "alpha = close / open"),
@@ -57,33 +44,22 @@ REFUSED = ["syntax error", "unknown name", "import", "two outputs", "endless loo
 STILL_FAILING = [c for c in CANDIDATES if c["description"] in REFUSED[1:]]
 
 
-def _reply(items: list[dict]) -> str:
-    return "Here are the candidates.\n```json\n" + json.dumps(items, indent=2) + "\n```\n"
+def _fix(number, failures):
+    return [FIXED if f["candidate"]["description"] == "syntax error" else f["candidate"] for f in failures]
 
 
 @pytest.fixture(scope="module")
 def outcome(tmp_path_factory):
     root = tmp_path_factory.mktemp("campaign")
-    components = synthetic_market.build(root / "data")
-    replies = root / "replies.json"
-    replies.write_text(json.dumps([_reply(CANDIDATES), _reply([FIXED, *STILL_FAILING]), _reply(STILL_FAILING)]))
-    config_path = root / "campaign.yaml"
-    config_path.write_text(yaml.safe_dump(json.loads(json.dumps({
-        "run_dir": str(root / "run"),
-        "segments": {"training": {"start": synthetic_market.TRAINING[0], "end": synthetic_market.TRAINING[1]}},
-        "data": components,
-        "evaluator": {"warmup_bars": 60, "njobs": 4},
-        "gate": {"timeout_seconds": 3},
-        "admission": {"t_threshold": 3.0},
-        "round": {"candidates": len(CANDIDATES)},
-        "llm": {"proposer": {"backend": "scripted", "model": "scripted", "replies": str(replies)}},
-    }))))
-    cache = root / "kunquant_cache"
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setenv(CACHE_ENV, str(cache))
-        result = Campaign(CampaignConfig.from_file(config_path)).run()
+    config_path = write_config(
+        root, synthetic_market.build(root / "data"),
+        gate={"timeout_seconds": 3}, admission={"t_threshold": 3.0},
+        round={"candidates": len(CANDIDATES), "min_per_type": 1, "max_rounds": 1},
+    )
+    fake = FakeLLM(lambda number, directions: CANDIDATES, fix=_fix)
+    result = run(config_path, fake, root / "kunquant_cache")
     ledger = [json.loads(line) for line in (root / "run" / "ledger.jsonl").read_text().splitlines()]
-    return {"result": result, "ledger": ledger, "cache": cache}
+    return {"result": result, "ledger": ledger, "cache": root / "kunquant_cache"}
 
 
 def _by_description(records) -> dict:
@@ -177,25 +153,13 @@ def test_the_round_is_compiled_once_with_its_neutralisation(outcome):
     assert 1 <= len(entries) <= 2
 
 
-def _run(root: Path, replies: list[list[dict]], reference=(), **sections) -> dict:
-    """Run a campaign on a fresh synthetic store; ``replies`` are the proposer's, one list of candidates per reply."""
+def _run(root: Path, rounds: list[list[dict]], reference=(), **sections) -> dict:
+    """Run a campaign on a fresh synthetic store; ``rounds`` holds the proposer's candidates of each round."""
     components = synthetic_market.build(root / "data")
     prices = rebuild(components["prices"])
-    path = root / "replies.json"
-    path.write_text(json.dumps([_reply(items) for items in replies]))
-    config_path = root / "campaign.yaml"
-    config_path.write_text(yaml.safe_dump(json.loads(json.dumps({
-        "run_dir": str(root / "run"),
-        "segments": {"training": {"start": synthetic_market.TRAINING[0], "end": synthetic_market.TRAINING[1]}},
-        "data": components,
-        "reference": [factor(prices).get_config() for factor in reference],
-        "evaluator": {"warmup_bars": 60, "njobs": 4},
-        "llm": {"proposer": {"backend": "scripted", "model": "scripted", "replies": str(path)}},
-        **sections,
-    }))))
-    with pytest.MonkeyPatch.context() as patch:
-        patch.setenv(CACHE_ENV, str(root / "kunquant_cache"))
-        result = Campaign(CampaignConfig.from_file(config_path)).run()
+    sections["round"] = {"min_per_type": 0, "max_rounds": len(rounds), **sections.get("round", {})}
+    config_path = write_config(root, components, [factor(prices).get_config() for factor in reference], **sections)
+    result = run(config_path, FakeLLM(lambda number, directions: rounds[number - 1]), root / "kunquant_cache")
     return {"result": result, "run_dir": root / "run"}
 
 
@@ -218,7 +182,10 @@ ROUND_ONE = [
     _candidate("volume", "alpha = volume / WindowedAvg(volume, 20)"),
     _candidate("kmid", "alpha = (close - open) / open"),
 ]
-ROUND_TWO = [_candidate("volume again", "alpha = Rank(volume / WindowedAvg(volume, 20))")]
+ROUND_TWO = [
+    _candidate("volume again", "alpha = Rank(volume / WindowedAvg(volume, 20))"),
+    _candidate("noise", "alpha = BackRef(volume, 10) / WindowedAvg(volume, 60)"),
+]
 
 
 @pytest.fixture(scope="module")
@@ -227,7 +194,7 @@ def two_rounds(tmp_path_factory):
         tmp_path_factory.mktemp("two_rounds"), [ROUND_ONE, ROUND_TWO],
         reference=[lambda prices: _alpha158(prices, KBAR),
                    lambda prices: synthetic_market.AdjustedMomentum(PolarsFactorConfig(warmup_bars=20, dataset=prices))],
-        round={"candidates": 2, "retries": 0, "max_rounds": 2},
+        round={"candidates": 2, "retries": 0},
     )
 
 
