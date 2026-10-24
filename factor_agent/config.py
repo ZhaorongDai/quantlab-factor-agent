@@ -286,7 +286,15 @@ class CampaignConfig:
     ``directions`` are the seed research directions the planner is shown.
     ``market`` describes the data in the prompts, ``mechanisms`` are the
     mechanism types in plan order, and ``prompts`` maps a template's name to
-    the file that replaces it.
+    the file that replaces it; the replacing files are read and checked for
+    their placeholders when the config is made.
+
+    Raises
+    ------
+    PromptError
+        Naming every problem of the replaced templates.
+    ValueError
+        If the mechanism types repeat or a round cannot hold its quota of them.
     """
 
     run_dir: str
@@ -315,6 +323,7 @@ class CampaignConfig:
 
     def __post_init__(self):
         object.__setattr__(self, "mechanisms", tuple(self.mechanisms))
+        Templates.load(self.prompts)  # every problem of the replaced templates, before anything runs
         names = self.mechanism_types
         if not names or len(set(names)) != len(names):
             raise ValueError(f"campaign config: the mechanism types {list(names)} must be given and distinct")
@@ -375,6 +384,8 @@ class CampaignConfig:
             If a required section or role is missing.
         ValueError
             If a section's values do not fit together.
+        PromptError
+            Naming every problem of the replaced templates.
         """
         raw = yaml.safe_load(Path(path).read_text())
         folder = Path(path).parent

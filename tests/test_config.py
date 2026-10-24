@@ -14,6 +14,7 @@ from quantlab.dataset.stock import StockDataset
 from quantlab.factor.config import FactorConfig
 from quantlab.factor.predefined.alpha158 import Alpha158Stock
 
+from factor_agent._prompts import PromptError
 from factor_agent.config import DEFAULT_MECHANISMS, ROLES, CampaignConfig, NeutralizeConfig, load
 from factor_agent.gate.vocabulary import VocabularyError
 from tests.vocabulary_files import EXAMPLE_OPERATORS, PRICE_VOLUME
@@ -128,6 +129,23 @@ def test_vocabulary_paths_are_read_relative_to_the_config_file(tmp_path):
     ))
     assert config.fields == (str(tmp_path / "vocabulary" / PRICE_VOLUME.name),)
     assert "Rank" in config.vocabulary().prompt()["operators"]
+
+
+@pytest.mark.parametrize("template, text, problem", [
+    ("review", "Judge {candidates} on {market} in round {round}.", None),
+    ("review", "Judge them on {market}.", "lacks the placeholder {candidates}"),
+    ("data", "{market} {scoring} {horizon} {inputs} {round}", "unknown placeholder(s) ['{round}']"),
+    ("judge", "Judge {candidates}.", "judge: not a template"),
+])
+def test_replaced_templates_are_checked_when_the_config_is_read(tmp_path, template, text, problem):
+    (tmp_path / "prompts").mkdir()
+    (tmp_path / "prompts" / f"{template}.txt").write_text(text)
+    path = _minimal(tmp_path, prompts={template: f"prompts/{template}.txt"})
+    if problem is None:
+        assert CampaignConfig.from_file(path).prompts == {template: str(tmp_path / "prompts" / f"{template}.txt")}
+    else:
+        with pytest.raises(PromptError, match=re.escape(problem)):
+            CampaignConfig.from_file(path)
 
 
 @pytest.mark.parametrize("missing", ["fields", "operators"])
