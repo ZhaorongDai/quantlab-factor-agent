@@ -53,8 +53,7 @@ class DataConfig:
 
     def load(self, name: str) -> Any:
         """Rebuild the component ``name``; a list of components is rebuilt item by item."""
-        value = getattr(self, name)
-        return [load(item) for item in value] if isinstance(value, list) else load(value)
+        return load_each(getattr(self, name))
 
 
 @dataclass(frozen=True)
@@ -100,6 +99,11 @@ class ScoringConfig:
             raise KeyError("campaign config: scoring needs neutralize (null to score the ranked values)")
         neutralize = raw["neutralize"]
         return cls(neutralize=None if neutralize is None else NeutralizeConfig(**neutralize))
+
+
+def load_each(value: dict | str | list) -> Any:
+    """Rebuild a component (see ``load``), or each of a list of components."""
+    return [load(item) for item in value] if isinstance(value, list) else load(value)
 
 
 def load(component: dict | str) -> Any:

@@ -32,7 +32,7 @@ from quantlab.factor.predefined.neutralized import NeutralizedFactor
 from quantlab.factor.predefined.roster import RosterFactor
 from quantlab.factor.predefined.start_clipped import StartClippedFactor
 
-from factor_agent.config import DataConfig, ScoringConfig, load
+from factor_agent.config import DataConfig, ScoringConfig, load_each
 
 
 @dataclass(frozen=True)
@@ -74,11 +74,8 @@ class Scoring:
         membership = data.load("membership") if data.membership is not None else None
         neutralization = None
         if scoring.neutralize is not None:
-            exposures = scoring.neutralize.exposures
-            neutralization = Neutralization(
-                [load(item) for item in exposures] if isinstance(exposures, list) else load(exposures),
-                scoring.neutralize.size_column, scoring.neutralize.industry_column,
-            )
+            n = scoring.neutralize
+            neutralization = Neutralization(load_each(n.exposures), n.size_column, n.industry_column)
         return cls(membership, neutralization, njobs)
 
     def apply(self, factor, file_path: str | Path | None = None, names: tuple[str, ...] | None = None):
