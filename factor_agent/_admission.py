@@ -2,13 +2,16 @@
 
 The checks run in order and the first that fails is the reason:
 
-1. the training IC has the candidate's ``expected_sign`` (a candidate is
+1. on an average training day the candidate has a value on at least
+   ``min_coverage`` of the members (its other statistics speak only for
+   the members it covers);
+2. the training IC has the candidate's ``expected_sign`` (a candidate is
    never flipped);
-2. its correlation with every reference and accepted factor is at most
+3. its correlation with every reference and accepted factor is at most
    ``max_correlation`` in absolute value;
-3. its partial IC, signed by ``expected_sign``, has a Newey-West t at or
+4. its partial IC, signed by ``expected_sign``, has a Newey-West t at or
    above the threshold for the number of evaluated trials so far;
-4. its decile returns, signed by ``expected_sign``, rise with the decile:
+5. its decile returns, signed by ``expected_sign``, rise with the decile:
    their Spearman correlation with the decile number is at least
    ``min_monotonicity``.
 
@@ -45,6 +48,11 @@ def monotonicity(decile_returns, expected_sign: int) -> float:
 def reasons(candidate: Candidate, metrics: Metrics, trials: int, config: AdmissionConfig) -> list[str]:
     """Why ``candidate`` is refused, as one reason, or nothing when it is accepted."""
     sign = candidate.expected_sign
+    if not metrics.coverage >= config.min_coverage:
+        return [
+            f"coverage {metrics.coverage:.2f} (the mean daily share of the members with a value) "
+            f"is below {config.min_coverage:g}"
+        ]
     if not math.isfinite(metrics.ic_mean) or np.sign(metrics.ic_mean) != sign:
         return [
             f"the training IC {metrics.ic_mean:+.4f} does not have the expected sign {sign:+d}; "

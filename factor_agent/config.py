@@ -156,6 +156,8 @@ class AdmissionConfig:
     max_correlation: float = 0.7
     #: Smallest Spearman correlation of the decile returns with the decile number.
     min_monotonicity: float = 0.6
+    #: Smallest mean daily share of the members on which the candidate has a value.
+    min_coverage: float = 0.5
 
 
 @dataclass(frozen=True)

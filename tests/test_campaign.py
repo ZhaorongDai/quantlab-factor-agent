@@ -262,6 +262,8 @@ ADMISSION = [
     _candidate("incremental", "alpha = volume / WindowedAvg(volume, 20)"),
     _candidate("incremental again", "alpha = volume / WindowedAvg(volume, 10)"),
     _candidate("one decile", "alpha = Min(open, close) / low"),
+    # close / open = exp(0.01 z), so this is Log(z - 1): a value on about one member in six.
+    _candidate("sparse", "alpha = Log(Log(close / open) * 100 - 1)"),
 ]
 
 
@@ -323,6 +325,30 @@ def test_a_candidate_whose_ic_comes_from_one_decile_fails_monotonicity(admission
     assert record.status == "rejected"
     assert record.metrics["partial_ic_t"] > 5
     assert len(record.reasons) == 1 and "monotonicity" in record.reasons[0]
+
+
+def test_a_candidate_with_a_value_on_few_members_is_rejected_for_coverage(admission):
+    record = admission["records"]["sparse"]
+    assert record.status == "rejected"
+    assert 0.1 < record.metrics["coverage"] < 0.25
+    assert record.reasons == [
+        f"coverage {record.metrics['coverage']:.2f} (the mean daily share of the members with a value) "
+        f"is below 0.5"
+    ]
+
+
+def test_a_candidate_with_full_coverage_is_not_rejected_for_it(admission):
+    record = admission["records"]["incremental"]
+    assert record.metrics["coverage"] == pytest.approx(1.0)
+    assert not any("coverage" in reason for reason in record.reasons)
+
+
+def test_the_coverage_threshold_is_read_from_the_config(tmp_path):
+    sparse = [c for c in ADMISSION if c["description"] == "sparse"]
+    outcome = _run(tmp_path, [sparse], admission={"min_coverage": 0.1}, round={"candidates": 1, "retries": 0})
+    [record] = outcome["result"].accepted + outcome["result"].rejected
+    assert record.metrics["coverage"] < 0.5
+    assert not any("coverage" in reason for reason in record.reasons)
 
 
 def test_admission_metrics_are_in_the_ledger(admission):

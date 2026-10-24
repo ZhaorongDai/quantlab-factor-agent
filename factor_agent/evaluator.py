@@ -26,6 +26,9 @@ The statistics of a candidate:
   factor (with an intercept), and its Newey-West t.
 - Deciles: the mean label of each tenth of the candidate's daily cross
   section, lowest values first, averaged over dates.
+- Coverage: the share of the day's scored members on which the graph
+  itself (before the rank, which ranks a missing value too) has a value,
+  averaged over the dates with any scored member.
 
 Normal scores: on each date a factor's values are ranked among its own
 finite symbols and mapped to the standard normal quantiles of their ranks;
@@ -79,7 +82,8 @@ class Metrics:
     (empty, with a NaN correlation, when the pool is empty) and
     ``nearest_correlation`` is that mean correlation, with its sign.
     ``decile_returns`` holds the mean label of each decile, lowest
-    candidate values first.
+    candidate values first. ``coverage`` is the mean daily share of the
+    scored members with a value.
     """
 
     ic_mean: float
@@ -89,6 +93,7 @@ class Metrics:
     nearest: str
     nearest_correlation: float
     decile_returns: tuple[float, ...]
+    coverage: float
     n_days: int
     start: str
     end: str
@@ -130,8 +135,9 @@ class _RoundGraph(FactorKunQuant):
     """A batch of graphs as one factor, one whole-market rank per candidate.
 
     ``compute`` keeps its last result, so the scored factor that wraps it
-    (a ``NeutralizedFactor`` when the scoring neutralises) reads the panel the bisection already computed instead of computing
-    it again.
+    (a ``NeutralizedFactor`` when the scoring neutralises) reads the panel
+    the bisection already computed instead of computing it again. Only the
+    candidate outputs are neutralised; the presence outputs are read raw.
     """
 
     def __init__(self, config: FactorConfig, graphs: list[Graph]):
@@ -140,10 +146,14 @@ class _RoundGraph(FactorKunQuant):
         super().__init__(config)
 
     def _get_factor_names(self) -> tuple[str, ...]:
-        return tuple(_output_name(i) for i in range(len(self._graphs)))
+        n = len(self._graphs)
+        return tuple(_output_name(i) for i in range(n)) + tuple(_presence_name(i) for i in range(n))
 
     def _get_factor_func(self) -> Function:
-        return ranked_function({_output_name(i): graph for i, graph in enumerate(self._graphs)})
+        return ranked_function(
+            {_output_name(i): graph for i, graph in enumerate(self._graphs)},
+            presence={_output_name(i): _presence_name(i) for i in range(len(self._graphs))},
+        )
 
     def compute(self, start, end) -> xr.Dataset:
         """Compute the batch from ``start`` to ``end``, reusing the last result for the same range."""
@@ -158,6 +168,10 @@ def _missing(name: str):
 
 def _output_name(i: int) -> str:
     return f"candidate_{i}"
+
+
+def _presence_name(i: int) -> str:
+    return f"candidate_{i}_present"
 
 
 class Evaluator:
@@ -233,9 +247,9 @@ class Evaluator:
         computed = [i for i, v in enumerate(results) if not isinstance(v, CompileFailure)]
         if not computed:
             return results
-        scores = _Scores(frame, [results[i] for i in computed])
+        scores = _Scores(frame, [results[i][0] for i in computed])
         for k, i in enumerate(computed):
-            results[i] = scores.metrics(k, self._label.span_bars())
+            results[i] = scores.metrics(k, self._label.span_bars(), coverage(results[i][1], frame.rows))
             name = admit(i, results[i], len(computed)) if admit is not None else None
             if name is not None:
                 scores.admit(k, name)
@@ -290,8 +304,8 @@ class Evaluator:
         for name, values in self._scoring.read(factor, self._segment.start, self._segment.end):
             yield f"{name} ({source})", self._frame.daily_scores(self._frame.on_axes(values))
 
-    def _values(self, graphs: list[Graph], frame: "_Frame") -> list["np.ndarray | CompileFailure"]:
-        """Each graph's scored values, bisecting a batch that fails."""
+    def _values(self, graphs: list[Graph], frame: "_Frame") -> list["tuple[np.ndarray, np.ndarray] | CompileFailure"]:
+        """Each graph's scored values and its own (unranked) presence, bisecting a batch that fails."""
         columns = sorted({name for graph in graphs for name in graph.input_names})
         factor = _RoundGraph(
             FactorConfig(
@@ -302,14 +316,17 @@ class Evaluator:
         )
         start, end = self._segment.start, self._segment.end
         try:
-            factor.compute(start, end)
+            raw = factor.compute(start, end)
         except Exception as exc:  # KunQuant reports a bad graph as a plain exception
             if len(graphs) == 1:
                 return [CompileFailure(f"{type(exc).__name__}: {exc}")]
             half = len(graphs) // 2
             return self._values(graphs[:half], frame) + self._values(graphs[half:], frame)
-        panel = self._scoring.mask(self._scoring.apply(factor).compute(start, end))
-        return [frame.on_axes(panel[_output_name(i)]) for i in range(len(graphs))]
+        names = tuple(_output_name(i) for i in range(len(graphs)))
+        panel = self._scoring.mask(self._scoring.apply(factor, names=names).compute(start, end))
+        return [
+            (frame.on_axes(panel[_output_name(i)]), frame.on_axes(raw[_presence_name(i)])) for i in range(len(graphs))
+        ]
 
 
 class _Frame:
@@ -367,7 +384,7 @@ class _Scores:
             self.correlations = np.nanmean(np.stack(daily_pool), axis=0)
             self.batch_correlations = np.nanmean(np.stack(daily_batch), axis=0)
 
-    def metrics(self, k: int, horizon: int) -> Metrics:
+    def metrics(self, k: int, horizon: int, coverage: float) -> Metrics:
         """Candidate ``k``'s metrics against the pool and the batch candidates admitted before it."""
         frame, values = self.frame, self.values[k]
         ic = cross_sectional_rank_ic_series(values, frame.target)
@@ -389,6 +406,7 @@ class _Scores:
             ic_mean=ic_mean, ic_t=ic_t, partial_ic_mean=partial_mean, partial_ic_t=partial_t,
             nearest=nearest, nearest_correlation=correlation,
             decile_returns=decile_returns(values, frame.target),
+            coverage=coverage,
             n_days=int(scored.sum()),
             start=days[0].strftime("%Y-%m-%d") if len(days) else "",
             end=days[-1].strftime("%Y-%m-%d") if len(days) else "",
@@ -440,6 +458,12 @@ def _mean_and_t(ic: np.ndarray, horizon: int) -> tuple[float, float]:
         return float("nan"), float("nan")
     t_stat, _ = newey_west_t_stat(series, newey_west_lags(len(series), horizon))
     return float(series.mean()), float(t_stat)
+
+
+def coverage(values: np.ndarray, rows: list[np.ndarray]) -> float:
+    """The share of each date's ``rows`` where ``values`` (before ranking) is finite, averaged over the dates with rows."""
+    shares = [np.isfinite(values[d, r]).mean() for d, r in enumerate(rows) if len(r)]
+    return float(np.mean(shares)) if shares else float("nan")
 
 
 def decile_returns(values: np.ndarray, target: np.ndarray) -> tuple[float, ...]:

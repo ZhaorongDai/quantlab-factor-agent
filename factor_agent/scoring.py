@@ -81,20 +81,23 @@ class Scoring:
             )
         return cls(membership, neutralization, njobs)
 
-    def apply(self, factor, file_path: str | Path | None = None):
+    def apply(self, factor, file_path: str | Path | None = None, names: tuple[str, ...] | None = None):
         """``factor``, whose outputs are ranked across the market, as scored on the whole market.
 
         The neutralised factor, or ``factor`` itself without neutralisation;
         with ``file_path``, the returned factor's store is there (``build``
-        writes it).
+        writes it). ``names`` are the outputs scored, all by default; a
+        neutralised factor holds only them, an unneutralised one keeps the
+        rest unchanged.
         """
         path = None if file_path is None else str(file_path)
         if self.neutralization is None:
             return factor if path is None else type(factor)(replace(factor.config, file_path=path))
         n = self.neutralization
+        pinned = {} if names is None else {"factor_names": tuple(names)}
         return NeutralizedFactor(NeutralizedConfig(
             factor=factor, dataset=n.exposures, size_column=n.size_column, industry_column=n.industry_column,
-            file_path=path, njobs=self._njobs,
+            file_path=path, njobs=self._njobs, **pinned,
         ))
 
     def on_members(self, factor):

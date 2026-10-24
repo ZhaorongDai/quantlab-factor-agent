@@ -273,3 +273,13 @@ def test_the_scoring_says_in_one_sentence_what_is_done(market):
     assert _scoring(market, neutralised=False, membership=False).describe() == (
         "A factor is ranked across the whole market each day, not neutralised, and scored on every symbol."
     )
+
+
+def test_coverage_is_the_mean_daily_share_of_the_members_with_a_value(market):
+    # close / open = exp(0.01 z): Log(100 Log(close / open) - 1) = Log(z - 1) has a value only
+    # where z > 1, on about one member in six.
+    full, sparse = _evaluator(market).evaluate([
+        _graph("alpha = close / open"), _graph("alpha = Log(Log(close / open) * 100 - 1)"),
+    ])
+    assert full.coverage == pytest.approx(1.0)
+    assert 0.1 < sparse.coverage < 0.25
