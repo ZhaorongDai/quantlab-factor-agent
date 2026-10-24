@@ -127,7 +127,7 @@ def _render(graph: Graph, node: int, vocabulary: "Vocabulary") -> str:
             return derived[hashes[i]]
         attrs = dict(n.attrs)
         if n.op == "Input":
-            return vocabulary.field_name(attrs["name"])
+            return vocabulary.written(attrs["name"])
         if n.op == "ConstantOp":
             return _display(attrs["value"])
         inputs = [j for j in n.inputs if hashes[j] != mask]

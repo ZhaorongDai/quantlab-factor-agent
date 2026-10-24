@@ -19,7 +19,7 @@ from KunQuant.Stage import Function
 
 from factor_agent.gate import MEMORY_REASON
 from factor_agent.gate.graph import Graph
-from factor_agent.gate.vocabulary import Vocabulary
+from factor_agent.gate.vocabulary import PeriodLagError, Vocabulary
 
 
 def build(code: str, memory_mb: int, vocabulary: Vocabulary) -> dict:
@@ -29,6 +29,8 @@ def build(code: str, memory_mb: int, vocabulary: Vocabulary) -> dict:
             exec(compile(code, "<candidate>", "exec"), scope)
     except MemoryError:
         return {"reasons": [MEMORY_REASON.format(memory_mb=memory_mb)]}
+    except PeriodLagError as exc:
+        return {"reasons": [str(exc)]}
     except Exception as exc:  # the candidate's own error, reported back to it
         return {"reasons": [f"graph build failed: {type(exc).__name__}: {exc}"]}
     if "alpha" not in scope:
