@@ -12,6 +12,7 @@ factor families by name and description, without any statistic.
 import math
 import re
 
+from factor_agent._admission import OPPOSITE_SIGN
 from factor_agent.evaluator import Contribution
 from factor_agent.ledger import TrialRecord
 from factor_agent.zoo import owner
@@ -44,11 +45,34 @@ def families(reference) -> str:
     return "\n".join(lines)
 
 
+def refuted(record: TrialRecord) -> bool:
+    """Whether the data refuted the trial's hypothesis: admission rejected it for a training IC of the opposite sign."""
+    return record.status == "rejected" and record.stage == "admission" and any(
+        OPPOSITE_SIGN in reason for reason in record.reasons
+    )
+
+
+def refuted_label(record: TrialRecord) -> str:
+    """The name a refuted trial has as the parent of a reversal."""
+    return f"{record.candidate['description']} (refuted in round {record.round})"
+
+
+def refuted_hypotheses(records: list[TrialRecord]) -> str:
+    """The refuted trials a reversal may follow up: name, mechanism type, hypothesis and the sign it stated."""
+    return "\n".join(
+        f"- {refuted_label(r)} [{r.candidate['mechanism_type']}]: {r.candidate['hypothesis']} "
+        f"(expected sign {r.candidate['expected_sign']:+d}; the training IC had the opposite sign)"
+        for r in records if refuted(r)
+    )
+
+
 def history(records: list[TrialRecord], statistics: bool = True) -> str:
     """One line per trial. Without ``statistics`` no metric is shown and the reasons' decimals are masked."""
     lines = []
     for r in records:
         line = f"- round {r.round}, {_direction(r)}: {r.candidate.get('description', '(unparsed)')} -> {_outcome(r)}"
+        if r.evaluated:
+            line += f"; expected sign {r.candidate['expected_sign']:+d}"
         if statistics and r.evaluated:
             m = r.metrics
             line += f"; training IC {_num(m['ic_mean'], 4)}, residual IC {_num(m['partial_ic_mean'], 4)}"
@@ -108,7 +132,9 @@ def _direction(r: TrialRecord) -> str:
 
 
 def _outcome(r: TrialRecord) -> str:
-    return "accepted" if r.status == "accepted" else f"{r.status} at {r.stage}"
+    if r.status == "accepted":
+        return "accepted"
+    return f"{r.status} at {r.stage}" + (", opposite sign" if refuted(r) else "")
 
 
 def _num(value: float, digits: int) -> str:

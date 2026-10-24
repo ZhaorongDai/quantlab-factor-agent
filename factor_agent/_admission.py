@@ -31,6 +31,9 @@ from factor_agent.candidate import Candidate
 from factor_agent.config import AdmissionConfig
 from factor_agent.evaluator import Metrics
 
+#: The words of the reason a refuted hypothesis is rejected with: its training IC has the opposite sign.
+OPPOSITE_SIGN = "has the opposite sign to the hypothesis"
+
 
 def t_threshold(config: AdmissionConfig, trials: int) -> float:
     """The partial-IC Newey-West t a candidate needs as the ``trials``-th evaluated trial."""
@@ -53,10 +56,12 @@ def reasons(candidate: Candidate, metrics: Metrics, trials: int, config: Admissi
             f"coverage {metrics.coverage:.2f} (the mean daily share of the members with a value) "
             f"is below {config.min_coverage:g}"
         ]
-    if not math.isfinite(metrics.ic_mean) or np.sign(metrics.ic_mean) != sign:
+    if not math.isfinite(metrics.ic_mean):
+        return ["the training IC is not a number"]
+    if np.sign(metrics.ic_mean) != sign:
         return [
-            f"the training IC {metrics.ic_mean:+.4f} does not have the expected sign {sign:+d}; "
-            f"a candidate is never flipped"
+            f"the training IC {metrics.ic_mean:+.4f} {OPPOSITE_SIGN} (expected sign {sign:+d}); the candidate "
+            f"is not flipped, but a reversal of it, a mechanism that predicts this direction, may be planned"
         ]
     if abs(metrics.nearest_correlation) > config.max_correlation:
         return [

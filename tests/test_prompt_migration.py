@@ -30,8 +30,8 @@ OLD = Path(__file__).parent / "prompts_2bd6904"
 CONTEXT = {"seed": "SEED", "families": "FAMILIES"}
 QUOTA = {"behavioural_bias": 4, "risk_compensation": 4, "liquidity": 4, "microstructure": 4, "information_diffusion": 4}
 DIRECTIONS = [Direction("liquidity", "new", "", "DIRECTION A"), Direction("microstructure", "new", "", "DIRECTION B")]
-#: Sections whose wording comes from the config now.
-CONFIGURED = {"You are", "The data", "Inputs", "Answer with"}
+#: Sections whose wording comes from the config now, and the plan's actions, which gained the reversal (#20).
+CONFIGURED = {"You are", "The data", "Inputs", "Answer with", "Plan exactly"}
 #: Sections the config adds: the data template's inputs by family, the plan's mechanism types.
 ADDED = {"plan": ["The inputs", "The mechanism"], "propose": ["The inputs"]}
 
@@ -73,7 +73,7 @@ def prompts(config):
         ),
     )
     with pytest.raises(_Stop):
-        researcher.plan(1, QUOTA, CONTEXT, [])
+        researcher.plan(1, QUOTA, CONTEXT, [], [])
     with pytest.raises(_Stop):
         researcher.propose(1, DIRECTIONS, CONTEXT, None, None, 0)
     return {"plan": recorder.prompts["planner"], "propose": recorder.prompts["proposer"]}

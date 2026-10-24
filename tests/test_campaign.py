@@ -288,8 +288,9 @@ def test_a_signal_with_the_wrong_stated_sign_is_rejected_not_flipped(admission):
     assert record.metrics["ic_t"] > 3
     assert record.candidate["expected_sign"] == -1
     assert record.reasons == [
-        f"the training IC {record.metrics['ic_mean']:+.4f} does not have the expected sign -1; "
-        "a candidate is never flipped"
+        f"the training IC {record.metrics['ic_mean']:+.4f} has the opposite sign to the hypothesis (expected sign "
+        "-1); the candidate is not flipped, but a reversal of it, a mechanism that predicts this direction, may be "
+        "planned"
     ]
 
 

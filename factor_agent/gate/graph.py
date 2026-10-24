@@ -8,6 +8,7 @@ the vocabulary it was read or recorded with (``classes``, not part of its
 identity), which ``build`` makes the operators from.
 """
 
+import hashlib
 from collections import OrderedDict
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -15,7 +16,7 @@ from typing import TYPE_CHECKING
 
 from KunQuant.Op import Input, OpBase
 
-from factor_agent.gate._canonical import canonical_hashes
+from factor_agent.gate._canonical import canonical_hashes, canonical_terms, ranked_root, term_key
 
 if TYPE_CHECKING:
     from factor_agent.gate.vocabulary import Vocabulary
@@ -154,3 +155,12 @@ class Graph:
         by a repeated subexpression get the same fingerprint.
         """
         return canonical_hashes(self)[-1]
+
+    def ranking(self) -> str:
+        """Return the SHA-256 of the canonical graph up to what keeps or reverses its cross-sectional ranking.
+
+        A rank, a constant offset and a nonzero scale at the root, a negative
+        one included, do not change which stocks the factor tells apart, so
+        ``x``, ``-x`` and ``Rank(x) * 3 + 1`` share it.
+        """
+        return hashlib.sha256(term_key(ranked_root(canonical_terms(self)[-1])).encode()).hexdigest()

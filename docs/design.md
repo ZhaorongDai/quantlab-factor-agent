@@ -92,6 +92,7 @@
 | Q73 | 图约束常量（节点数、自由参数比例、字段数、公共子树）维持现状在配置 `gate` 段，不增约束种类 |
 | Q74 | 模块划分（2026-10-24 codebase-design）：新建深 module `Vocabulary`（`load`、`namespace`、`check`、`bind`、`columns`、`prompt`；只按数据不同、不设可替换实现）、`Scoring`（`from_config`、`apply`、`read`、`describe`；收走 Evaluator 与 Acceptance 重复的打分代码）、`RunSnapshot`（`open`、`path`；Campaign 与 Acceptance 共用）；`Researcher` 接口不变，模板与机制类由配置注入；`vocabulary.py` 不再存常量 |
 | Q75 | （2026-10-24 用户）框架不要求文献支持：候选去掉 `reference` 字段，提示词不再要求写文献；种子方向是否附文献由写配置的人决定，框架不检查 |
+| Q76 | （2026-10-24，#20）被数据证伪的假设可以跟进：planner 新增 `reversal` 动作，parent 为方向相反被拒的试验（"…(refuted in round N)"），须给出预测观察到的方向的机制，不要求文献；Gate 去重按"保持或反转排名"（`Graph.ranking`）比较，只取负、缩放、rank 的写法算重复；全部历史保留押的方向和"opposite sign"类别；distiller 记忆新增"Directional findings"（仍不写数字）；拒绝理由改为提示可另提反方向机制。Q11 不翻转不变 |
 
 ## 3. 一轮的流程
 

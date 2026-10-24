@@ -208,6 +208,25 @@ def test_a_rewritten_duplicate_is_rejected_by_its_canonical_fingerprint(first, s
     assert any("duplicate" in r for r in two.reasons), two.reasons
 
 
+
+@pytest.mark.parametrize(
+    "second",
+    [
+        "alpha = MulConst(WindowedAvg(close / open, 20), -1)",
+        "alpha = 0 - WindowedAvg(close / open, 20)",
+        "alpha = Rank(WindowedAvg(close / open, 20)) * 3 + 1",
+    ],
+)
+def test_a_candidate_that_only_keeps_or_reverses_an_earlier_ranking_is_a_duplicate(second):
+    first = Gate(GateConfig(timeout_seconds=10.0), price_volume()).check(
+        _candidate("alpha = WindowedAvg(close / open, 20)"), Zoo(),
+    )
+    assert isinstance(first, Passed), getattr(first, "reasons", None)
+    gate = Gate(GateConfig(timeout_seconds=10.0), price_volume(), seen=[first.graph])
+    result = gate.check(_candidate(second), Zoo())
+    assert isinstance(result, Rejected)
+    assert any("keeps or reverses the ranking of an earlier candidate" in r for r in result.reasons), result.reasons
+
 def test_a_loop_body_is_kept_in_the_graph():
     code = (
         "ratio = close / open\n"

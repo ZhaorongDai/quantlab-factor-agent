@@ -53,6 +53,9 @@ class FakeLLM:
     interrupt : callable, optional
         ``interrupt(request)`` is true for the request at which the fake
         raises ``Interrupted``, as a crash mid-campaign would.
+    plan : callable, optional
+        ``plan(round, quota, prompt)`` returns the planner's directions; by
+        default one new direction per slot.
 
     An item whose ``mechanism_type`` is one of the default types is given its
     direction's type, whatever the config's types, so a script need not know
@@ -61,13 +64,14 @@ class FakeLLM:
 
     def __init__(
         self, propose: Callable, fix: Callable | None = None, consistent: Callable | None = None,
-        cost: float = 0.0, interrupt: Callable | None = None,
+        cost: float = 0.0, interrupt: Callable | None = None, plan: Callable | None = None,
     ):
         self._propose = propose
         self._fix = fix or (lambda number, failures: [f["candidate"] for f in failures])
         self._consistent = consistent or (lambda candidate: "inconsistent" not in candidate["description"])
         self._cost = cost
         self._interrupt = interrupt or (lambda request: False)
+        self._plan = plan or new_directions
         self.requests: list[Request] = []
         self.distilled = 0
 
@@ -86,11 +90,7 @@ class FakeLLM:
         return [r for r in self.requests if r.role == role]
 
     def _planner(self, prompt: str) -> str:
-        quota = last_block(prompt)
-        return reply([
-            {"mechanism_type": kind, "action": "new", "parent": "", "direction": f"a {kind} direction"}
-            for kind, count in quota.items() for _ in range(count)
-        ])
+        return reply(self._plan(round_of(prompt), last_block(prompt), prompt))
 
     def _proposer(self, prompt: str) -> str:
         number, block = round_of(prompt), last_block(prompt)
@@ -116,6 +116,14 @@ class FakeLLM:
 
 class Interrupted(RuntimeError):
     """The campaign was stopped from outside mid-round."""
+
+
+def new_directions(number: int, quota: dict, prompt: str) -> list[dict]:
+    """The default plan: one new direction per slot."""
+    return [
+        {"mechanism_type": kind, "action": "new", "parent": "", "direction": f"a {kind} direction"}
+        for kind, count in quota.items() for _ in range(count)
+    ]
 
 
 def _typed(item, direction: dict):

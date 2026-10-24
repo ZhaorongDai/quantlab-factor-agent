@@ -10,10 +10,12 @@ run in this order:
    bubblewrap filesystem isolation where it is installed);
 3. the graph's size, parameter values, dimensions and complexity, and
    the mechanism binding of the hypothesis to the graph, all reported together;
-4. its canonical fingerprint against every candidate this gate passed before;
-5. originality against the zoo: not a rewrite of a zoo factor, not one with
+4. originality against the zoo: not a rewrite of a zoo factor, not one with
    other windows or parameters only, and no common subtree with one larger
-   than the limit. The reasons name the zoo factor and quote the subtree.
+   than the limit. The reasons name the zoo factor and quote the subtree;
+5. not a duplicate of a candidate this gate passed before: the same canonical
+   graph up to what keeps or reverses its ranking (``Graph.ranking``), so a
+   reversal that only negates a refuted trial is refused.
 """
 
 import ctypes
@@ -72,8 +74,8 @@ class Rejected:
 class Gate:
     """Check candidates; see the module docstring for the order of the checks.
 
-    A gate remembers the fingerprint of every candidate it passed and
-    rejects a later candidate with the same canonical graph.
+    A gate remembers the ranking of every candidate it passed and rejects
+    a later candidate that only keeps or reverses one.
 
     Parameters
     ----------
@@ -82,15 +84,16 @@ class Gate:
     vocabulary : Vocabulary
         The fields, operators and parameter values candidates may use;
         the sandbox rebuilds the same one from its sources.
-    seen : iterable of str, optional
-        Fingerprints of candidates passed before, such as those of a
-        campaign that is resumed.
+    seen : iterable of Graph, optional
+        The graphs of candidates passed before, such as those of a campaign
+        that is resumed; a candidate that keeps or reverses one's ranking
+        (``Graph.ranking``) is a duplicate.
     """
 
     def __init__(self, config: "GateConfig", vocabulary: "Vocabulary", seen=()):
         self.config = config
         self.vocabulary = vocabulary
-        self._seen: set[str] = set(seen)
+        self._seen: set[str] = {graph.ranking() for graph in seen}
 
     def check(self, candidate: Candidate, zoo: "Zoo") -> Passed | Rejected:
         """Return ``Passed`` with the candidate's graph, or ``Rejected`` with why not.
@@ -114,17 +117,18 @@ class Gate:
         reasons += self.vocabulary.bind(candidate.hypothesis, stats["base_fields"], {n.op for n in graph.nodes})
         if reasons:
             return Rejected(tuple(reasons))
-        fingerprint = graph.fingerprint()
-        if fingerprint in self._seen:
-            return Rejected((
-                "the graph is a duplicate of an earlier candidate (same canonical fingerprint); "
-                "propose a different mechanism",
-            ))
         reasons = _originality.reasons(graph, zoo, self.config.max_common_subtree_nodes, self.vocabulary)
         if reasons:
             return Rejected(tuple(reasons))
-        self._seen.add(fingerprint)
-        return Passed(graph, fingerprint, stats)
+        ranking = graph.ranking()
+        if ranking in self._seen:
+            return Rejected((
+                "the graph is a duplicate: it keeps or reverses the ranking of an earlier candidate (the same "
+                "canonical graph up to a rank, a constant offset or a scale, a sign flip included); "
+                "propose a different mechanism",
+            ))
+        self._seen.add(ranking)
+        return Passed(graph, graph.fingerprint(), stats)
 
     def _build(self, code: str) -> list | Rejected:
         """Build the graph in the sandbox subprocess; return its nodes or the rejection."""

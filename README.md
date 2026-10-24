@@ -9,7 +9,9 @@ segment is ever shown to the model.
 Status: the multi-round research loop (#5) and acceptance (#7, see below). `Campaign(CampaignConfig.from_file(path)).run()` runs
 rounds until a stop condition holds. Each round, every mechanism type gets `min_per_type` slots and
 the rest go by Thompson sampling on each type's admission rate; the planner plans one direction per
-slot (a new mechanism, an orthogonal mutation of an accepted factor, or a refinement of one); the
+slot (a new mechanism, an orthogonal mutation of an accepted factor, a refinement of one, or a reversal of a
+refuted hypothesis: a trial whose training IC had the opposite sign, followed up with a mechanism that predicts that
+direction, never by negating it); the
 proposer writes one candidate per direction; the `Gate` builds each in a sandboxed subprocess and
 refuses rewrites of the zoo (the KunQuant graphs of the `reference` factors plus the accepted ones),
 parameter-only variants, large shared subtrees and hypotheses that name an input or transformation

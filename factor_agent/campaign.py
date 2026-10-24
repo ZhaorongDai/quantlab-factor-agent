@@ -51,7 +51,7 @@ dropped round are moved to ``llm_log/dropped/``, so the log holds exactly
 the calls the ledger was written from. ``run`` resumes
 a run directory from its state: the rounds written are kept, a round a
 crash left half written is dropped and run again, and the zoo, the pool and
-the Gate's fingerprints are restored from the ledger.
+the graphs the Gate compares duplicates with are restored from the ledger.
 """
 
 import json
@@ -249,7 +249,7 @@ class Campaign:
         )
         zoo = Zoo.from_reference(reference, vocabulary)
         _write_zoo(run_dir / "zoo.json", zoo)
-        gate = Gate(config.gate, vocabulary, seen=[r.fingerprint for r in records if r.fingerprint])
+        gate = Gate(config.gate, vocabulary, seen=[Graph.from_json(r.graph, vocabulary.classes) for r in records if r.graph])
         _restore(records, zoo, evaluator, vocabulary)
         while (stop := self._stop(state, records)) is None:
             number = state.rounds + 1
@@ -264,7 +264,10 @@ class Campaign:
                 quota = _scheduler.quota(number, records, config.round, prompts.mechanism_types)
                 accepted = [r for r in records if r.status == "accepted"]
                 context = self._context(records, state, reference, evaluator, accepted)
-                directions, issues = researcher.plan(number, quota, context, [_feedback.accepted_label(r) for r in accepted])
+                directions, issues = researcher.plan(
+                    number, quota, context, [_feedback.accepted_label(r) for r in accepted],
+                    refuted=[_feedback.refuted_label(r) for r in records if _feedback.refuted(r)],
+                )
                 proposals = researcher.propose(number, directions, context, gate, zoo, config.round.retries)
                 round_records = self._round(number, proposals, researcher, zoo, evaluator, records)
             except BudgetExhausted as exc:
@@ -351,6 +354,7 @@ class Campaign:
             "history": _feedback.history(records),
             "last_round": _feedback.last_round([r for r in records if r.round == state.rounds]),
             "best": _feedback.best(accepted, evaluator.contributions(labels) if labels else {}),
+            "refuted": _feedback.refuted_hypotheses(records),
         }
 
     def _round(

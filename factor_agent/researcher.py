@@ -26,20 +26,21 @@ from factor_agent.zoo import Zoo
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 
-#: The planner's actions: a new mechanism, an orthogonal mutation of an accepted one, a refinement of one.
-ACTIONS = ("new", "mutation", "refinement")
+#: The planner's actions: a new mechanism, an orthogonal mutation of an accepted one, a refinement of one,
+#: and a reversal of a refuted one (a mechanism that predicts the direction the data showed).
+ACTIONS = ("new", "mutation", "refinement", "reversal")
 
 #: The context sections each role reads (see ``factor_agent.prompts.SECTIONS``).
-_PLANNER_SECTIONS = ("seed", "families", "memory", "history", "last_round", "best")
-_PROPOSER_SECTIONS = ("families", "memory", "last_round", "best")
+_PLANNER_SECTIONS = ("seed", "families", "memory", "history", "last_round", "best", "refuted")
+_PROPOSER_SECTIONS = ("families", "memory", "last_round", "best", "refuted")
 
 
 @dataclass(frozen=True)
 class Direction:
     """One planned slot of a round: its mechanism type, the action, the parent factor and the idea.
 
-    ``parent`` names an accepted factor for a mutation or a refinement, and
-    is empty for a new direction.
+    ``parent`` names an accepted factor for a mutation or a refinement, a
+    refuted trial for a reversal, and is empty for a new direction.
     """
 
     mechanism_type: str
@@ -124,12 +125,13 @@ class Researcher:
         self._on_cost = on_cost or (lambda spent: None)
 
     def plan(
-        self, number: int, quota: dict[str, int], context: dict[str, str], parents: list[str],
+        self, number: int, quota: dict[str, int], context: dict[str, str], parents: list[str], refuted: list[str],
     ) -> tuple[list[Direction], list[str]]:
         """Return round ``number``'s directions, ``quota[type]`` of each type in type order, and the plan's issues.
 
         ``parents`` are the accepted factors a mutation or a refinement may
-        name. A direction the planner leaves out, or writes with an unknown
+        name, and ``refuted`` the refuted trials a reversal may name. A
+        direction the planner leaves out, or writes with an unknown
         type, action or parent, is replaced by a new direction of its type;
         each such repair is one issue.
         """
@@ -142,7 +144,7 @@ class Researcher:
         except ValueError as exc:
             items, issues = [], [f"planner: {exc}"]
         for i, item in enumerate(items, 1):
-            problem = _direction_problem(item, parents, self._types)
+            problem = _direction_problem(item, parents, refuted, self._types)
             if problem:
                 issues.append(f"planner: direction {i} {problem}")
             else:
@@ -284,7 +286,7 @@ def _items(text: str, previous: list) -> list:
     return [items[i] if i < len(items) else _Missing(short, item) for i, item in enumerate(previous)]
 
 
-def _direction_problem(item: object, parents: list[str], types: tuple[str, ...]) -> str:
+def _direction_problem(item: object, parents: list[str], refuted: list[str], types: tuple[str, ...]) -> str:
     """Why a planner item is not a usable direction, or an empty string."""
     if not isinstance(item, dict) or not all(isinstance(item.get(k), str) for k in Direction.__annotations__):
         return f"needs the string fields {list(Direction.__annotations__)}"
@@ -292,7 +294,9 @@ def _direction_problem(item: object, parents: list[str], types: tuple[str, ...])
         return f"has the unknown mechanism type {item['mechanism_type']!r}"
     if item["action"] not in ACTIONS:
         return f"has the unknown action {item['action']!r}"
-    if item["action"] != "new" and item["parent"] not in parents:
+    if item["action"] == "reversal" and item["parent"] not in refuted:
+        return f"reverses {item['parent']!r}, which is not a refuted hypothesis"
+    if item["action"] in ("mutation", "refinement") and item["parent"] not in parents:
         return f"names {item['parent']!r}, which is not an accepted factor"
     return ""
 
