@@ -350,7 +350,7 @@ def test_live_anthropic():
 #: _KEY_ENV (the name of the variable holding its key), or DeepSeek when DEEPSEEK_API_KEY is set.
 _OPENAI_SMOKE = {
     "base_url": os.environ.get("FACTOR_AGENT_SMOKE_OPENAI_BASE_URL", "https://api.deepseek.com/v1"),
-    "model": os.environ.get("FACTOR_AGENT_SMOKE_OPENAI_MODEL", "deepseek-chat"),
+    "model": os.environ.get("FACTOR_AGENT_SMOKE_OPENAI_MODEL", "deepseek-flash"),
     "api_key_env": os.environ.get("FACTOR_AGENT_SMOKE_OPENAI_KEY_ENV", "DEEPSEEK_API_KEY"),
 }
 
