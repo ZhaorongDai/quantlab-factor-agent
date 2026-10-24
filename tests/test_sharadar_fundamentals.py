@@ -20,9 +20,13 @@ from quantlab.factor.predefined.fundamental_alpha import (
     FundamentalAlphaParameters,
 )
 
+from KunQuant.Op import Builder, ConstantOp, Input, OpBase
+from KunQuant.ops import Abs, Select
+
 from factor_agent.candidate import Candidate
 from factor_agent.config import GateConfig
 from factor_agent.gate import Gate, Passed, Rejected
+from factor_agent.gate.graph import Graph
 from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.zoo import Zoo
 from tests.vocabulary_files import CONFIGS, EXAMPLE_OPERATORS, PRICE_VOLUME
@@ -179,3 +183,49 @@ def test_a_candidate_rewriting_a_fundamental_alpha_factor_is_refused_by_name(voc
 def test_a_fundamental_candidate_unlike_any_fundamental_alpha_factor_passes(vocabulary, fundamental_alpha):
     result = _check(vocabulary, "alpha = gp / assets", "Gross profitability predicts returns.", zoo=fundamental_alpha)
     assert isinstance(result, Passed), getattr(result, "reasons", None)
+
+
+
+@pytest.mark.parametrize(
+    ("code", "factor"),
+    [
+        ("alpha = fcf / marketcap", "fcf_yield"),
+        ("alpha = Rank(rnd / marketcap)", "rd_to_market"),
+        ("alpha = ncfo / assetsavg", "cash_profitability"),
+        ("alpha = 0 - (netinc - ncfo) / assetsavg", "accruals"),
+    ],
+)
+def test_a_plain_ratio_is_refused_by_name_as_a_rewrite_of_a_guarded_fundamental_alpha_ratio(
+    vocabulary, fundamental_alpha, code, factor,
+):
+    result = _check(vocabulary, code, zoo=fundamental_alpha)
+    assert isinstance(result, Rejected)
+    assert any(f"rewrites {factor} (FundamentalAlpha)" in r for r in result.reasons), result.reasons
+
+
+def _guarded(epsilon: float, absolute: bool, inner: bool, flipped: bool) -> OpBase:
+    """``fcf / marketcap`` under a division guard on ``d > epsilon`` (or ``Abs(d)``) with a NaN fill.
+
+    ``inner`` also guards the denominator itself to 1, as ``FundamentalAlpha``
+    writes it; ``flipped`` tests ``d <= epsilon`` and puts the NaN first.
+    """
+    with Builder():
+        n, d = Input("fcf"), Input("marketcap")
+        guarded = Abs(d) if absolute else d
+        valid = guarded > ConstantOp(epsilon)
+        denominator = Select(valid, d, ConstantOp(1.0)) if inner else d
+        if flipped:
+            return Select(guarded <= ConstantOp(epsilon), ConstantOp("nan"), n / denominator)
+        return Select(valid, n / denominator, ConstantOp("nan"))
+
+
+@pytest.mark.parametrize(
+    ("epsilon", "absolute", "inner", "flipped"),
+    [(1e-9, False, True, False), (1e-6, True, True, False), (1e-12, False, False, False), (1e-9, True, False, True)],
+)
+def test_any_small_division_guard_is_seen_through(vocabulary, epsilon, absolute, inner, flipped):
+    zoo = Zoo()
+    zoo.add("guarded", "test", Graph.record(_guarded(epsilon, absolute, inner, flipped), vocabulary, strict=False))
+    result = _check(vocabulary, "alpha = fcf / marketcap", zoo=zoo)
+    assert isinstance(result, Rejected)
+    assert any("rewrites guarded (test)" in r for r in result.reasons), result.reasons

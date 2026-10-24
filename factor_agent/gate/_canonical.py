@@ -8,7 +8,11 @@ enclosing loop, computed after three rewrites:
 - constant arithmetic in one form: ``x + c``, ``Add(x, ConstantOp(c))`` and
   ``x - (-c)`` are all ``AddConst(x, c)``, ``x / c`` is ``MulConst(x, 1/c)``,
   nested constant offsets and scales merge, and ``x + 0`` and ``x * 1`` are ``x``;
-- commutative ordering: the inputs of a commutative operator are sorted.
+- commutative ordering: the inputs of a commutative operator are sorted;
+- division guards: ``Select(d > eps, n / d, nan)``, also on ``Abs(d)``, with
+  ``d <= eps`` and the NaN first, and with the denominator itself guarded
+  (``n / Select(d > eps, d, 1)``, as quantlab's ``FundamentalAlpha`` writes
+  its ratios), is ``n / d`` for any positive ``eps`` up to ``GUARD_EPSILON``.
 
 A repeated subexpression hashes the same wherever it appears, so the
 fingerprint does not depend on how the code shared intermediate values.
@@ -47,6 +51,9 @@ _FOLD = {
 
 #: Significant digits a constant keeps, so 1/3 * 3 and 1 hash alike.
 _DIGITS = 12
+
+#: The largest threshold a division guard may test the denominator against.
+GUARD_EPSILON = 1e-6
 
 
 class _Const:
@@ -165,9 +172,62 @@ def _canonical(op: str, attrs: dict, inputs: list, parent):
             return _with_constant(op + "Const", right, left.value, swapped, parent)
     if op == "BackRef" and isinstance(inputs[0], _Node) and inputs[0].op == "BackRef" and _same(inputs[0].parent, parent):
         return _Node(op, {"window": inputs[0].attrs["window"] + attrs["window"]}, inputs[0].inputs, parent)
+    if op == "Select":
+        ratio = _unguarded(inputs, parent)
+        if ratio is not None:
+            return ratio
     if op in COMMUTATIVE:
         inputs = sorted(inputs, key=lambda t: json.dumps(_key(t)))
     return _Node(op, attrs, inputs, parent)
+
+
+def _guard(condition) -> tuple[object, bool] | None:
+    """``(d, holds)`` when ``condition`` tests ``d`` (or ``Abs(d)``) against a small positive threshold.
+
+    ``holds`` is True for ``d > eps`` (the ratio is valid where it holds),
+    False for ``d <= eps``; None for any other condition.
+    """
+    if not isinstance(condition, _Node):
+        return None
+    tested, threshold, holds = None, None, None
+    if condition.op in ("GreaterThan", "LessEqual") and isinstance(condition.inputs[1], _Const):
+        tested, threshold, holds = condition.inputs[0], condition.inputs[1].value, condition.op == "GreaterThan"
+    elif condition.op in ("LessThan", "GreaterEqual") and isinstance(condition.inputs[0], _Const):
+        tested, threshold, holds = condition.inputs[1], condition.inputs[0].value, condition.op == "LessThan"
+    elif condition.op in ("GreaterThanConst", "LessEqualConst") and not condition.attrs.get("swap"):
+        tested, threshold, holds = condition.inputs[0], condition.attrs["value"], condition.op == "GreaterThanConst"
+    if tested is None or not 0 < threshold <= GUARD_EPSILON:
+        return None
+    if isinstance(tested, _Node) and tested.op == "Abs":
+        tested = tested.inputs[0]
+    return tested, holds
+
+
+def _unguarded(inputs: list, parent):
+    """``n / d`` for a guarded ratio ``Select(guard on d, n / d, nan)`` (either order); None for another Select."""
+    if len(inputs) != 3:
+        return None
+    guard = _guard(inputs[0])
+    if guard is None:
+        return None
+    d, holds = guard
+    ratio, fill = (inputs[1], inputs[2]) if holds else (inputs[2], inputs[1])
+    if not (isinstance(fill, _Const) and math.isnan(fill.value)) or not isinstance(ratio, _Node):
+        return None
+    if ratio.op == "Div":
+        numerator, denominator = ratio.inputs
+    elif ratio.op == "DivConstSwap":
+        numerator, [denominator] = None, ratio.inputs
+    else:
+        return None
+    inner = _guard(denominator.inputs[0]) if isinstance(denominator, _Node) and denominator.op == "Select" else None
+    if inner is not None and inner[1] and _same(inner[0], d) and _same(denominator.inputs[1], d):
+        denominator = d
+    if not _same(denominator, d) or not _same(ratio.parent, parent):
+        return None
+    if numerator is None:
+        return _Node("DivConstSwap", ratio.attrs, [d], parent)
+    return _canonical("Div", {}, [numerator, d], parent)
 
 
 def _with_constant(op: str, x, c: float, swap: bool, parent):
