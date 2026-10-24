@@ -411,18 +411,23 @@ class Vocabulary:
         return found
 
     @cached_property
-    def reference_hashes(self) -> tuple[dict[str, str], str | None]:
-        """The canonical hashes of the derived fields (hash -> name) and of the bar mask (None without one)."""
+    def reference_hashes(self) -> tuple[dict[str, str], frozenset[str]]:
+        """The canonical hashes of the derived fields (hash -> name) and of every node of the bar mask.
+
+        The mask is a sum over the bar columns; its partial sums are part of it too, so a graph that
+        shares only them with a reference factor shares nothing the candidate wrote.
+        """
         fields = self._inputs()
         derived = {
             canonical_hashes(Graph.record(fields[f.name], self, strict=False))[-1]: f.name
             for f in self.fields.values() if f.formula is not None
         }
         if not self._bar_columns:
-            return derived, None
+            return derived, frozenset()
         with self._bar_mask(fields):
             probe = kunquant_nan.SetInfOrNanToValue(fields[self._column_fields[self._bar_columns[0]]])
-        return derived, canonical_hashes(Graph.record(probe.inputs[1], self, strict=False))[-1]
+        mask = Graph.record(probe.inputs[1], self, strict=False)
+        return derived, frozenset(h for h, n in zip(canonical_hashes(mask), mask.nodes) if n.op != "Input")
 
     # What the prompts show.
 

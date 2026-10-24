@@ -411,3 +411,23 @@ def test_the_guard_notices_an_operator_in_neither_list():
         assert NewOperator in _unlisted()
     finally:
         del module.NewOperator
+
+
+def test_the_bar_mask_inside_a_reference_graph_is_no_shared_subtree():
+    from KunQuant.Op import Builder
+    from quantlab.factor import kunquant_nan
+    from factor_agent.gate.graph import Graph
+
+    vocabulary = price_volume()
+    with Builder():
+        o, h, l, c, v = (Input(x) for x in ("adjOpen", "adjHigh", "adjLow", "adjClose", "adjVolume"))
+        with kunquant_nan.missing_bars_only([o, h, l, c, v]):
+            reference = kunquant_nan.SetInfOrNanToValue(c / o)
+    zoo = Zoo()
+    zoo.add("masked", "Reference", Graph.record(reference, vocabulary, strict=False))
+    code = (
+        "positive_slope = GreaterThanConst(WindowedLinearRegressionSlope(close, 60), 0)\n"
+        "alpha = Select(positive_slope, close, ConstantOp(0))"
+    )
+    result = Gate(GateConfig(), vocabulary).check(_candidate(code), zoo)
+    assert isinstance(result, Passed), getattr(result, "reasons", None)

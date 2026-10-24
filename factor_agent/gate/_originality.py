@@ -100,7 +100,7 @@ def _subtree_sizes(graph: Graph, hashes: list[str], vocabulary: "Vocabulary") ->
     derived, mask = vocabulary.reference_hashes
     reach: list[frozenset[str]] = []
     for i, node in enumerate(graph.nodes):
-        if hashes[i] == mask:
+        if hashes[i] in mask:
             reach.append(frozenset())
         elif hashes[i] in derived:
             reach.append(frozenset({hashes[i]}))
@@ -130,7 +130,7 @@ def _render(graph: Graph, node: int, vocabulary: "Vocabulary") -> str:
             return vocabulary.written(attrs["name"])
         if n.op == "ConstantOp":
             return _display(attrs["value"])
-        inputs = [j for j in n.inputs if hashes[j] != mask]
+        inputs = [j for j in n.inputs if hashes[j] not in mask]
         if n.op == "Add" and len(inputs) == 1:  # a NaN-preserving stand-in: the operator plus the bar mask
             return render(inputs[0])
         values = [_display(v) for k, v in n.attrs if not (k == "swap" and not v)]

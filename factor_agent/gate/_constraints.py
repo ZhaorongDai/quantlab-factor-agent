@@ -64,7 +64,7 @@ def _candidate_part(graph: Graph, vocabulary: "Vocabulary") -> tuple[list[str], 
             continue
         seen.add(i)
         node = graph.nodes[i]
-        if hashes[i] == mask:
+        if hashes[i] in mask:
             continue
         nodes += 1
         if hashes[i] in derived:
