@@ -19,7 +19,6 @@ def candidate(description: str, code: str, **overrides) -> dict:
         "mechanism_type": "behavioural_bias",
         "expected_sign": 1,
         "horizon_rationale": "Resolves within a week.",
-        "reference": "Synthetic test reference",
         "description": description,
         "code": code,
         **overrides,

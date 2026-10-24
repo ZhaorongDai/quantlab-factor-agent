@@ -122,7 +122,7 @@ def dataset_columns(path) -> list[str]:
 def _graph(vocabulary, code):
     result = Gate(GateConfig(timeout_seconds=10.0), vocabulary).check(
         Candidate(hypothesis="Earnings growth.", mechanism_type="behavioural_bias", expected_sign=1,
-                  horizon_rationale="A week.", reference="Test", description="Test.", code=code),
+                  horizon_rationale="A week.", description="Test.", code=code),
         Zoo(),
     )
     assert isinstance(result, Passed), getattr(result, "reasons", None)

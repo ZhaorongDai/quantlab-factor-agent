@@ -81,6 +81,12 @@ def test_no_prompt_mentions_us_stocks_or_five_days(lunar):
         )
 
 
+def test_no_prompt_asks_for_a_literature_reference(lunar):
+    for request in lunar.requests:
+        assert "literature" not in request.prompt.lower(), request.role
+        assert '"reference"' not in request.prompt, request.role
+
+
 #: A taxonomy of another research area.
 THREE = [
     {"name": "value", "description": "cheap firms earn more than dear ones"},

@@ -12,14 +12,12 @@ class Candidate:
     ``code`` is a Python body over the vocabulary's operators that ends by
     assigning the factor to ``alpha``. ``expected_sign`` is +1 when a higher
     value is expected to predict a higher forward return, -1 when lower.
-    ``reference`` may be empty only when it says why there is none.
     """
 
     hypothesis: str
     mechanism_type: str
     expected_sign: int
     horizon_rationale: str
-    reference: str
     description: str
     code: str
 

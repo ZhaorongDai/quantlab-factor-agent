@@ -33,7 +33,6 @@ def _candidate(code: str, hypothesis: str = "Intraday strength carries into the 
         mechanism_type="behavioural_bias",
         expected_sign=1,
         horizon_rationale="Under-reaction resolves over a few days.",
-        reference="Test reference",
         description="Close over open.",
         code=code,
     )

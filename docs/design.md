@@ -26,7 +26,7 @@
 | Q7 | 默认 LLM：Claude 最新旗舰；见 Q25 多后端 |
 | Q8' | 不另造 DSL，直接用 KunQuant / quantlab 算子；白名单注册表写明类型签名与量纲规则；守护测试保证每个 `OpBase` 子类在注册表或排除表；NaN 敏感算子用 quantlab NaN 保留版；整数窗口 ∈ {5,10,20,40,60,120,250}，浮点参数取离散集合；输入字段沿用 `Alpha158Stock` 口径（复权 OHLCV + 典型价 vwap），v1 只用日频价量 |
 | Q9 | 原创性：最大公共子树 + 截面相关 > 0.7 拒绝；反馈只含训练段 IC、NW t、残差 IC、最相近已有因子及相关、拒绝原因；不给回测收益、不提示调参；验证段与保留期代码层面不可见 |
-| Q10 | 候选 JSON：`hypothesis`、`mechanism_type`（行为偏差/风险补偿/流动性/微观结构/信息扩散）、`expected_sign`、`horizon_rationale`、`reference`（可空但须说明）、`code`（Q28）、`description` |
+| Q10 | 候选 JSON：`hypothesis`、`mechanism_type`（行为偏差/风险补偿/流动性/微观结构/信息扩散）、`expected_sign`、`horizon_rationale`、`code`（Q28）、`description`（`reference` 已由 Q75 取消） |
 | Q11 | 训练段 IC 方向与 `expected_sign` 相反 → 拒绝，不翻转 |
 | Q12' | 增量参考集 = SEL0 的 191 个因子 + 本次已收下因子；公共子树比对覆盖其中所有 KunQuant 实现的因子（在图上比），其余只靠截面相关与残差化 |
 | Q13 | 准入对象 = 截面 rank 后再行业+市值中性化的版本 |
@@ -91,6 +91,7 @@
 | Q72 | 四个角色的提示词模板与数据说明段可由配置 `prompts` 替换；构造时校验必需占位符；模板同 Q58 快照 |
 | Q73 | 图约束常量（节点数、自由参数比例、字段数、公共子树）维持现状在配置 `gate` 段，不增约束种类 |
 | Q74 | 模块划分（2026-10-24 codebase-design）：新建深 module `Vocabulary`（`load`、`namespace`、`check`、`bind`、`columns`、`prompt`；只按数据不同、不设可替换实现）、`Scoring`（`from_config`、`apply`、`read`、`describe`；收走 Evaluator 与 Acceptance 重复的打分代码）、`RunSnapshot`（`open`、`path`；Campaign 与 Acceptance 共用）；`Researcher` 接口不变，模板与机制类由配置注入；`vocabulary.py` 不再存常量 |
+| Q75 | （2026-10-24 用户）框架不要求文献支持：候选去掉 `reference` 字段，提示词不再要求写文献；种子方向是否附文献由写配置的人决定，框架不检查 |
 
 ## 3. 一轮的流程
 

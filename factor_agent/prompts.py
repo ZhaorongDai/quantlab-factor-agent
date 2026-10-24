@@ -52,7 +52,6 @@ FIELDS = """\
 - "mechanism_type": the direction's mechanism type
 - "expected_sign": 1 if a higher value predicts a higher return, -1 if lower
 - "horizon_rationale": why the effect plays out over about {horizon} bars
-- "reference": the literature the mechanism comes from, or why there is none
 - "description": what the code computes, in words
 - "code": the Python code"""
 

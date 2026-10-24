@@ -447,7 +447,6 @@ class Acceptance:
             f"- Hypothesis: {candidate['hypothesis']}",
             f"- Mechanism type: {candidate['mechanism_type']}; expected sign: {candidate['expected_sign']:+d}.",
             f"- Horizon: {candidate['horizon_rationale']}",
-            f"- Reference: {candidate['reference']}",
             f"- Output `{name}`: the graph's whole-market values as the campaign scored them "
             f"({self._scoring().describe()}); the store is not masked to members.", "",
             "```python", candidate["code"], "```", "",
