@@ -1,7 +1,7 @@
 """The trial ledger: one JSON line per candidate, accepted or not."""
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 
@@ -9,9 +9,15 @@ from pathlib import Path
 class TrialRecord:
     """One candidate's outcome.
 
-    ``stage`` is where it ended: ``"parse"``, ``"gate"``, ``"evaluate"``
-    (its graph did not compile) or ``"admission"``; an accepted candidate
-    passed admission. ``metrics`` is set once it was evaluated.
+    ``status`` is ``"accepted"``, ``"rejected"`` (evaluated, refused by
+    admission) or ``"failed"`` (never evaluated: refused by the parser or
+    the Gate after every retry, or its graph did not compile); a failed
+    trial does not count toward the evaluated-trial count. ``stage`` is
+    where it ended: ``"parse"``, ``"gate"``, ``"evaluate"`` or
+    ``"admission"``. ``candidate`` is the last version the proposer wrote,
+    ``attempts`` every refused version before it (``item``, ``stage``,
+    ``reasons``). ``stats`` holds the Gate's statistics and ``metrics`` the
+    evaluation, once there are any.
     """
 
     round: int
@@ -21,6 +27,8 @@ class TrialRecord:
     reasons: list[str]
     fingerprint: str | None = None
     metrics: dict | None = None
+    stats: dict | None = None
+    attempts: list[dict] = field(default_factory=list)
 
 
 class Ledger:

@@ -3,10 +3,18 @@
 The graph is built in a real subprocess; nothing is faked.
 """
 
+import importlib
+import pkgutil
+import sys
+
+import KunQuant
 import pytest
+from KunQuant.Op import OpBase
 
 from factor_agent.candidate import Candidate
+from factor_agent.config import GateConfig
 from factor_agent.gate import Gate, Passed, Rejected
+from factor_agent.gate import vocabulary
 
 
 def _candidate(code: str) -> Candidate:
@@ -21,9 +29,8 @@ def _candidate(code: str) -> Candidate:
     )
 
 
-@pytest.fixture(scope="module")
-def gate():
-    return Gate(timeout_seconds=5.0)
+def _check(code: str, **limits):
+    return Gate(GateConfig(timeout_seconds=10.0, **limits)).check(_candidate(code))
 
 
 @pytest.mark.parametrize(
@@ -33,6 +40,7 @@ def gate():
         ("import os\nalpha = close", "import"),
         ("from math import log\nalpha = close", "import"),
         ("alpha = SecretOp(close)", "SecretOp"),
+        ("alpha = Input('adjClose')", "Input"),
         ("alpha = open(close)", "graph build failed"),
         ("alpha = close.__class__", "attribute access"),
         ('alpha = "{0.__class__}".format(close)', "attribute access"),
@@ -41,45 +49,156 @@ def gate():
         ("alpha = (close / open, volume)", "exactly one output"),
         ("beta = close", "alpha"),
         ("alpha = 1.0", "operator"),
-        ("alpha = close > open", "GreaterThan"),
         ("alpha = Div(close, 0)", "graph build failed"),
     ],
 )
-def test_a_bad_candidate_is_rejected_with_a_readable_reason(gate, code, reason):
-    result = gate.check(_candidate(code))
+def test_a_malformed_candidate_is_rejected_with_a_readable_reason(code, reason):
+    result = _check(code)
     assert isinstance(result, Rejected)
     assert any(reason in r for r in result.reasons), result.reasons
 
 
+# Each static constraint with a candidate that passes it and one that breaks
+# it: (passing code, failing code, the failing reason, the gate's limits).
+CONSTRAINTS = {
+    "window": ("alpha = WindowedAvg(close, 20) / close", "alpha = WindowedAvg(close, 21) / close",
+               "window 21 is not one of the allowed values", {}),
+    "loop window": (
+        "loop = ForeachBackWindow(close, 10)\nwith Builder(loop):\n    item = IterValue(loop, close)\n"
+        "alpha = ReduceMax(item) / close",
+        "loop = ForeachBackWindow(close, 7)\nwith Builder(loop):\n    item = IterValue(loop, close)\n"
+        "alpha = ReduceMax(item) / close",
+        "window 7 is not one of the allowed values", {}),
+    "lag": ("alpha = close / BackRef(close, 1)", "alpha = close / BackRef(close, 3)",
+            "lag 3 is not one of the allowed values", {}),
+    "quantile": ("alpha = WindowedQuantile(close, 20, 0.75) / close",
+                 "alpha = WindowedQuantile(close, 20, 0.7) / close",
+                 "quantile 0.7 is not one of the allowed values", {}),
+    "half-life": ("alpha = EWMean(close / open, 60, 20)", "alpha = EWMean(close / open, 60, 17.5)",
+                  "half_life 17.5 is not one of the allowed values", {}),
+    "winsorize bound": ("alpha = CrossSectionalWinsorize(close / open, 0.05, 0.95)",
+                        "alpha = CrossSectionalWinsorize(close / open, 0.07, 0.95)",
+                        "lower 0.07 is not one of the allowed values", {}),
+    "constant": ("alpha = Rank(close / open) - 0.5", "alpha = Rank(close / open) - 0.37",
+                 "constant 0.37 is not one of the allowed values", {}),
+    "chained constants": ("alpha = Rank(close / open) * 0.25", "alpha = Rank(close / open) * 0.25 * 1.5",
+                          "the constants combine to MulConst scale 0.375", {}),
+    "chained lags": ("alpha = close / BackRef(BackRef(close, 5), 5)",
+                     "alpha = close / BackRef(BackRef(close, 5), 10)",
+                     "the constants combine to BackRef lag 15", {}),
+    "node count": ("x = close\nfor i in range(150):\n    x = x + open\nalpha = x / close",
+                   "x = close\nfor i in range(250):\n    x = x + open\nalpha = x / close",
+                   "more than the limit of 200", {}),
+    "free-parameter ratio": ("alpha = (close - open) / (high - low + 1e-12)",
+                             "alpha = (close * 2 + open * 3) / (high * 5 + low * 4)",
+                             "free-parameter ratio", {}),
+    "base fields": ("alpha = (close - open) / (high - low)", "alpha = (close - open) / (high - low) * volume",
+                    "reads 5 input fields", {"max_base_fields": 4}),
+    "dimension": ("alpha = close / open + volume / WindowedAvg(volume, 20)", "alpha = close + volume",
+                  "Add combines a price with a volume", {}),
+    "comparison output": ("alpha = Select(close > open, ConstantOp(1.0), ConstantOp(-1.0))",
+                          "alpha = close > open", "alpha is a comparison", {}),
+    "comparison as number": ("alpha = Select(close > open, close, open) / vwap",
+                             "alpha = (close > open) * close / open", "takes a number but gets a comparison", {}),
+    "constant output": ("alpha = Rank(close / open)", "alpha = close * 0 + ConstantOp(1.0)",
+                        "alpha is a constant", {}),
+}
+
+
+@pytest.mark.parametrize("rule", CONSTRAINTS)
+def test_each_static_constraint_passes_one_candidate_and_rejects_another(rule):
+    good, bad, reason, limits = CONSTRAINTS[rule]
+    passed = _check(good, **limits)
+    assert isinstance(passed, Passed), getattr(passed, "reasons", None)
+    rejected = _check(bad, **limits)
+    assert isinstance(rejected, Rejected)
+    assert any(reason in r for r in rejected.reasons), rejected.reasons
+
+
 def test_code_that_never_finishes_is_stopped_by_the_timeout():
-    result = Gate(timeout_seconds=1.0).check(_candidate("while True:\n    pass\nalpha = close"))
+    result = Gate(GateConfig(timeout_seconds=1.0)).check(_candidate("while True:\n    pass\nalpha = close"))
     assert isinstance(result, Rejected)
     assert any("timed out" in r for r in result.reasons), result.reasons
 
 
-def test_a_well_formed_candidate_passes_with_its_graph(gate):
+def test_code_that_allocates_past_the_memory_limit_is_rejected():
+    gate = Gate(GateConfig(timeout_seconds=30.0, memory_mb=256))
+    result = gate.check(_candidate("x = list(range(10 ** 8))\nalpha = close / open"))
+    assert isinstance(result, Rejected)
+    assert any("256 MB memory limit" in r for r in result.reasons), result.reasons
+    # The gate still works afterwards.
+    assert isinstance(gate.check(_candidate("alpha = close / open")), Passed)
+
+
+def test_a_well_formed_candidate_passes_with_its_graph_and_statistics():
     code = (
         "def strength(x, y):\n"
         "    return x / y\n"
         "ratio = strength(close, open)\n"
         "alpha = Rank(WindowedAvg(ratio, 5))\n"
     )
-    result = gate.check(_candidate(code))
+    result = _check(code)
     assert isinstance(result, Passed), getattr(result, "reasons", None)
     assert result.graph.input_names == ("adjClose", "adjOpen")
-    assert result.stats["nodes"] == 5
+    assert result.stats == {
+        "nodes": 5, "operators": 3, "free_parameters": 0, "free_parameter_ratio": 0.0,
+        "base_fields": ["close", "open"], "dimension": "pure number",
+    }
     assert len(result.fingerprint) == 64
 
 
-def test_the_same_graph_gets_the_same_fingerprint(gate):
-    one = gate.check(_candidate("alpha = close / open"))
-    two = gate.check(_candidate("x = close\ny = open\nalpha = x / y"))
-    other = gate.check(_candidate("alpha = open / close"))
+def test_an_unknown_dimension_is_passed_and_recorded():
+    result = _check("alpha = Log(close) - Log(BackRef(close, 5)) + Log(volume)")
+    assert isinstance(result, Passed), getattr(result, "reasons", None)
+    assert result.stats["dimension"] == "unknown"
+
+
+def test_derived_inputs_count_as_one_field_each():
+    result = _check("alpha = vwap / close + amount / WindowedAvg(amount, 20)")
+    assert isinstance(result, Passed), getattr(result, "reasons", None)
+    assert result.stats["base_fields"] == ["amount", "close", "vwap"]
+    assert result.stats["dimension"] == "pure number"
+
+
+def test_a_nan_sensitive_operator_keeps_a_missing_bar_missing():
+    result = _check("alpha = Max(close / open, ConstantOp(1.0))")
+    assert isinstance(result, Passed), getattr(result, "reasons", None)
+    # quantlab's stand-in adds 0 * every input, so a bar with no data stays NaN.
+    assert result.graph.nodes[-1].op == "Add"
+    assert set(result.graph.input_names) == set(vocabulary.INPUT_COLUMNS.values())
+    assert result.stats["base_fields"] == ["close", "open"]
+
+
+def test_the_same_graph_gets_the_same_fingerprint():
+    one = _check("alpha = close / open")
+    two = _check("x = close\ny = open\nalpha = x / y")
+    other = _check("alpha = open / close")
     assert one.fingerprint == two.fingerprint
     assert one.fingerprint != other.fingerprint
 
 
-def test_a_loop_body_is_kept_in_the_graph(gate):
+@pytest.mark.parametrize(
+    ("first", "second"),
+    [
+        ("alpha = Rank(WindowedAvg(close, 5) + WindowedAvg(open, 20))",
+         "alpha = Rank(WindowedAvg(open, 20) + WindowedAvg(close, 5))"),
+        ("alpha = WindowedCorrelation(close, 20, volume)", "alpha = WindowedCorrelation(volume, 20, close)"),
+        ("alpha = Rank(close / open) * 4", "alpha = Rank(close / open) * (ConstantOp(2.0) * 2)"),
+        ("alpha = (close - open) / 2", "alpha = (close - open) * 0.5"),
+        ("alpha = Rank(close / open)", "alpha = Rank(close / open + 0)"),
+        ("a = WindowedAvg(close, 5)\nalpha = a / a", "alpha = WindowedAvg(close, 5) / WindowedAvg(close, 5)"),
+    ],
+)
+def test_a_rewritten_duplicate_is_rejected_by_its_canonical_fingerprint(first, second):
+    gate = Gate(GateConfig(timeout_seconds=10.0))
+    one = gate.check(_candidate(first))
+    assert isinstance(one, Passed), getattr(one, "reasons", None)
+    two = gate.check(_candidate(second))
+    assert isinstance(two, Rejected)
+    assert any("duplicate" in r for r in two.reasons), two.reasons
+
+
+def test_a_loop_body_is_kept_in_the_graph():
     code = (
         "ratio = close / open\n"
         "loop = ForeachBackWindow(ratio, 5)\n"
@@ -87,6 +206,49 @@ def test_a_loop_body_is_kept_in_the_graph(gate):
         "    item = IterValue(loop, ratio)\n"
         "alpha = ReduceAdd(item)\n"
     )
-    result = gate.check(_candidate(code))
+    result = _check(code)
     assert isinstance(result, Passed), getattr(result, "reasons", None)
     assert result.stats["nodes"] == 6
+
+
+def _op_classes() -> set[type]:
+    """Every OpBase subclass KunQuant and quantlab declare in a module."""
+    for module in pkgutil.walk_packages(KunQuant.__path__, "KunQuant."):
+        try:
+            importlib.import_module(module.name)
+        except ImportError:  # optional backends (MLIR, CUDA) that are not installed
+            pass
+    for name in ("kunquant_ts", "kunquant_cs", "kunquant_nan"):
+        importlib.import_module(f"quantlab.factor.{name}")
+    found, stack = set(), [OpBase]
+    while stack:
+        for sub in stack.pop().__subclasses__():
+            stack.append(sub)
+            # Classes made at run time (quantlab's per-bounds variants) are not declared
+            # operators, and an underscore marks a library's private base class.
+            declared = getattr(sys.modules.get(sub.__module__), sub.__name__, None) is sub
+            if declared and not sub.__name__.startswith("_"):
+                found.add(sub)
+    return found
+
+
+def _unlisted() -> set[type]:
+    return _op_classes() - {spec.cls for spec in vocabulary.OPERATORS.values()} - set(vocabulary.EXCLUDED)
+
+
+def test_every_operator_class_is_registered_or_excluded():
+    assert not {spec.cls for spec in vocabulary.OPERATORS.values()} & set(vocabulary.EXCLUDED)
+    missing = sorted(f"{c.__module__}.{c.__name__}" for c in _unlisted())
+    assert not missing, f"operators in neither the registry nor the exclusion list: {missing}"
+
+
+def test_the_guard_notices_an_operator_in_neither_list():
+    class NewOperator(OpBase):
+        pass
+
+    module = sys.modules[__name__]
+    module.NewOperator = NewOperator
+    try:
+        assert NewOperator in _unlisted()
+    finally:
+        del module.NewOperator

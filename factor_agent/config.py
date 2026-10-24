@@ -41,10 +41,18 @@ class EvaluatorConfig:
 
 @dataclass(frozen=True)
 class GateConfig:
-    """The Gate's sandbox limits."""
+    """The Gate's sandbox limits and graph constraints."""
 
     #: Seconds the sandboxed graph build may take.
     timeout_seconds: float = 10.0
+    #: Memory, in MB, the sandboxed graph build may use.
+    memory_mb: int = 1024
+    #: Nodes a candidate's graph may have.
+    max_nodes: int = 200
+    #: Hand-set constants (other than 0 and +-1) per operator.
+    max_free_parameter_ratio: float = 0.5
+    #: Distinct input fields (open, high, low, close, volume, vwap, amount) a candidate may read.
+    max_base_fields: int = 5
 
 
 @dataclass(frozen=True)
@@ -61,6 +69,8 @@ class RoundConfig:
 
     #: Candidates asked for per round.
     candidates: int = 20
+    #: Times a candidate the parser or the Gate refused is sent back to the proposer to fix.
+    retries: int = 2
 
 
 @dataclass(frozen=True)

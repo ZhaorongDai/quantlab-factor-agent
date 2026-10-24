@@ -1,0 +1,193 @@
+"""Canonical hashes of a graph's nodes: what the fingerprint and duplicate checks compare.
+
+Each node's hash is a Merkle hash of its operator, attributes, inputs and
+enclosing loop, computed after three rewrites:
+
+- constant folding: an elementwise operator whose inputs are all constants
+  becomes the constant it computes;
+- constant arithmetic in one form: ``x + c``, ``Add(x, ConstantOp(c))`` and
+  ``x - (-c)`` are all ``AddConst(x, c)``, ``x / c`` is ``MulConst(x, 1/c)``,
+  nested constant offsets and scales merge, and ``x + 0`` and ``x * 1`` are ``x``;
+- commutative ordering: the inputs of a commutative operator are sorted.
+
+A repeated subexpression hashes the same wherever it appears, so the
+fingerprint does not depend on how the code shared intermediate values.
+Multiplying by zero is never folded: ``0 * x`` is NaN where ``x`` is, which
+the NaN-preserving stand-ins rely on.
+"""
+
+import hashlib
+import json
+import math
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from factor_agent.gate.graph import Graph
+
+#: Operators whose inputs may be reordered.
+COMMUTATIVE = frozenset({
+    "Add", "Mul", "Max", "Min", "Equals", "And", "Or", "WindowedCorrelation", "WindowedCovariance", "EWCov",
+})
+
+#: Elementwise operators folded when every input is a constant.
+_FOLD = {
+    "Add": lambda a, b: a + b,
+    "Sub": lambda a, b: a - b,
+    "Mul": lambda a, b: a * b,
+    "Div": lambda a, b: a / b,
+    "Max": max,
+    "Min": min,
+    "Pow": lambda a, b: a ** b,
+    "Abs": abs,
+    "Sign": lambda a: float((a > 0) - (a < 0)),
+    "Exp": math.exp,
+    "Log": math.log,
+    "Sqrt": math.sqrt,
+}
+
+#: Significant digits a constant keeps, so 1/3 * 3 and 1 hash alike.
+_DIGITS = 12
+
+
+class _Const:
+    """A node that folded to a constant."""
+
+    def __init__(self, value: float):
+        self.value = value
+
+    def key(self):
+        return ["const", "nan" if math.isnan(self.value) else _rounded(self.value)]
+
+
+class _Node:
+    """A node's canonical form: operator, attributes, input terms, loop term."""
+
+    def __init__(self, op: str, attrs: dict, inputs: list, parent):
+        self.op = op
+        self.attrs = attrs
+        self.inputs = inputs
+        self.parent = parent
+        self.hash = _sha([op, sorted(attrs.items()), [_key(t) for t in inputs], None if parent is None else _key(parent)])
+
+    def key(self):
+        return self.hash
+
+
+def _rounded(value: float) -> float:
+    return float(f"{value:.{_DIGITS}g}")
+
+
+def _sha(value) -> str:
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def _key(term):
+    return term.key()
+
+
+def _same(one, other) -> bool:
+    return (one is None and other is None) or (one is not None and other is not None and _key(one) == _key(other))
+
+
+def _number(value):
+    """Attribute values as JSON numbers; 5 and 5.0 are the same window."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return value
+    return float(value)
+
+
+def canonical_hashes(graph: "Graph") -> list[str]:
+    """Return the canonical hash of every node of ``graph``, in node order; the last is the factor's."""
+    return [_sha(["term", _key(t)]) for t in _terms(graph)]
+
+
+def effective_parameters(graph: "Graph") -> list[tuple[str, str, float]]:
+    """Return ``(operator, kind, value)`` for every value the factor uses once constants are merged.
+
+    Kinds are ``"constant"`` (a merged offset or a folded constant),
+    ``"scale"`` (a merged multiplier; dividing by ``c`` is scaling by ``1/c``)
+    and ``"lag"`` (a merged chain of ``BackRef``). Chaining allowed values
+    (``x * 0.25 * 1.5``, ``BackRef(BackRef(x, 5), 10)``) shows up here as the
+    value it really is.
+    """
+    found, seen, stack = [], set(), [_terms(graph)[-1]]
+    while stack:
+        term = stack.pop()
+        if isinstance(term, _Const):
+            found.append(("ConstantOp", "constant", term.value))
+            continue
+        if term.hash in seen:
+            continue
+        seen.add(term.hash)
+        if term.op in ("AddConst", "SubConstSwap", "DivConstSwap"):
+            found.append((term.op, "constant", term.attrs["value"]))
+        elif term.op == "MulConst":
+            found.append((term.op, "scale", term.attrs["value"]))
+        elif term.op == "BackRef":
+            found.append((term.op, "lag", term.attrs["window"]))
+        stack += term.inputs + ([] if term.parent is None else [term.parent])
+    return found
+
+
+def _terms(graph: "Graph") -> list:
+    """Every node's canonical term, in node order."""
+    terms = []
+    for node in graph.nodes:
+        attrs = dict(node.attrs)
+        inputs = [terms[i] for i in node.inputs]
+        parent = None if node.parent is None else terms[node.parent]
+        terms.append(_canonical(node.op, attrs, inputs, parent))
+    return terms
+
+
+def _canonical(op: str, attrs: dict, inputs: list, parent):
+    """Return one node's canonical term, given its inputs' and loop's terms."""
+    if op == "ConstantOp":
+        value = attrs["value"]
+        return _Const(float("nan") if value == "nan" else float(value))
+    swap = bool(attrs.pop("swap", False))
+    attrs = {k: _number(v) for k, v in attrs.items()}
+
+    if op in ("AddConst", "SubConst", "MulConst", "DivConst"):
+        x, c = inputs[0], attrs["value"]
+        return _with_constant(op, x, c, swap, parent)
+    if op in _FOLD and inputs and all(isinstance(t, _Const) for t in inputs):
+        try:
+            return _Const(float(_FOLD[op](*(t.value for t in inputs))))
+        except (ArithmeticError, ValueError):
+            pass
+    if op in ("Add", "Sub", "Mul", "Div") and len(inputs) == 2:
+        left, right = inputs
+        if isinstance(right, _Const) and not isinstance(left, _Const):
+            return _with_constant(op + "Const", left, right.value, False, parent)
+        if isinstance(left, _Const) and not isinstance(right, _Const):
+            swapped = op in ("Sub", "Div")
+            return _with_constant(op + "Const", right, left.value, swapped, parent)
+    if op == "BackRef" and isinstance(inputs[0], _Node) and inputs[0].op == "BackRef" and _same(inputs[0].parent, parent):
+        return _Node(op, {"window": inputs[0].attrs["window"] + attrs["window"]}, inputs[0].inputs, parent)
+    if op in COMMUTATIVE:
+        inputs = sorted(inputs, key=lambda t: json.dumps(_key(t)))
+    return _Node(op, attrs, inputs, parent)
+
+
+def _with_constant(op: str, x, c: float, swap: bool, parent):
+    """``x op c`` (``c op x`` when ``swap``) as ``AddConst``/``MulConst``, or a swapped form."""
+    if isinstance(x, _Const):
+        a, b = (c, x.value) if swap else (x.value, c)
+        try:
+            return _Const(float(_FOLD[op.removesuffix("Const")](a, b)))
+        except (ArithmeticError, ValueError):
+            pass
+    if op == "SubConst" and not swap:
+        op, c = "AddConst", -c
+    elif op == "DivConst" and not swap and c != 0:
+        op, c = "MulConst", 1.0 / c
+    if op in ("SubConst", "DivConst"):  # c - x, c / x
+        return _Node(op + "Swap", {"value": _number(c)}, [x], parent)
+    if isinstance(x, _Node) and x.op == op and _same(x.parent, parent):
+        inner = x.attrs["value"]
+        c = inner + c if op == "AddConst" else inner * c
+        x = x.inputs[0]
+    if (op == "AddConst" and c == 0) or (op == "MulConst" and c == 1):
+        return x
+    return _Node(op, {"value": _rounded(c)}, [x], parent)

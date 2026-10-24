@@ -5,14 +5,13 @@ the parent process never runs candidate code or unpickles anything; it
 rebuilds the operators from whitelisted classes only.
 """
 
-import hashlib
-import json
 from collections import OrderedDict
 from dataclasses import dataclass
 
 from KunQuant.Op import Input, OpBase
 
-from factor_agent.gate.vocabulary import GRAPH_CLASSES
+from factor_agent.gate._canonical import canonical_hashes
+from factor_agent.gate.vocabulary import GRAPH_CLASSES, recorded_name
 
 #: Instance attributes an operator may carry; anything else cannot be recorded.
 _OP_STATE = frozenset({"inputs", "attrs", "_parent_loop"})
@@ -44,14 +43,13 @@ class Graph:
             If an operator is not in the whitelist or carries state other
             than its inputs, attributes and loop.
         """
-        names = {klass: name for name, klass in GRAPH_CLASSES.items()}
         index: dict[int, int] = {}
         nodes: list[Node] = []
 
         def visit(op: OpBase) -> int:
             if id(op) in index:
                 return index[id(op)]
-            name = names.get(type(op))
+            name = recorded_name(type(op))
             if name is None:
                 raise ValueError(f"operator {type(op).__name__} is not in the whitelist")
             extra = set(vars(op)) - _OP_STATE
@@ -90,7 +88,8 @@ class Graph:
                 made.append(inputs[name])
                 continue
             cls = GRAPH_CLASSES[node.op]
-            op = cls.__new__(cls)
+            # quantlab's quantile-bound operators pick their per-bounds subclass in __new__.
+            op = cls.__new__(cls) if cls.__new__ is object.__new__ else cls.__new__(cls, None, **dict(node.attrs))
             op.inputs = [made[i] for i in node.inputs]
             op.attrs = OrderedDict(node.attrs)
             op._parent_loop = made[node.parent] if node.parent is not None else None
@@ -123,5 +122,10 @@ class Graph:
         return cls(tuple(nodes))
 
     def fingerprint(self) -> str:
-        """Return the SHA-256 of the recorded nodes."""
-        return hashlib.sha256(json.dumps(self.to_json(), sort_keys=True).encode()).hexdigest()
+        """Return the SHA-256 of the canonical graph.
+
+        Two graphs that differ only by the operand order of a commutative
+        operator, by constant subexpressions that fold to the same value, or
+        by a repeated subexpression get the same fingerprint.
+        """
+        return canonical_hashes(self)[-1]
