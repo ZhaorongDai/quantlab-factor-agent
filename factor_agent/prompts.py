@@ -266,6 +266,11 @@ class Prompts:
     vocabulary: Vocabulary
     mechanisms: Mapping[str, str]
 
+    @property
+    def mechanism_types(self) -> tuple[str, ...]:
+        """The names of the mechanism types, in order: what a round is planned over and a candidate belongs to."""
+        return tuple(self.mechanisms)
+
     def render(self, name: str, **values) -> str:
         """Template ``name`` filled with ``values`` and every value common to the templates."""
         common = {"market": self.market, "horizon": self.horizon}

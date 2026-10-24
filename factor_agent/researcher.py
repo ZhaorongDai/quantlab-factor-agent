@@ -117,7 +117,7 @@ class Researcher:
     ):
         self.roles = dict(roles)
         self.prompts = prompts
-        self._types = tuple(prompts.mechanisms)
+        self._types = prompts.mechanism_types
         #: US dollars spent on calls so far.
         self.spent = spent
         self._budget = budget

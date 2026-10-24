@@ -261,7 +261,7 @@ class Campaign:
                     (run_dir / "memory.md").write_text(state.memory + "\n")
                     state.calls = len(log.files())
                     state.write(state_path)
-                quota = _scheduler.quota(number, records, config.round, config.mechanism_types)
+                quota = _scheduler.quota(number, records, config.round, prompts.mechanism_types)
                 accepted = [r for r in records if r.status == "accepted"]
                 context = self._context(records, state, reference, evaluator, accepted)
                 directions, issues = researcher.plan(number, quota, context, [_feedback.accepted_label(r) for r in accepted])
