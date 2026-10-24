@@ -42,7 +42,7 @@ def write_config(root: Path, components: dict, reference=(), **sections) -> Path
 
 
 def run(config_path: Path, fake, cache: Path):
-    """Run the campaign of ``config_path`` with every role answered by ``fake``."""
+    """Run the campaign of ``config_path`` with every role answered by ``fake``, or by the config's backends if None."""
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv(CACHE_ENV, str(cache))
-        return Campaign(CampaignConfig.from_file(config_path), backends=fake.backends()).run()
+        return Campaign(CampaignConfig.from_file(config_path), backends=fake.backends() if fake else None).run()

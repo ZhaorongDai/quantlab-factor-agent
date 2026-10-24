@@ -26,6 +26,10 @@ class ScriptedBackend:
         """Build from ``{"replies": <path to a JSON list of reply texts>}``."""
         return cls(json.loads(Path(spec["replies"]).read_text()))
 
+    def estimate(self, input_tokens: int, output_tokens: int) -> float:
+        """Nothing: no provider is called."""
+        return 0.0
+
     def complete(self, request: Request) -> Reply:
         """Return the next scripted reply and keep ``request``."""
         if len(self.requests) >= len(self._replies):

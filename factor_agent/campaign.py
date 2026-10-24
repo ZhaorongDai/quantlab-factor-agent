@@ -27,7 +27,12 @@ Before each round the stop conditions are checked: the round limit, the
 trial limit, ``patience`` rounds in a row without an acceptance, and the
 budget; the first that holds ends the run and is recorded. The budget is
 also checked before every call: a round that reaches it is stopped there
-and dropped, and the spending, written after every call, is kept. ``run`` resumes
+and dropped, and the spending, written after every call, is kept. Before the first
+round ``run`` prints the cost estimate (``_cost``), and every call goes
+to the run's LLM log (``llm.log``), which the ``replay`` backend serves
+back to reproduce the run without a provider; on a resume the calls of the
+dropped round are moved to ``llm_log/dropped/``, so the log holds exactly
+the calls the ledger was written from. ``run`` resumes
 a run directory from its state: the rounds written are kept, a round a
 crash left half written is dropped and run again, and the zoo, the pool and
 the Gate's fingerprints are restored from the ledger.
@@ -37,13 +42,15 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from factor_agent import _admission, _feedback, _scheduler
+from factor_agent import _admission, _cost, _feedback, _scheduler
+from factor_agent._cost import CostEstimate
 from factor_agent.config import ROLES, CampaignConfig, load
 from factor_agent.evaluator import CompileFailure, Evaluator, Metrics
 from factor_agent.gate import Gate
 from factor_agent.gate.graph import Graph
 from factor_agent.ledger import Ledger, TrialRecord
 from factor_agent.llm.base import LLMBackend, make_backend
+from factor_agent.llm.log import LLMLog, RecordingBackend
 from factor_agent.researcher import BudgetExhausted, Proposal, Researcher
 from factor_agent.zoo import Zoo
 
@@ -99,6 +106,8 @@ class _State:
     spent: float = 0.0
     memory: str = ""
     memory_round: int = 0
+    #: Calls in the LLM log when the state was last written at a round's end or after a distillation.
+    calls: int = 0
     log: list[dict] = field(default_factory=list)
     stop: dict | None = None
 
@@ -129,6 +138,21 @@ class Campaign:
         self.config = config
         self._backends = dict(backends or {})
 
+    def estimate(self) -> CostEstimate:
+        """The calls and the cost the campaign is expected to take, from its config (see ``_cost``)."""
+        return self._estimate([load(component) for component in self.config.reference])
+
+    def _estimate(self, reference: list) -> CostEstimate:
+        context = {"seed": _seed(self.config.directions), "families": _feedback.families(reference)}
+        return _cost.estimate(self.config.round, self._role_backends(), context)
+
+    def _role_backends(self) -> dict[str, LLMBackend]:
+        """Each role's backend: the one passed in, or the one its config names, built once."""
+        for role in ROLES:
+            if role not in self._backends:
+                self._backends[role] = make_backend(self.config.roles[role].spec())
+        return self._backends
+
     def run(self) -> CampaignResult:
         """Run, or resume, the campaign until a stop condition holds; return every candidate's outcome."""
         config, run_dir = self.config, Path(self.config.run_dir)
@@ -141,14 +165,17 @@ class Campaign:
             state.spent = spent
             state.write(state_path)
 
+        reference = [load(component) for component in config.reference]
+        print(self._estimate(reference).summary(config.round.budget_usd, state.spent), flush=True)
+        log = LLMLog(run_dir / "llm_log")
+        log.drop_after(state.calls)
         researcher = Researcher(
             {
-                role: (self._backends.get(role) or make_backend(config.roles[role].spec()), config.roles[role].model)
-                for role in ROLES
+                role: (RecordingBackend(backend, log), config.roles[role].model)
+                for role, backend in self._role_backends().items()
             },
             spent=state.spent, budget=config.round.budget_usd, on_cost=on_cost,
         )
-        reference = [load(component) for component in config.reference]
         evaluator = Evaluator.for_segment(
             config.training,
             prices=config.data.load("prices"),
@@ -171,6 +198,7 @@ class Campaign:
                     state.memory = researcher.distill(number, _feedback.history(records, statistics=False))
                     state.memory_round = state.rounds
                     (run_dir / "memory.md").write_text(state.memory + "\n")
+                    state.calls = len(log.files())
                     state.write(state_path)
                 quota = _scheduler.quota(number, records, config.round)
                 accepted = [r for r in records if r.status == "accepted"]
@@ -183,7 +211,7 @@ class Campaign:
                 break
             ledger.append(round_records)
             records += round_records
-            state.rounds, state.spent = number, researcher.spent
+            state.rounds, state.spent, state.calls = number, researcher.spent, len(log.files())
             state.log.append({
                 "round": number, "quota": quota, "plan_issues": issues, "cost": researcher.spent - spent_before,
                 "accepted": sum(r.status == "accepted" for r in round_records),
@@ -221,7 +249,7 @@ class Campaign:
         """The sections the planner and the proposer read; see ``_feedback``."""
         labels = [_feedback.accepted_label(r) for r in accepted]
         return {
-            "seed": "\n".join(f"- {direction}" for direction in self.config.directions),
+            "seed": _seed(self.config.directions),
             "families": _feedback.families(reference),
             "memory": state.memory,
             "history": _feedback.history(records),
@@ -299,6 +327,11 @@ class Campaign:
             stats=checked.stats, attempts=_attempts(proposal), direction=proposal.direction.to_dict(),
             graph=checked.graph.to_json(),
         )
+
+
+def _seed(directions) -> str:
+    """The seed directions as the planner reads them."""
+    return "\n".join(f"- {direction}" for direction in directions)
 
 
 def _restore(records: list[TrialRecord], zoo: Zoo, evaluator: Evaluator) -> None:

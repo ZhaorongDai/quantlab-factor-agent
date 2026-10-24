@@ -28,8 +28,34 @@ accepted factors with their marginal weight and residual IC in the accepted pool
 date or a held-out metric. Every `memory_every` rounds the distiller writes `memory.md`. The run
 stops at `max_rounds`, `max_trials`, `patience` rounds without an acceptance, or `budget_usd` (checked before every call), and
 records why in `state.json`; `ledger.jsonl` holds every candidate, and `run()` on the same run
-directory resumes from the last written round. Only the `scripted` LLM backend exists so far.
-See [docs/design.md](docs/design.md).
+directory resumes from the last written round. See [docs/design.md](docs/design.md).
+
+## LLM backends
+
+Each role under `llm` picks its backend and model; the other keys are the backend's settings.
+
+```yaml
+llm:
+  planner:  {backend: claude_code, model: claude-opus-5-5, effort: high}
+  proposer: {backend: anthropic, model: claude-opus-5-5, max_tokens: 16000,
+             input_usd_per_mtok: 4.0, output_usd_per_mtok: 20.0}
+  reviewer: {backend: openai_compatible, model: deepseek-chat, base_url: https://api.deepseek.com/v1,
+             api_key_env: DEEPSEEK_API_KEY, input_usd_per_mtok: 0.27, output_usd_per_mtok: 1.10}
+  distiller: {backend: claude_code, model: claude-opus-5-5}
+```
+
+- `claude_code` runs `claude -p --output-format json` with every tool, MCP server, skill and settings
+  file off, from an empty directory, through the local Claude Code login; it reports its own cost
+  (prices in the config are only used for the estimate).
+- `anthropic` reads `ANTHROPIC_API_KEY`; `openai_compatible` (OpenAI, DeepSeek, DashScope, Gemini's
+  compatible endpoint, vLLM, Ollama) reads the variable `api_key_env` names, or none for a local server.
+  Their cost is the reply's token usage at the configured prices (check them against the provider's
+  price list). A key in the config is refused.
+- Every call is written in full to `<run_dir>/llm_log/` (prompt, model, parameters, reply, usage, cost,
+  the raw reply). `replay` (every role `{backend: replay, model: ..., log: <run_dir>/llm_log}`) serves such a log back, matched on role and prompt, so the campaign
+  reproduces byte for byte without calling a provider; a request the log has no reply for fails.
+- Before the first round `run()` prints the estimated cost per role against `budget_usd`
+  (`Campaign(config).estimate()`); the run stops once the calls have cost the budget.
 
 ## Setup
 
