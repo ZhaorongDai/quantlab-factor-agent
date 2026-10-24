@@ -22,30 +22,54 @@ class OpenAICompatibleBackend:
         The environment variable holding the key; None for a local server without one.
     max_tokens : int, optional
         The ``max_tokens`` of every call; the provider's default if None.
+    max_completion_tokens : int, optional
+        The ``max_completion_tokens`` of every call, in place of
+        ``max_tokens``: OpenAI's reasoning models take only this one, and
+        count the reasoning tokens in it.
+    reasoning_effort : str, optional
+        The ``reasoning_effort`` of every call (such as ``"low"``,
+        ``"medium"``, ``"high"``), for a reasoning model; the provider's
+        default if None.
     timeout_seconds : float
         Seconds a call may take.
+
+    Raises
+    ------
+    ValueError
+        If both ``max_tokens`` and ``max_completion_tokens`` are given.
     """
 
     def __init__(
         self, model: str, base_url: str, prices: Prices, api_key_env: str | None = None,
-        max_tokens: int | None = None, timeout_seconds: float = 600.0,
+        max_tokens: int | None = None, max_completion_tokens: int | None = None,
+        reasoning_effort: str | None = None, timeout_seconds: float = 600.0,
     ):
+        if max_tokens is not None and max_completion_tokens is not None:
+            raise ValueError("openai_compatible: give max_tokens or max_completion_tokens, not both")
         self.model = model
         self.prices = prices
         self.max_tokens = max_tokens
+        self.max_completion_tokens = max_completion_tokens
+        self.reasoning_effort = reasoning_effort
         key = key_from_environment(api_key_env) if api_key_env else "none"
         self._client = openai.OpenAI(api_key=key, base_url=base_url, timeout=timeout_seconds)
 
     @classmethod
     def from_config(cls, spec: dict) -> "OpenAICompatibleBackend":
-        """Build from a role's config: ``model``, ``base_url``, the prices, and optionally ``api_key_env``, ``max_tokens``, ``timeout_seconds``."""
-        options = {k: spec[k] for k in ("api_key_env", "max_tokens", "timeout_seconds") if k in spec}
+        """Build from a role's config: ``model``, ``base_url``, the prices, and optionally ``api_key_env``,
+        ``max_tokens`` or ``max_completion_tokens``, ``reasoning_effort`` and ``timeout_seconds``."""
+        names = ("api_key_env", "max_tokens", "max_completion_tokens", "reasoning_effort", "timeout_seconds")
+        options = {k: spec[k] for k in names if k in spec}
         return cls(spec["model"], spec["base_url"], Prices.from_spec(spec, "openai_compatible"), **options)
 
     @property
     def params(self) -> dict:
         """The parameters every call sends with the prompt."""
-        return {"max_tokens": self.max_tokens} if self.max_tokens else {}
+        params = {
+            "max_tokens": self.max_tokens, "max_completion_tokens": self.max_completion_tokens,
+            "reasoning_effort": self.reasoning_effort,
+        }
+        return {k: v for k, v in params.items() if v is not None}
 
     def estimate(self, input_tokens: int, output_tokens: int) -> float:
         """What a call with these token counts would cost."""

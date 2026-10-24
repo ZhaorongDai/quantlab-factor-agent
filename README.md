@@ -48,7 +48,8 @@ llm:
   file off, from an empty directory, through the local Claude Code login; it reports its own cost
   (prices in the config are only used for the estimate).
 - `anthropic` reads `ANTHROPIC_API_KEY`; `openai_compatible` (OpenAI, DeepSeek, DashScope, Gemini's
-  compatible endpoint, vLLM, Ollama) reads the variable `api_key_env` names, or none for a local server.
+  compatible endpoint, vLLM, Ollama) reads the variable `api_key_env` names, or none for a local server;
+  for a reasoning model give `max_completion_tokens` (in place of `max_tokens`) and `reasoning_effort`.
   Their cost is the reply's token usage at the configured prices (check them against the provider's
   price list). A key in the config is refused.
 - Every call is written in full to `<run_dir>/llm_log/` (prompt, model, parameters, reply, usage, cost,

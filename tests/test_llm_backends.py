@@ -219,6 +219,29 @@ def test_the_openai_compatible_adapter_reads_the_key_variable_the_config_names(p
     assert answer.cost == pytest.approx(1000 * 0.5 / 1e6 + 500 * 2.0 / 1e6)
 
 
+
+def test_a_reasoning_model_takes_max_completion_tokens_and_reasoning_effort(provider, monkeypatch):
+    server = provider(OPENAI_REPLY)
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-unused")
+    backend = make_backend({
+        "backend": "openai_compatible", "model": "o-model", "base_url": server.url + "/v1",
+        "api_key_env": "OPENAI_API_KEY", "max_completion_tokens": 32000, "reasoning_effort": "high",
+        "input_usd_per_mtok": 1.0, "output_usd_per_mtok": 1.0,
+    })
+    answer = backend.complete(_request())
+    (sent,) = server.received
+    assert sent["body"]["max_completion_tokens"] == 32000 and sent["body"]["reasoning_effort"] == "high"
+    assert "max_tokens" not in sent["body"]
+    assert answer.params == {"max_completion_tokens": 32000, "reasoning_effort": "high"}
+
+
+def test_max_tokens_and_max_completion_tokens_together_are_refused():
+    with pytest.raises(ValueError, match="max_tokens or max_completion_tokens"):
+        make_backend({
+            "backend": "openai_compatible", "model": "m", "base_url": "http://127.0.0.1:1/v1",
+            "max_tokens": 100, "max_completion_tokens": 100, "input_usd_per_mtok": 1, "output_usd_per_mtok": 1,
+        })
+
 def test_a_missing_key_variable_is_named(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
