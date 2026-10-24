@@ -304,7 +304,7 @@ class Researcher:
                 **({"output_unit": unit} if unit is not None else {}),
                 "refused_because": list(attempt.reasons), **({"how_to_write_it": list(attempt.hints)} if attempt.hints else {}),
             }
-            for i, ((direction, _, attempt), item, unit) in enumerate(zip(failures, items, units))
+            for i, ((direction, _, attempt), item, unit) in enumerate(zip(failures, items, units, strict=True))
         ]
         prompt = self.prompts.render("retry", round=number, failures=json.dumps(listed, indent=2), n=len(failures))
         return _items(self._ask("proposer", prompt), items)
