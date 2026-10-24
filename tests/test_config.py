@@ -17,7 +17,9 @@ from quantlab.factor.predefined.alpha158 import Alpha158Stock
 from factor_agent.config import DEFAULT_MECHANISMS, ROLES, CampaignConfig, NeutralizeConfig, load
 from factor_agent.gate.vocabulary import VocabularyError
 from factor_agent.prompts import PromptError
-from tests.vocabulary_files import EXAMPLE_OPERATORS, PRICE_VOLUME
+from tests.vocabulary_files import CONFIGS, EXAMPLE_OPERATORS, PRICE_VOLUME
+
+FUNDAMENTALS = CONFIGS / "fields" / "sharadar_fundamentals.yaml"
 
 
 @pytest.fixture
@@ -168,6 +170,26 @@ def test_the_real_config_reads_with_sel0s_191_reference_factors_and_a_direction_
     assert config.data.membership == "/data/quantlab/universe/us3000/membership_estu"
     assert (config.scoring.neutralize.size_column, config.scoring.neutralize.industry_column) == ("marketcap", "industry")
     assert config.fields == (str(PRICE_VOLUME),) and config.operators == str(EXAMPLE_OPERATORS)
+
+
+#: The first fundamentals campaign's config (#19), checked the same way.
+REAL_FUNDAMENTALS = Path(__file__).parent.parent / "configs" / "us3000_fund_ret5.yaml"
+
+
+def test_the_fundamentals_config_differs_from_the_first_only_in_its_run_dir_fields_data_and_directions():
+    config, first = CampaignConfig.from_file(REAL_FUNDAMENTALS), CampaignConfig.from_file(REAL)
+    names = [name for entry in config.reference for name in entry["factor_names"]]
+    assert len(names) == len(set(names)) == 191 and config.reference == first.reference
+    assert {direction.split(":")[0] for direction in config.directions} == {m.name for m in DEFAULT_MECHANISMS}
+    assert len(config.directions) == 10 and not set(config.directions) & set(first.directions)
+    assert not re.search(r"\b(19|20)\d\d\b", " ".join(config.directions))  # no date reaches a prompt
+    assert config.run_dir == "/data/quantlab/runs/factor_agent_us3000_fund_ret5" != first.run_dir
+    assert config.fields == (str(PRICE_VOLUME), str(FUNDAMENTALS)) and config.operators == first.operators
+    assert config.admission.min_coverage == 0.5
+    assert {role.model for role in config.roles.values()} == {"deepseek/deepseek-v4-pro-0813"}
+    assert (config.data.label, config.data.membership, config.scoring) == (first.data.label, first.data.membership, first.scoring)
+    assert config.acceptance == first.acceptance and config.acceptance.hyperparameters == XGB_DEEP
+    assert config.acceptance.factor_root == "/data/quantlab/factors/market"
 
 
 def test_an_acceptance_section_without_hyperparameters_leaves_quantlabs_xgboost_defaults(tmp_path):

@@ -1,0 +1,267 @@
+# The first fundamentals campaign (#19): us3000, the 5-day open-to-open label, against SEL0, with the
+# price-volume and the Sharadar fundamentals fields open (design Q40-Q53).
+#
+# The same label, membership, scoring, reference, roles and acceptance as us3000_ret5.yaml (#8); its own
+# run_dir. The price dataset is the merged SEP + DAILY + SF1 ART panel with bad prints masked, as
+# factors/market/fundamental_alpha reads it (without SF3A and SF2, which no field opens).
+# Run on the server bound to NUMA Node 1, in a checkout other than the running us3000_ret5 one (Q53).
+run_dir: /data/quantlab/runs/factor_agent_us3000_fund_ret5
+
+# The data as the prompts describe it.
+market: adjusted daily bars, daily valuations and trailing-twelve-month financial statements of every US common stock
+
+segments:
+  training:   {start: 2000-02-02, end: 2014-12-31}
+  validation: {start: 2015-01-02, end: 2019-12-31}
+  # labels/market/ret_5 ends 2026-10-15 and is not in the daily update.
+  holdout:    {start: 2020-01-02, end: 2026-10-15}
+  purge_bars: 5
+
+data:
+  prices:
+    datasets:
+    - zarr_file_path: /data/quantlab/market/sharadar/sharadar_sep_1d/sharadar_sep_1d.zarr
+      start_date: '1900-01-01'
+      end_date: '2100-01-01'
+      symbols: null
+      kwargs: null
+      resample_freq: null
+      resample_how: null
+      name: quantlab.dataset.sharadar.stock.SharadarStockDataset
+      raw_data_dir_path: /data/quantlab/downloads/sharadar
+      market: us_equity
+      frequency: 1d
+      vendor: sharadar
+      table: sep
+      permatickers: null
+      roster_universe: null
+      category_filter: [Domestic Common Stock, Domestic Common Stock Primary Class, Domestic Common Stock Secondary
+          Class]
+    - zarr_file_path: /data/quantlab/market/sharadar/sharadar_daily_1d/sharadar_daily_1d.zarr
+      start_date: '1900-01-01'
+      end_date: '2100-01-01'
+      symbols: null
+      kwargs: null
+      resample_freq: null
+      resample_how: null
+      name: quantlab.dataset.sharadar.daily.SharadarDailyDataset
+      raw_data_dir_path: /data/quantlab/downloads/sharadar
+      market: us_equity
+      frequency: 1d
+      vendor: sharadar
+      table: daily
+      permatickers: null
+      roster_universe: null
+      category_filter: [Domestic Common Stock, Domestic Common Stock Primary Class, Domestic Common Stock Secondary
+          Class]
+    - zarr_file_path: /data/quantlab/market/sharadar/sharadar_sf1_art/sharadar_sf1_art.zarr
+      start_date: '1900-01-01'
+      end_date: '2100-01-01'
+      symbols: null
+      kwargs: null
+      resample_freq: null
+      resample_how: null
+      name: quantlab.dataset.sharadar.fundamentals.SharadarFundamentalsDataset
+      raw_data_dir_path: /data/quantlab/downloads/sharadar
+      market: us_equity
+      frequency: 1d
+      vendor: sharadar
+      table: sf1
+      permatickers: null
+      roster_universe: null
+      category_filter: [Domestic Common Stock, Domestic Common Stock Primary Class, Domestic Common Stock Secondary
+          Class]
+      dimension: ART
+      stale_after_days: 365
+    name: quantlab.dataset.bad_prints.BadPrintMaskedDataset
+    jump: 5.0
+    volume_ratio: 20.0
+    lookback: 20
+    price_variable: adjClose
+    volume_variable: adjVolume
+    masked_variables: [open, high, low, close, adjOpen, adjHigh, adjLow, adjClose, marketcap]
+    intrabar_variables: [adjOpen]
+  label:
+    label:
+      warmup_bars: 15
+      dataset:
+        datasets:
+        - zarr_file_path: /data/quantlab/market/sharadar/sharadar_sep_1d/sharadar_sep_1d.zarr
+          start_date: '1900-01-01'
+          end_date: '2100-01-01'
+          symbols: null
+          kwargs: null
+          resample_freq: null
+          resample_how: null
+          name: quantlab.dataset.sharadar.stock.SharadarStockDataset
+          raw_data_dir_path: /data/quantlab/downloads/sharadar
+          market: us_equity
+          frequency: 1d
+          vendor: sharadar
+          table: sep
+          permatickers: null
+          roster_universe: null
+          category_filter: [Domestic Common Stock, Domestic Common Stock Primary Class, Domestic Common Stock Secondary
+              Class]
+        name: quantlab.dataset.bad_prints.BadPrintMaskedDataset
+        jump: 5.0
+        volume_ratio: 20.0
+        lookback: 20
+        price_variable: adjClose
+        volume_variable: adjVolume
+        masked_variables: [open, high, low, close, adjOpen, adjHigh, adjLow, adjClose, marketcap]
+        intrabar_variables: [adjOpen]
+      file_path: /data/quantlab/labels/market/ret_5/ret_5.zarr
+      factor_names: [ret_5]
+      kwargs: {n_forward_periods: 5}
+      resample_freq: null
+      resample_how: null
+      name: quantlab.label.predefined.fret.Return
+      mode: batch
+      data_columns: [adjOpen]
+      njobs: 48
+    membership:
+      zarr_file_path: /data/quantlab/universe/us3000/membership_estu/membership_estu.zarr
+      start_date: '2000-02-02'
+      end_date: '2100-01-01'
+      symbols: null
+      kwargs: {barra_store: /data/quantlab/factors/market/barra_style/barra_style.zarr}
+      resample_freq: null
+      resample_how: null
+      name: quantlab.dataset.estu.EstuConstituentDataset
+      as_of: null
+    name: quantlab.label.predefined.membership_mask.MembershipMaskedLabel
+  membership: /data/quantlab/universe/us3000/membership_estu
+# Ranked across the market, neutralised against industry and log market cap, as the shared
+# *_neutral stores are; masked to the members of day t (data.membership).
+scoring:
+  neutralize:
+    exposures:
+    - /data/quantlab/market/sharadar/sharadar_daily_1d
+    - /data/quantlab/market/sharadar/sharadar_industry_1d
+    size_column: marketcap
+    industry_column: industry
+
+# What candidates may write with (paths relative to this file).
+fields: [fields/sharadar_price_volume.yaml, fields/sharadar_fundamentals.yaml]
+operators: operators/kunquant_example.yaml
+
+reference:
+  # alpha101_neutral: 70
+  - store: /data/quantlab/factors/market/alpha101_neutral
+    factor_names: [alpha016, alpha015, alpha044, alpha013, alpha050, alpha055, alpha043, alpha040, alpha012, alpha003, alpha009,
+        alpha026, alpha011, alpha007, alpha021, alpha041, alpha049, alpha005, alpha045, alpha023, alpha024,
+        alpha006, alpha020, alpha002, alpha036, alpha078, alpha019, alpha081, alpha022, alpha030, alpha088,
+        alpha099, alpha061, alpha034, alpha064, alpha027, alpha017, alpha028, alpha025, alpha039, alpha042,
+        alpha008, alpha052, alpha075, alpha071, alpha004, alpha046, alpha074, alpha001, alpha037, alpha018,
+        alpha065, alpha054, alpha085, alpha035, alpha066, alpha031, alpha094, alpha062, alpha047, alpha095,
+        alpha096, alpha072, alpha073, alpha053, alpha077, alpha029, alpha068, alpha083, alpha086]
+  # fundamental_alpha_neutral: 16
+  - store: /data/quantlab/factors/market/fundamental_alpha_neutral
+    factor_names: [cash_profitability, fcf_yield, operating_profitability, f_score, ebit_to_ev, earnings_sue, roe, composite_issuance,
+        net_payout_yield, revenue_sue, insider_buyers, roa_change, investment_to_assets, io_change, insider_breadth,
+        insider_purchase]
+  # alpha158_neutral: 62
+  - store: /data/quantlab/factors/market/alpha158_neutral
+    factor_names: [CORR5, CORD5, LOW1, MIN10, VSUMN20, LOW2, CORD10, VSUMN60, VSUMN30, QTLD10, VSUMN10, VSUMN5, CORD20,
+        MIN30, CORD30, QTLU5, VWAP4, QTLD20, VWAP0, CLOSE1, CORR20, CORR30, CORD60, HIGH1, RSV5, LOW0, ROC10,
+        VOLUME1, MA30, CNTP5, RANK10, VOLUME3, KLOW, VOLUME2, KUP2, VOLUME4, KLOW2, VMA60, QTLU60, IMAX5, KMID2,
+        MAX10, RSV20, KLEN, CORR60, IMAX10, IMAX20, IMIN5, CNTN60, HIGH0, CNTP10, STD10, VOLUME0, IMIN10, STD5,
+        STD20, KUP, IMAX30, CNTP20, IMIN20, IMIN30, CLOSE0]
+  # barra_style: 14
+  - store: /data/quantlab/factors/market/barra_style
+    factor_names: [style_residual_volatility, style_nonlinear_size, desc_etop, desc_lncap, desc_dastd, desc_cetop, desc_yild,
+        desc_dtoa, desc_rstr, desc_cmra, desc_sgro, desc_egro, style_beta, desc_stoa]
+  # ear_252: 1
+  - store: /data/quantlab/factors/market/alternative_alpha_ear252_neutral
+    factor_names: [earnings_announcement_return]
+  # intraday_low_corr: 9
+  - store: /data/quantlab/factors/market/intraday_low_corr
+    factor_names: [hf_liquid_pv, hf_steady_close_small_trades, hf_close_pv_overnight, hf_auction_vwap, hf_lit_intraday,
+        hf_liquid_vwap, hf_lit_steady_overnight, hf_liquid_reversal, hf_auction_rv]
+  # alternative_alpha_neutral: 6
+  - store: /data/quantlab/factors/market/alternative_alpha_neutral
+    factor_names: [lazy_prices_business, distress_events, lazy_prices_risk_jaccard, news_attention, news_sentiment, short_volume_ratio]
+  # intraday_signals: 3
+  - store: /data/quantlab/factors/market/intraday_signals
+    factor_names: [hf_efficiency, hf_small_lit_trades, hf_close_liquidity]
+  # intraday_stats_20d_neutral: 4
+  - store: /data/quantlab/factors/market/intraday_stats_20d_neutral
+    factor_names: [corr_pv_20d, amihud_20d, trade_size_20d, ret_open30_20d]
+  # intraday_vol_liquidity: 2
+  - store: /data/quantlab/factors/market/intraday_vol_liquidity
+    factor_names: [liquid_60d, lowvol_10d]
+  # beta_spy_neutral: 1
+  - store: /data/quantlab/factors/market/beta_spy_neutral
+    factor_names: [beta]
+  # short_horizon_neutral: 3
+  - store: /data/quantlab/factors/market/short_horizon_neutral
+    factor_names: [intraday_20, reversal_3, intraday_5]
+
+# Seed directions (Q50): two per mechanism type, aimed at what the fundamental families of the reference
+# (FundamentalAlpha, Barra's value, leverage and growth descriptors) lack. A DRAFT for the user's review.
+# Papers are cited without their year, so no prompt names a date after the training segment; the years
+# are in the comments.
+directions:
+  # Novy-Marx (2013), JFE.
+  - "risk_compensation: gross profitability. Gross profit (revenue less cost of revenue) over total assets is the cleanest measure of economic profitability and predicts returns as strongly as book-to-market, and is nearly uncorrelated with it; gross profit, before the SG&A and interest that operating_profitability subtracts, scaled by assets and not by equity, and not the cash-based cash_profitability. Novy-Marx, The other side of value: the gross profitability premium, Journal of Financial Economics."
+  # Novy-Marx (2011), Review of Finance.
+  - "risk_compensation: operating leverage. Firms whose costs are largely fixed (high cost of revenue plus SG&A relative to assets) have profits more sensitive to demand shocks and earn a premium for that risk; the cost structure, not the profit margin or financial leverage (Barra desc_dtoa). Novy-Marx, Operating leverage, Review of Finance."
+  # Cooper, Gulen and Schill (2008), JF.
+  - "behavioural_bias: asset growth. Investors extrapolate past growth, so firms that expanded their total assets the most over the past year are overvalued and earn less; the year-on-year growth of total assets, broader than the change in PP&E and inventory of investment_to_assets and than the sales and earnings growth of Barra desc_sgro/desc_egro. Cooper, Gulen and Schill, Asset growth and the cross-section of stock returns, Journal of Finance."
+  # Hirshleifer, Hou, Teoh and Zhang (2004), JAE.
+  - "behavioural_bias: bloated balance sheets. Investors with limited attention fix on reported earnings and overlook how much of them has piled up as net operating assets (operating assets less operating liabilities: total assets less cash, less what is not debt or equity), so firms with high net operating assets over total assets earn less; the accumulated stock on the balance sheet, not this year's accrual flow (accruals). Hirshleifer, Hou, Teoh and Zhang, Do investors overvalue firms with bloated balance sheets?, Journal of Accounting and Economics."
+  # Dichev (1998), JF; Campbell, Hilscher and Szilagyi (2008), JF.
+  - "behavioural_bias: distress. Stocks with a high risk of failure (low retained earnings, working capital and EBIT relative to assets, high liabilities relative to market value, as in Altman's Z-score, or a high failure probability from leverage, losses and low cash) earn less, not more, than safe stocks, against a risk explanation; a combination of solvency ratios, not leverage alone (Barra desc_dtoa) or the F-score. Dichev, Is the risk of bankruptcy a systematic risk?, Journal of Finance; Campbell, Hilscher and Szilagyi, In search of distressed stocks, Journal of Finance."
+  # Cohen, Diether and Malloy (2013), RFS.
+  - "information_diffusion: misvaluing innovation. Investors ignore a firm's track record in turning R&D spending into sales growth, so among firms that spend on R&D those with a high past ability (sales growth per unit of past R&D) earn more; R&D productivity, not the R&D intensity of rd_to_market. Cohen, Diether and Malloy, Misvaluing innovation, Review of Financial Studies."
+  # Soliman (2008), The Accounting Review.
+  - "information_diffusion: DuPont decomposition. The change in asset turnover carries information about future profitability that prices take in slowly, while the change in profit margin carries less; the change of asset turnover (or of the margin) over a year, not the change of ROA as a whole (roa_change). Soliman, The use of DuPont analysis by market participants, The Accounting Review."
+  # Abarbanell and Bushee (1998), The Accounting Review; Thomas and Zhang (2002), Review of Accounting Studies.
+  - "information_diffusion: fundamental signals. Inventory or receivables growing faster than sales, and gross margin falling behind sales, signal weaker future earnings that prices incorporate only over the following quarters; the gap between the growth of a balance-sheet item and the growth of sales, not the revenue surprise (revenue_sue). Abarbanell and Bushee, Abnormal returns to a fundamental analysis strategy, The Accounting Review; Thomas and Zhang, Inventory changes and future returns, Review of Accounting Studies."
+  # Lee and Swaminathan (2000), JF.
+  - "liquidity: turnover and value. High-turnover stocks behave like glamour stocks and low-turnover ones like value stocks, and turnover predicts returns and the reversal of momentum beyond book-to-market; dollar volume relative to market capitalisation (amount over marketcap, which is split-safe) interacted with a valuation ratio, not turnover alone (Barra desc_stoa) or a valuation alone. Lee and Swaminathan, Price momentum and trading volume, Journal of Finance."
+  # Barber, De George, Lehavy and Trueman (2013), JFE.
+  - "microstructure: the reporting cycle. Stocks earn higher returns in the weeks a firm is expected to report, as attention-driven buying and the resolution of uncertainty concentrate there; a new report shows as the step of a statement field (e.g. netinc against its value a bar earlier), so the bars since the last step tell when the next report is due, together with the trading volume and the price move around the last one. Barber, De George, Lehavy and Trueman, The earnings announcement premium around the globe, Journal of Financial Economics."
+
+evaluator:
+  warmup_bars: 260
+  njobs: 51            # KunQuant threads: at most 51 of Node 1's 64 cores
+
+admission:
+  t_threshold: 3.0
+  max_correlation: 0.7
+  min_monotonicity: 0.6
+  min_coverage: 0.5    # a statement field is missing until a firm's first report (Q49)
+
+round:
+  candidates: 20
+  min_per_type: 3
+  retries: 2
+  max_rounds: 30
+  max_trials: 600
+  patience: 5
+  memory_every: 5
+  budget_usd: 10.0     # DRAFT: for the user to approve with the cost estimate
+  seed: 0
+
+acceptance:
+  features: []         # the reference set: SEL0's 191 factors
+  seeds: [0, 1, 2]
+  top_k: 100
+  # SEL0's xgb_deep (quantlab-experiment 2026-10-18-us3000-factor-selection-xgb), without its thread
+  # count; quantlab puts xgboost on CUDA when there is one.
+  hyperparameters: {training_target: cs_rank, early_stopping: true, early_stopping_patience: 100,
+                    objective: "reg:squarederror", num_boost_round: 2000, eta: 0.03, max_depth: 6,
+                    min_child_weight: 1000, subsample: 0.8, colsample_bytree: 0.5}
+  factor_root: /data/quantlab/factors/market   # exported stores, beside the other whole-market factors
+
+# All four roles: DeepSeek V4 Pro through OpenRouter (prices checked 2026-10-24, USD per million tokens).
+llm:
+  planner:   &deepseek {backend: openai_compatible, model: deepseek/deepseek-v4-pro-0813,
+                        base_url: "https://openrouter.ai/api/v1", api_key_env: OPENROUTER_API_KEY,
+                        max_tokens: 32000, timeout_seconds: 900,
+                        input_usd_per_mtok: 0.66, output_usd_per_mtok: 1.98}
+  proposer:  *deepseek
+  reviewer:  *deepseek
+  distiller: *deepseek
