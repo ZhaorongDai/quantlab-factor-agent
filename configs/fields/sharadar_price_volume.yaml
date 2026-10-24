@@ -34,7 +34,7 @@ bar: true
 # gives them. Phrases that are also ordinary words ("high price", "the low end", "open") are left out.
 phrases:
   volume: '\bvolumes?\b(?![- ]weighted)'
-  turnover: '\bturnover\b'
+  turnover: '(?<!asset )(?<!inventory )(?<!receivables )\bturnover\b'   # not a statement ratio's turnover
   traded value: '\btraded value\b'
   VWAP: '\bvwap\b|\bvolume[- ]weighted average price\b'
   opening price: '\bopen(?:ing)? prices?\b|\bopening\b|\bthe open\b'
