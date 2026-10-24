@@ -10,7 +10,11 @@ Status: tracer bullet (#9). `Campaign(CampaignConfig.from_file(path)).run()` run
 proposer's candidates are parsed, built in a sandboxed subprocess by the `Gate`, compiled as one
 KunQuant graph and scored by the `Evaluator` on the training segment (daily rank IC and Newey-West t
 against the 5-day label on the day-t members), admitted at t >= 3 and written to `ledger.jsonl` in
-the run directory. Only the `scripted` LLM backend exists so far. See [docs/design.md](docs/design.md).
+the run directory. The Gate also rejects a candidate that rewrites a factor of the zoo (the KunQuant
+graphs of the `reference` factors in the config plus the factors accepted in earlier rounds), changes
+only its windows or parameters, or shares a subtree of more than 5 nodes with one, and a hypothesis
+that names an input or transformation the graph never uses; `zoo.json` lists the reference factors
+without a KunQuant graph, which the graph comparison cannot cover. Only the `scripted` LLM backend exists so far. See [docs/design.md](docs/design.md).
 
 ## Setup
 

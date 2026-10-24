@@ -7,9 +7,12 @@ run in this order:
 1. static checks on the code (syntax allow-list, names in the whitelist, ``alpha`` assigned);
 2. the graph build in a sandboxed subprocess (timeout, memory limit,
    bubblewrap filesystem isolation where it is installed);
-3. the graph's size, parameter values, dimensions and complexity, all
-   reported together;
-4. its canonical fingerprint against every candidate this gate passed before.
+3. the graph's size, parameter values, dimensions and complexity, and
+   the mechanism binding of the hypothesis to the graph, all reported together;
+4. its canonical fingerprint against every candidate this gate passed before;
+5. originality against the zoo: not a rewrite of a zoo factor, not one with
+   other windows or parameters only, and no common subtree with one larger
+   than the limit. The reasons name the zoo factor and quote the subtree.
 """
 
 import ctypes
@@ -29,12 +32,13 @@ from typing import TYPE_CHECKING
 import psutil
 
 from factor_agent.candidate import Candidate
-from factor_agent.gate import _constraints
+from factor_agent.gate import _binding, _constraints, _originality
 from factor_agent.gate._checks import static_reasons
 from factor_agent.gate.graph import Graph
 
 if TYPE_CHECKING:  # the sandbox imports this package; it must not load pandas through the config
     from factor_agent.config import GateConfig
+    from factor_agent.zoo import Zoo
 
 #: Characters of the subprocess's standard error quoted when it crashes.
 _STDERR_TAIL = 2000
@@ -78,8 +82,10 @@ class Gate:
         self.config = config
         self._seen: set[str] = set()
 
-    def check(self, candidate: Candidate) -> Passed | Rejected:
+    def check(self, candidate: Candidate, zoo: "Zoo") -> Passed | Rejected:
         """Return ``Passed`` with the candidate's graph, or ``Rejected`` with why not.
+
+        ``zoo`` holds the factors the candidate must be original against.
 
         Raises
         ------
@@ -95,6 +101,7 @@ class Gate:
             return reply
         graph = Graph.from_json(reply)
         reasons, stats = _constraints.check(graph, self.config)
+        reasons += _binding.reasons(candidate.hypothesis, stats["base_fields"], {n.op for n in graph.nodes})
         if reasons:
             return Rejected(tuple(reasons))
         fingerprint = graph.fingerprint()
@@ -103,6 +110,9 @@ class Gate:
                 "the graph is a duplicate of an earlier candidate (same canonical fingerprint); "
                 "propose a different mechanism",
             ))
+        reasons = _originality.reasons(graph, zoo, self.config.max_common_subtree_nodes)
+        if reasons:
+            return Rejected(tuple(reasons))
         self._seen.add(fingerprint)
         return Passed(graph, fingerprint, stats)
 

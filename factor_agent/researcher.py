@@ -9,6 +9,7 @@ from factor_agent.candidate import MECHANISM_TYPES, Candidate
 from factor_agent.gate import Gate, Passed
 from factor_agent.gate.vocabulary import describe
 from factor_agent.llm.base import LLMBackend, Request
+from factor_agent.zoo import Zoo
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 
@@ -56,11 +57,12 @@ class Researcher:
         self.proposer = proposer
         self.model = model
 
-    def propose(self, n: int, gate: Gate, retries: int) -> list[Proposal]:
+    def propose(self, n: int, gate: Gate, zoo: Zoo, retries: int) -> list[Proposal]:
         """Ask for ``n`` candidates and return one ``Proposal`` per item of the reply.
 
-        Every candidate the parser or ``gate`` refuses is sent back with its
-        reasons, all of a round's in one request, up to ``retries`` times.
+        Every candidate the parser or ``gate`` (checking originality against
+        ``zoo``) refuses is sent back with its reasons, all of a round's in
+        one request, up to ``retries`` times.
 
         Raises
         ------
@@ -74,7 +76,7 @@ class Researcher:
         pending = list(range(len(items)))
         for retry in range(retries + 1):
             for slot in pending:
-                proposals[slot] = self._check(items[slot], gate, attempts[slot])
+                proposals[slot] = self._check(items[slot], gate, zoo, attempts[slot])
             pending = [slot for slot in pending if proposals[slot].checked is None]
             if not pending or retry == retries:
                 break
@@ -83,7 +85,7 @@ class Researcher:
                 items[slot] = item
         return proposals
 
-    def _check(self, item: object, gate: Gate, attempts: list[Attempt]) -> Proposal:
+    def _check(self, item: object, gate: Gate, zoo: Zoo, attempts: list[Attempt]) -> Proposal:
         """Parse and gate one item; a refusal is appended to ``attempts``."""
         if isinstance(item, _Missing):
             attempts.append(Attempt(item.previous, "parse", (item.reason,)))
@@ -93,7 +95,7 @@ class Researcher:
         except ValueError as exc:
             attempts.append(Attempt(item, "parse", (str(exc),)))
             return Proposal(item, None, None, tuple(attempts))
-        checked = gate.check(candidate)
+        checked = gate.check(candidate, zoo)
         if isinstance(checked, Passed):
             return Proposal(item, candidate, checked, tuple(attempts))
         attempts.append(Attempt(item, "gate", checked.reasons))

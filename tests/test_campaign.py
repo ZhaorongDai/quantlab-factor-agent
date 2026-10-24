@@ -17,7 +17,10 @@ import yaml
 
 from factor_agent.campaign import Campaign
 from factor_agent.config import CampaignConfig
+from quantlab.core.component import rebuild
+from quantlab.factor.config import FactorConfig, PolarsFactorConfig
 from quantlab.factor.kunquant_compile import CACHE_ENV
+from quantlab.factor.predefined.alpha158 import Alpha158Stock
 from tests import synthetic_market
 
 
@@ -170,3 +173,64 @@ def test_every_candidate_is_in_the_ledger_with_its_metrics(outcome):
 def test_the_round_is_compiled_once(outcome):
     entries = [p for p in Path(outcome["cache"]).iterdir() if not p.name.startswith(".")]
     assert len(entries) == 1
+
+
+# Two rounds against a zoo of Alpha158 and a Polars factor: round 1 accepts
+# the planted signal and refuses a rewrite of KMID; round 2 proposes the
+# planted signal again under a rank, which only the zoo can refuse.
+ROUND_ONE = [
+    _candidate("planted", "alpha = close / open"),
+    _candidate("kmid", "alpha = (close - open) / open"),
+]
+ROUND_TWO = [_candidate("planted again", "alpha = Rank(close / open)")]
+
+
+@pytest.fixture(scope="module")
+def two_rounds(tmp_path_factory):
+    root = tmp_path_factory.mktemp("two_rounds")
+    components = synthetic_market.build(root / "data")
+    prices = rebuild(components["prices"])
+    reference = [
+        Alpha158Stock(FactorConfig(
+            warmup_bars=60, dataset=prices, mode="batch",
+            data_columns=("adjOpen", "adjHigh", "adjLow", "adjClose", "adjVolume"),
+        )).get_config(),
+        synthetic_market.AdjustedMomentum(PolarsFactorConfig(warmup_bars=20, dataset=prices)).get_config(),
+    ]
+    replies = root / "replies.json"
+    replies.write_text(json.dumps([_reply(ROUND_ONE), _reply(ROUND_TWO)]))
+    config_path = root / "campaign.yaml"
+    config_path.write_text(yaml.safe_dump(json.loads(json.dumps({
+        "run_dir": str(root / "run"),
+        "segments": {"training": {"start": synthetic_market.TRAINING[0], "end": synthetic_market.TRAINING[1]}},
+        "data": components,
+        "reference": reference,
+        "evaluator": {"warmup_bars": 60, "njobs": 4},
+        "round": {"candidates": 2, "retries": 0, "max_rounds": 2},
+        "llm": {"proposer": {"backend": "scripted", "model": "scripted", "replies": str(replies)}},
+    }))))
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv(CACHE_ENV, str(root / "kunquant_cache"))
+        result = Campaign(CampaignConfig.from_file(config_path)).run()
+    return {"result": result, "run_dir": root / "run"}
+
+
+def test_a_rewrite_of_a_reference_factor_fails_naming_it(two_rounds):
+    record = _by_description(two_rounds["result"].failed)["kmid"]
+    assert record.stage == "gate"
+    assert any("KMID (Alpha158Stock)" in r and "Div(Sub(close, open), open)" in r for r in record.reasons)
+
+
+def test_a_factor_accepted_in_an_earlier_round_is_in_the_zoo(two_rounds):
+    result = two_rounds["result"]
+    assert [(r.round, r.candidate["description"]) for r in result.accepted] == [(1, "planted")]
+    record = _by_description(result.failed)["planted again"]
+    assert record.round == 2
+    assert any("planted (accepted in round 1)" in r for r in record.reasons), record.reasons
+
+
+def test_reference_factors_without_a_graph_are_reported_as_not_covered(two_rounds):
+    assert two_rounds["result"].not_covered == ("momentum_20 (AdjustedMomentum)",)
+    zoo = json.loads((two_rounds["run_dir"] / "zoo.json").read_text())
+    assert zoo["not_covered"] == ["momentum_20 (AdjustedMomentum)"]
+    assert "KMID (Alpha158Stock)" in zoo["covered"]

@@ -25,6 +25,7 @@ from quantlab.dataset.config import ConstituentDatasetConfig, DatasetConfig
 from quantlab.dataset.raw import IndexConstituentDataset
 from quantlab.dataset.stock import StockDataset
 from quantlab.factor.config import FactorConfig
+from quantlab.factor.polars import FactorPolars
 from quantlab.label.predefined.fret import Return
 from quantlab.label.predefined.membership_mask import MembershipMaskedLabel
 
@@ -49,6 +50,18 @@ class IntervalMembership(IndexConstituentDataset):
 
     def _build_intervals(self) -> pl.DataFrame:
         return pl.DataFrame(self.intervals, schema=["symbol", "start_date", "end_date"], orient="row")
+
+
+class AdjustedMomentum(FactorPolars):
+    """A 20-bar momentum computed with Polars: a reference factor without a KunQuant graph."""
+
+    def _get_factor_lazyframe(self, lf: pl.LazyFrame) -> pl.LazyFrame:
+        close = pl.col("adjClose")
+        return (
+            lf.sort(["symbol", "timestamp"])
+            .with_columns((close / close.shift(20).over("symbol") - 1.0).alias("momentum_20"))
+            .select(["timestamp", "symbol", "momentum_20"])
+        )
 
 
 def symbols() -> list[str]:

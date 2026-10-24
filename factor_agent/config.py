@@ -1,8 +1,10 @@
 """The campaign config: one YAML file holds every setting of a run.
 
-``data`` holds quantlab components: each is either a ``get_config()`` dict
-inline or the path of a store folder whose ``component.json`` describes it
-(``quantlab.core.store_folder.save_component``).
+``data`` and ``reference`` hold quantlab components: each is either a
+``get_config()`` dict inline or the path of a store folder whose
+``component.json`` describes it (``quantlab.core.store_folder.save_component``).
+``reference`` lists the factors candidates must be original against (the
+``Zoo``); a factor's ``factor_names`` selects its columns.
 """
 
 from dataclasses import dataclass
@@ -25,8 +27,12 @@ class DataConfig:
 
     def load(self, name: str) -> Any:
         """Rebuild the component ``name`` (``"prices"`` or ``"label"``)."""
-        value = getattr(self, name)
-        return load_component(value) if isinstance(value, str) else rebuild(value)
+        return load(getattr(self, name))
+
+
+def load(component: dict | str) -> Any:
+    """Rebuild a component given as a ``get_config()`` dict or a store folder path."""
+    return load_component(component) if isinstance(component, str) else rebuild(component)
 
 
 @dataclass(frozen=True)
@@ -53,6 +59,8 @@ class GateConfig:
     max_free_parameter_ratio: float = 0.5
     #: Distinct input fields (open, high, low, close, volume, vwap, amount) a candidate may read.
     max_base_fields: int = 5
+    #: Nodes of the largest subtree a candidate may share with a zoo factor.
+    max_common_subtree_nodes: int = 5
 
 
 @dataclass(frozen=True)
@@ -71,6 +79,8 @@ class RoundConfig:
     candidates: int = 20
     #: Times a candidate the parser or the Gate refused is sent back to the proposer to fix.
     retries: int = 2
+    #: Rounds the campaign runs.
+    max_rounds: int = 1
 
 
 @dataclass(frozen=True)
@@ -100,6 +110,8 @@ class CampaignConfig:
     training: Segment
     data: DataConfig
     proposer: RoleConfig
+    #: The reference factors, as components; see the module docstring.
+    reference: tuple = ()
     evaluator: EvaluatorConfig = EvaluatorConfig()
     gate: GateConfig = GateConfig()
     admission: AdmissionConfig = AdmissionConfig()
@@ -121,7 +133,7 @@ class CampaignConfig:
             "evaluator": EvaluatorConfig, "gate": GateConfig,
             "admission": AdmissionConfig, "round": RoundConfig,
         }
-        unknown = set(raw) - {"run_dir", "segments", "data", "llm", *sections}
+        unknown = set(raw) - {"run_dir", "segments", "data", "reference", "llm", *sections}
         if unknown:
             raise TypeError(f"campaign config: unknown section(s) {sorted(unknown)}")
         training = raw["segments"]["training"]
@@ -130,5 +142,6 @@ class CampaignConfig:
             training=Segment("training", str(training["start"]), str(training["end"])),
             data=DataConfig(**raw["data"]),
             proposer=RoleConfig.from_dict(raw["llm"]["proposer"]),
+            reference=tuple(raw.get("reference") or ()),
             **{name: klass(**raw[name]) for name, klass in sections.items() if name in raw},
         )

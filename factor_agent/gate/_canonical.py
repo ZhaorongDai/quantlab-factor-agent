@@ -98,7 +98,7 @@ def _number(value):
 
 def canonical_hashes(graph: "Graph") -> list[str]:
     """Return the canonical hash of every node of ``graph``, in node order; the last is the factor's."""
-    return [_sha(["term", _key(t)]) for t in _terms(graph)]
+    return [_sha(["term", _key(t)]) for t in canonical_terms(graph)]
 
 
 def effective_parameters(graph: "Graph") -> list[tuple[str, str, float]]:
@@ -110,7 +110,7 @@ def effective_parameters(graph: "Graph") -> list[tuple[str, str, float]]:
     (``x * 0.25 * 1.5``, ``BackRef(BackRef(x, 5), 10)``) shows up here as the
     value it really is.
     """
-    found, seen, stack = [], set(), [_terms(graph)[-1]]
+    found, seen, stack = [], set(), [canonical_terms(graph)[-1]]
     while stack:
         term = stack.pop()
         if isinstance(term, _Const):
@@ -129,8 +129,8 @@ def effective_parameters(graph: "Graph") -> list[tuple[str, str, float]]:
     return found
 
 
-def _terms(graph: "Graph") -> list:
-    """Every node's canonical term, in node order."""
+def canonical_terms(graph: "Graph") -> list:
+    """Return every node's canonical term, in node order; the last is the factor's."""
     terms = []
     for node in graph.nodes:
         attrs = dict(node.attrs)
@@ -191,3 +191,53 @@ def _with_constant(op: str, x, c: float, swap: bool, parent):
     if (op == "AddConst" and c == 0) or (op == "MulConst" and c == 1):
         return x
     return _Node(op, {"value": _rounded(c)}, [x], parent)
+
+
+#: Root operators a cross-sectional rank IC cannot tell from their input.
+_RANK_PRESERVING = frozenset({"Rank", "Scale", "CrossSectionalZScore"})
+
+
+def ranked_root(term):
+    """Return ``term`` without the rank-preserving operators at its root.
+
+    A cross-sectional rank, scale or z-score, a constant offset and a
+    nonzero scale keep or reverse the factor's cross-sectional order, so
+    ``Rank(x) * 2 - 1`` and ``1 - x`` are ``x`` to the originality check
+    (the sign is the hypothesis's ``expected_sign``, not a new factor).
+    """
+    while isinstance(term, _Node) and (
+        term.op in _RANK_PRESERVING
+        or term.op in ("AddConst", "SubConstSwap")
+        or (term.op == "MulConst" and term.attrs["value"] != 0)
+    ):
+        term = term.inputs[0]
+    return term
+
+
+def term_key(term) -> str:
+    """Return a canonical term's identity as a string."""
+    return json.dumps(_key(term))
+
+
+def shape_key(term) -> str:
+    """Return the hash of a canonical term with every numeric attribute erased.
+
+    Two terms with the same shape differ at most in their windows, lags and
+    constants.
+    """
+    memo: dict[int, str] = {}
+
+    def shape(t) -> str:
+        if isinstance(t, _Const):
+            return "const"
+        if id(t) not in memo:
+            attrs = sorted(
+                (k, "#" if isinstance(v, (int, float)) and not isinstance(v, bool) else v) for k, v in t.attrs.items()
+            )
+            inputs = [shape(i) for i in t.inputs]
+            if t.op in COMMUTATIVE:
+                inputs.sort()
+            memo[id(t)] = _sha([t.op, attrs, inputs, None if t.parent is None else shape(t.parent)])
+        return memo[id(t)]
+
+    return shape(term)

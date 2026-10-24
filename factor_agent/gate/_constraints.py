@@ -101,7 +101,7 @@ def _candidate_part(graph: Graph) -> tuple[list[str], int, int, int]:
     A derived input counts as one node; the bar mask counts as none.
     """
     hashes = canonical_hashes(graph)
-    derived, mask = _reference_hashes()
+    derived, mask = reference_hashes()
     columns = {column: name for name, column in INPUT_COLUMNS.items()}
     fields, seen = set(), set()
     nodes = operators = constants = 0
@@ -134,7 +134,7 @@ def _candidate_part(graph: Graph) -> tuple[list[str], int, int, int]:
 
 
 @cache
-def _reference_hashes() -> tuple[dict[str, str], str]:
+def reference_hashes() -> tuple[dict[str, str], str]:
     """The canonical hashes of ``vwap`` and ``amount``, and of the bar mask of the NaN-preserving operators."""
     fields = inputs()
     derived = {canonical_hashes(Graph.record(fields[name]))[-1]: name for name in ("vwap", "amount")}

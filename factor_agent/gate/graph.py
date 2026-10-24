@@ -34,14 +34,19 @@ class Graph:
     nodes: tuple[Node, ...]
 
     @classmethod
-    def record(cls, output: OpBase) -> "Graph":
+    def record(cls, output: OpBase, strict: bool = True) -> "Graph":
         """Record every operator ``output`` depends on, its inputs and loops first.
+
+        With ``strict=False`` (a reference factor's graph, compared but never
+        rebuilt) an operator outside the whitelist is recorded under its class
+        name, other state is ignored and an attribute that is not a number,
+        string or bool is recorded as its ``repr``.
 
         Raises
         ------
         ValueError
-            If an operator is not in the whitelist or carries state other
-            than its inputs, attributes and loop.
+            If ``strict`` and an operator is not in the whitelist or carries
+            state other than its inputs, attributes and loop.
         """
         index: dict[int, int] = {}
         nodes: list[Node] = []
@@ -50,16 +55,20 @@ class Graph:
             if id(op) in index:
                 return index[id(op)]
             name = recorded_name(type(op))
+            attrs = tuple(op.attrs.items())
+            if not strict:
+                name = name or type(op).__name__
+                attrs = tuple((k, v if isinstance(v, (bool, int, float, str)) else repr(v)) for k, v in attrs)
             if name is None:
                 raise ValueError(f"operator {type(op).__name__} is not in the whitelist")
             extra = set(vars(op)) - _OP_STATE
-            if extra:
+            if extra and strict:
                 raise ValueError(f"operator {name} carries state the gate cannot record: {sorted(extra)}")
             loop = op.get_parent()
             parent = visit(loop) if loop is not None else None
             inputs = tuple(visit(inp) for inp in op.inputs)
             index[id(op)] = len(nodes)
-            nodes.append(Node(name, tuple(op.attrs.items()), inputs, parent))
+            nodes.append(Node(name, attrs, inputs, parent))
             return index[id(op)]
 
         visit(output)
