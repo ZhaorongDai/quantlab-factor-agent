@@ -12,12 +12,11 @@ import numpy as np
 import pandas as pd
 import pytest
 import xarray as xr
-from KunQuant.Op import OpBase
+from KunQuant.Op import Input, OpBase
 
 from factor_agent.candidate import Candidate
 from factor_agent.config import GateConfig
 from factor_agent.gate import Gate, Passed, Rejected
-from factor_agent.gate import vocabulary
 from factor_agent.zoo import Zoo
 from quantlab.dataset.config import DatasetConfig
 from quantlab.dataset.stock import StockDataset
@@ -25,6 +24,7 @@ from quantlab.factor.config import FactorConfig, NeutralizedConfig, PolarsFactor
 from quantlab.factor.predefined.alpha158 import Alpha158Stock
 from quantlab.factor.predefined.momentum import Momentum
 from quantlab.factor.predefined.neutralized import NeutralizedFactor
+from tests.vocabulary_files import price_volume
 
 
 def _candidate(code: str, hypothesis: str = "Intraday strength carries into the next week.") -> Candidate:
@@ -40,7 +40,7 @@ def _candidate(code: str, hypothesis: str = "Intraday strength carries into the 
 
 
 def _check(code: str, **limits):
-    return Gate(GateConfig(timeout_seconds=10.0, **limits)).check(_candidate(code), Zoo())
+    return Gate(GateConfig(timeout_seconds=10.0, **limits), price_volume()).check(_candidate(code), Zoo())
 
 
 @pytest.mark.parametrize(
@@ -126,13 +126,14 @@ def test_each_static_constraint_passes_one_candidate_and_rejects_another(rule):
 
 
 def test_code_that_never_finishes_is_stopped_by_the_timeout():
-    result = Gate(GateConfig(timeout_seconds=1.0)).check(_candidate("while True:\n    pass\nalpha = close"), Zoo())
+    gate = Gate(GateConfig(timeout_seconds=1.0), price_volume())
+    result = gate.check(_candidate("while True:\n    pass\nalpha = close"), Zoo())
     assert isinstance(result, Rejected)
     assert any("timed out" in r for r in result.reasons), result.reasons
 
 
 def test_code_that_allocates_past_the_memory_limit_is_rejected():
-    gate = Gate(GateConfig(timeout_seconds=30.0, memory_mb=256))
+    gate = Gate(GateConfig(timeout_seconds=30.0, memory_mb=256), price_volume())
     result = gate.check(_candidate("x = list(range(10 ** 8))\nalpha = close / open"), Zoo())
     assert isinstance(result, Rejected)
     assert any("256 MB memory limit" in r for r in result.reasons), result.reasons
@@ -175,7 +176,7 @@ def test_a_nan_sensitive_operator_keeps_a_missing_bar_missing():
     assert isinstance(result, Passed), getattr(result, "reasons", None)
     # quantlab's stand-in adds 0 * every input, so a bar with no data stays NaN.
     assert result.graph.nodes[-1].op == "Add"
-    assert set(result.graph.input_names) == set(vocabulary.INPUT_COLUMNS.values())
+    assert set(result.graph.input_names) == {"adjOpen", "adjHigh", "adjLow", "adjClose", "adjVolume"}
     assert result.stats["base_fields"] == ["close", "open"]
 
 
@@ -200,7 +201,7 @@ def test_the_same_graph_gets_the_same_fingerprint():
     ],
 )
 def test_a_rewritten_duplicate_is_rejected_by_its_canonical_fingerprint(first, second):
-    gate = Gate(GateConfig(timeout_seconds=10.0))
+    gate = Gate(GateConfig(timeout_seconds=10.0), price_volume())
     one = gate.check(_candidate(first), Zoo())
     assert isinstance(one, Passed), getattr(one, "reasons", None)
     two = gate.check(_candidate(second), Zoo())
@@ -240,7 +241,7 @@ def alpha158(tmp_path_factory) -> Zoo:
         data_columns=("adjOpen", "adjHigh", "adjLow", "adjClose", "adjVolume"),
     ))
     momentum = Momentum(PolarsFactorConfig(warmup_bars=20, dataset=dataset, kwargs={"n": 20}))
-    return Zoo.from_reference([factor, momentum])
+    return Zoo.from_reference([factor, momentum], price_volume())
 
 
 @pytest.mark.parametrize(
@@ -254,7 +255,7 @@ def alpha158(tmp_path_factory) -> Zoo:
     ],
 )
 def test_a_candidate_that_rewrites_an_alpha158_feature_is_rejected(alpha158, code, feature, subtree):
-    result = Gate(GateConfig()).check(_candidate(code), alpha158)
+    result = Gate(GateConfig(), price_volume()).check(_candidate(code), alpha158)
     assert isinstance(result, Rejected)
     assert any(f"{feature} (Alpha158Stock)" in r and subtree in r for r in result.reasons), result.reasons
 
@@ -264,7 +265,7 @@ def test_a_candidate_sharing_a_large_subtree_with_alpha158_is_rejected_with_the_
         "co = WindowedCorrelation(close / BackRef(close, 1), 20, Log(volume / (BackRef(volume, 1) + 1e-12) + 1))\n"
         "alpha = co * Sign(close - open)\n"
     )
-    result = Gate(GateConfig()).check(_candidate(code), alpha158)
+    result = Gate(GateConfig(), price_volume()).check(_candidate(code), alpha158)
     assert isinstance(result, Rejected)
     reason = next(r for r in result.reasons if "subtree" in r)
     assert "CORD20 (Alpha158Stock)" in reason
@@ -273,12 +274,12 @@ def test_a_candidate_sharing_a_large_subtree_with_alpha158_is_rejected_with_the_
 
 @pytest.mark.parametrize("code", ["alpha = Rank(WindowedAvg(close / open, 5))", "alpha = 1 - WindowedAvg(close / open, 5)"])
 def test_a_candidate_unlike_any_alpha158_feature_passes(alpha158, code):
-    result = Gate(GateConfig()).check(_candidate(code), alpha158)
+    result = Gate(GateConfig(), price_volume()).check(_candidate(code), alpha158)
     assert isinstance(result, Passed), getattr(result, "reasons", None)
 
 
 def test_the_parameter_values_of_an_alpha158_feature_are_not_a_new_factor(alpha158):
-    result = Gate(GateConfig()).check(_candidate("alpha = WindowedStddev(close, 40) / close"), alpha158)
+    result = Gate(GateConfig(), price_volume()).check(_candidate("alpha = WindowedStddev(close, 40) / close"), alpha158)
     assert isinstance(result, Rejected)
     assert any("STD" in r and "parameter" in r for r in result.reasons), result.reasons
 
@@ -302,16 +303,16 @@ def test_a_neutralised_store_is_compared_by_the_graph_of_the_factor_it_neutralis
     ))
     neutral = NeutralizedFactor(NeutralizedConfig(factor=ranked, dataset=dataset, factor_names=("KMID", "STD20")))
 
-    zoo = Zoo.from_reference([neutral])
+    zoo = Zoo.from_reference([neutral], price_volume())
 
     assert zoo.covered == ("KMID (Alpha158Stock)", "STD20 (Alpha158Stock)")
-    result = Gate(GateConfig()).check(_candidate("alpha = (close - open) / open"), zoo)
+    result = Gate(GateConfig(), price_volume()).check(_candidate("alpha = (close - open) / open"), zoo)
     assert isinstance(result, Rejected)
     assert any("KMID (Alpha158Stock)" in r for r in result.reasons), result.reasons
 
 
 def _accepted(code: str) -> Zoo:
-    passed = Gate(GateConfig()).check(_candidate(code), Zoo())
+    passed = Gate(GateConfig(), price_volume()).check(_candidate(code), Zoo())
     assert isinstance(passed, Passed), getattr(passed, "reasons", None)
     zoo = Zoo()
     zoo.add("strength", "accepted in round 1", passed.graph)
@@ -320,7 +321,7 @@ def _accepted(code: str) -> Zoo:
 
 def test_a_refinement_that_only_changes_windows_is_rejected_as_parameter_tuning():
     zoo = _accepted("alpha = WindowedAvg(close / open, 5) / WindowedStddev(close / open, 20)")
-    result = Gate(GateConfig()).check(
+    result = Gate(GateConfig(), price_volume()).check(
         _candidate("alpha = WindowedAvg(close / open, 10) / WindowedStddev(close / open, 60)"), zoo,
     )
     assert isinstance(result, Rejected)
@@ -329,7 +330,7 @@ def test_a_refinement_that_only_changes_windows_is_rejected_as_parameter_tuning(
 
 def test_a_refinement_that_changes_the_structure_passes():
     zoo = _accepted("alpha = WindowedAvg(close / open, 5) / WindowedStddev(close / open, 20)")
-    result = Gate(GateConfig()).check(
+    result = Gate(GateConfig(), price_volume()).check(
         _candidate("alpha = DecayLinear(close / open, 5) / WindowedStddev(close / open, 20)"), zoo,
     )
     assert isinstance(result, Passed), getattr(result, "reasons", None)
@@ -347,7 +348,7 @@ def test_a_refinement_that_changes_the_structure_passes():
     ],
 )
 def test_a_hypothesis_naming_what_the_graph_never_uses_fails_mechanism_binding(hypothesis, code, reason):
-    result = Gate(GateConfig()).check(_candidate(code, hypothesis), Zoo())
+    result = Gate(GateConfig(), price_volume()).check(_candidate(code, hypothesis), Zoo())
     assert isinstance(result, Rejected)
     assert any("mechanism binding" in r and reason in r for r in result.reasons), result.reasons
 
@@ -365,7 +366,7 @@ def test_a_hypothesis_naming_what_the_graph_never_uses_fails_mechanism_binding(h
     ],
 )
 def test_a_hypothesis_bound_to_its_graph_passes(hypothesis, code):
-    result = Gate(GateConfig()).check(_candidate(code, hypothesis), Zoo())
+    result = Gate(GateConfig(), price_volume()).check(_candidate(code, hypothesis), Zoo())
     assert isinstance(result, Passed), getattr(result, "reasons", None)
 
 
@@ -391,13 +392,13 @@ def _op_classes() -> set[type]:
 
 
 def _unlisted() -> set[type]:
-    return _op_classes() - {spec.cls for spec in vocabulary.OPERATORS.values()} - set(vocabulary.EXCLUDED)
+    vocabulary = price_volume()
+    return _op_classes() - set(vocabulary.operator_classes) - set(vocabulary.excluded) - {Input}
 
 
-def test_every_operator_class_is_registered_or_excluded():
-    assert not {spec.cls for spec in vocabulary.OPERATORS.values()} & set(vocabulary.EXCLUDED)
+def test_the_example_operator_file_registers_or_excludes_every_operator_class():
     missing = sorted(f"{c.__module__}.{c.__name__}" for c in _unlisted())
-    assert not missing, f"operators in neither the registry nor the exclusion list: {missing}"
+    assert not missing, f"operators the example operator file neither registers nor excludes: {missing}"
 
 
 def test_the_guard_notices_an_operator_in_neither_list():

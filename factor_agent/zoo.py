@@ -12,11 +12,15 @@ wraps (``owner``).
 
 from collections.abc import Iterable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from KunQuant.Op import Output
 from quantlab.factor.kunquant import FactorKunQuant
 
 from factor_agent.gate.graph import Graph
+
+if TYPE_CHECKING:
+    from factor_agent.gate.vocabulary import Vocabulary
 
 
 def owner(factor):
@@ -65,12 +69,13 @@ class Zoo:
         self._not_covered = tuple(not_covered)
 
     @classmethod
-    def from_reference(cls, factors) -> "Zoo":
+    def from_reference(cls, factors, vocabulary: "Vocabulary") -> "Zoo":
         """Return the zoo of ``factors``, quantlab factor objects.
 
         Each output of a ``FactorKunQuant`` among ``config.factor_names`` is
-        an entry named after it, with the factor's class as its source; the
-        names of every other factor go to ``not_covered``.
+        an entry named after it, with the factor's class as its source, its
+        graph recorded under ``vocabulary``'s operator names; the names of
+        every other factor go to ``not_covered``.
         """
         entries, not_covered = [], []
         for factor in factors:
@@ -82,7 +87,7 @@ class Zoo:
                 continue
             outputs = {op.attrs["name"]: op for op in factor.graph().ops if isinstance(op, Output)}
             for name in names:
-                entries.append(ZooEntry(name, source, Graph.record(outputs[name].inputs[0], strict=False)))
+                entries.append(ZooEntry(name, source, Graph.record(outputs[name].inputs[0], vocabulary, strict=False)))
         return cls(entries, not_covered)
 
     def add(self, name: str, source: str, graph: Graph) -> ZooEntry:

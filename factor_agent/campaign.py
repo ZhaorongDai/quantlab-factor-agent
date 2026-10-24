@@ -17,6 +17,10 @@ One round:
    candidate joins the zoo and the reference pool before the next is admitted;
 6. the round's records go to the ledger and the state to ``state.json``.
 
+Before anything else ``run`` builds the ``Vocabulary`` from the config's
+field and operator files and checks every field's column against the
+price dataset; every problem is reported at once, before any LLM call.
+
 The planner and the proposer read the context of ``_feedback``: the seed
 directions, the reference factor families, the memory, every earlier
 trial, the last round's feedback and the current best mechanisms. Every
@@ -42,12 +46,15 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
+import xarray as xr
+
 from factor_agent import _admission, _cost, _feedback, _scheduler
 from factor_agent._cost import CostEstimate
 from factor_agent.config import ROLES, CampaignConfig, load
 from factor_agent.evaluator import CompileFailure, Evaluator, Metrics
 from factor_agent.gate import Gate
 from factor_agent.gate.graph import Graph
+from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.ledger import Ledger, TrialRecord
 from factor_agent.llm.base import LLMBackend, make_backend
 from factor_agent.llm.log import LLMLog, RecordingBackend
@@ -141,11 +148,11 @@ class Campaign:
 
     def estimate(self) -> CostEstimate:
         """The calls and the cost the campaign is expected to take, from its config (see ``_cost``)."""
-        return self._estimate([load(component) for component in self.config.reference])
+        return self._estimate([load(component) for component in self.config.reference], self.config.vocabulary())
 
-    def _estimate(self, reference: list) -> CostEstimate:
+    def _estimate(self, reference: list, vocabulary: Vocabulary) -> CostEstimate:
         context = {"seed": _seed(self.config.directions), "families": _feedback.families(reference)}
-        return _cost.estimate(self.config.round, self._role_backends(), context)
+        return _cost.estimate(self.config.round, self._role_backends(), context, vocabulary)
 
     def _role_backends(self) -> dict[str, LLMBackend]:
         """Each role's backend: the one passed in, or the one its config names, built once."""
@@ -155,8 +162,16 @@ class Campaign:
         return self._backends
 
     def run(self) -> CampaignResult:
-        """Run, or resume, the campaign until a stop condition holds; return every candidate's outcome."""
+        """Run, or resume, the campaign until a stop condition holds; return every candidate's outcome.
+
+        Raises
+        ------
+        VocabularyError
+            Before any LLM call, with every problem of the field and operator files.
+        """
         config, run_dir = self.config, Path(self.config.run_dir)
+        prices = config.data.load("prices")
+        vocabulary = config.vocabulary(columns=_columns(prices))
         state_path = run_dir / "state.json"
         state = _State.read(state_path)
         ledger = Ledger(run_dir / "ledger.jsonl")
@@ -167,7 +182,7 @@ class Campaign:
             state.write(state_path)
 
         reference = [load(component) for component in config.reference]
-        print(self._estimate(reference).summary(config.round.budget_usd, state.spent), flush=True)
+        print(self._estimate(reference, vocabulary).summary(config.round.budget_usd, state.spent), flush=True)
         log = LLMLog(run_dir / "llm_log")
         log.drop_after(state.calls)
         researcher = Researcher(
@@ -179,7 +194,7 @@ class Campaign:
         )
         evaluator = Evaluator.for_segment(
             config.training,
-            prices=config.data.load("prices"),
+            prices=prices,
             label=config.data.load("label"),
             scoring=Scoring.from_config(config.scoring, config.data, njobs=config.evaluator.njobs),
             reference=reference,
@@ -187,10 +202,10 @@ class Campaign:
             njobs=config.evaluator.njobs,
             purge_bars=config.segments.purge_bars,
         )
-        zoo = Zoo.from_reference(reference)
+        zoo = Zoo.from_reference(reference, vocabulary)
         _write_zoo(run_dir / "zoo.json", zoo)
-        gate = Gate(config.gate, seen=[r.fingerprint for r in records if r.fingerprint])
-        _restore(records, zoo, evaluator)
+        gate = Gate(config.gate, vocabulary, seen=[r.fingerprint for r in records if r.fingerprint])
+        _restore(records, zoo, evaluator, vocabulary)
         while (stop := self._stop(state, records)) is None:
             number = state.rounds + 1
             spent_before = researcher.spent
@@ -335,7 +350,7 @@ def _seed(directions) -> str:
     return "\n".join(f"- {direction}" for direction in directions)
 
 
-def _restore(records: list[TrialRecord], zoo: Zoo, evaluator: Evaluator) -> None:
+def _restore(records: list[TrialRecord], zoo: Zoo, evaluator: Evaluator, vocabulary: Vocabulary) -> None:
     """Put the factors accepted in the rounds already written back into ``zoo`` and the reference pool.
 
     Raises
@@ -347,12 +362,24 @@ def _restore(records: list[TrialRecord], zoo: Zoo, evaluator: Evaluator) -> None
     accepted = [r for r in records if r.status == "accepted"]
     if not accepted:
         return
-    graphs = [Graph.from_json(r.graph) for r in accepted]
+    graphs = [Graph.from_json(r.graph, vocabulary.classes) for r in accepted]
     labels = [zoo.add(r.candidate["description"], _feedback.accepted_source(r.round), g).label for r, g in zip(accepted, graphs)]
     results = evaluator.evaluate(graphs, lambda position, metrics, ran: labels[position])
     broken = [label for label, result in zip(labels, results) if isinstance(result, CompileFailure)]
     if broken:
         raise RuntimeError(f"Campaign: cannot resume, accepted factor(s) no longer compile: {broken}")
+
+
+def _columns(prices) -> set[str] | None:
+    """The variables of the stores the price dataset reads; None when it reads none (a panel held in memory)."""
+    stores = [path for path in prices.stores() if Path(path).exists()]
+    if not stores:
+        return None
+    columns: set[str] = set()
+    for path in stores:
+        with xr.open_zarr(path) as store:
+            columns |= set(store.data_vars)
+    return columns
 
 
 def _write_zoo(path: Path, zoo: Zoo) -> None:

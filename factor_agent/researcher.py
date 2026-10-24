@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 from factor_agent import _prompts
 from factor_agent.candidate import MECHANISM_TYPES, Candidate
 from factor_agent.gate import Gate, Passed
-from factor_agent.gate.vocabulary import describe
+from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.llm.base import LLMBackend, Request
 from factor_agent.zoo import Zoo
 
@@ -164,7 +164,7 @@ class Researcher:
         prompt = _prompts.PROPOSE.format(
             round=number, context=_render(context, _PROPOSER_SECTIONS), n=len(directions),
             directions=json.dumps([{"number": i + 1, **d.to_dict()} for i, d in enumerate(directions)], indent=2),
-            **_rules(),
+            **_rules(gate.vocabulary),
         )
         items = _items(self._ask("proposer", prompt), [None] * len(directions))
         attempts: list[list[Attempt]] = [[] for _ in directions]
@@ -176,7 +176,7 @@ class Researcher:
             pending = [slot for slot in pending if proposals[slot].checked is None]
             if not pending or retry == retries:
                 break
-            fixed = self._ask_to_fix(number, [(directions[slot], items[slot], attempts[slot][-1]) for slot in pending])
+            fixed = self._ask_to_fix(number, [(directions[slot], items[slot], attempts[slot][-1]) for slot in pending], gate)
             for slot, item in zip(pending, fixed):
                 items[slot] = item
         return proposals
@@ -230,14 +230,16 @@ class Researcher:
             return Proposal(direction, item, candidate, checked, tuple(attempts))
         return refused("gate", checked.reasons, candidate)
 
-    def _ask_to_fix(self, number: int, failures: list[tuple[Direction, object, Attempt]]) -> list:
+    def _ask_to_fix(self, number: int, failures: list[tuple[Direction, object, Attempt]], gate: Gate) -> list:
         """Send the refused items back; return one fixed item per failure, in order."""
         items = [item.previous if isinstance(item, _Missing) else item for _, item, _ in failures]
         listed = [
             {"number": i + 1, "direction": direction.to_dict(), "candidate": item, "refused_because": list(attempt.reasons)}
             for i, ((direction, _, attempt), item) in enumerate(zip(failures, items))
         ]
-        prompt = _prompts.RETRY.format(round=number, failures=json.dumps(listed, indent=2), n=len(failures), **_rules())
+        prompt = _prompts.RETRY.format(
+            round=number, failures=json.dumps(listed, indent=2), n=len(failures), **_rules(gate.vocabulary),
+        )
         return _items(self._ask("proposer", prompt), items)
 
     def _ask(self, role: str, prompt: str) -> str:
@@ -297,10 +299,10 @@ def _render(context: dict[str, str], keys: tuple[str, ...]) -> str:
     return "\n\n".join(parts)
 
 
-def _rules() -> dict:
-    """The code rules, the vocabulary and the fields, as the proposer's templates take them."""
+def _rules(vocabulary: Vocabulary) -> dict:
+    """The code rules, ``vocabulary`` and the fields, as the proposer's templates take them."""
     return {
-        "code_rules": _prompts.CODE_RULES, "vocabulary": _prompts.VOCABULARY.format(**describe()),
+        "code_rules": _prompts.CODE_RULES, "vocabulary": _prompts.VOCABULARY.format(**vocabulary.prompt()),
         "fields": _prompts.FIELDS,
     }
 

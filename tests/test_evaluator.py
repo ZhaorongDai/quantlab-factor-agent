@@ -29,6 +29,7 @@ from factor_agent.gate.graph import Graph
 from factor_agent.scoring import Neutralization, Scoring
 from factor_agent.segments import Segment
 from factor_agent.zoo import Zoo
+from tests.vocabulary_files import price_volume
 from tests import synthetic_market
 
 WARMUP = 60
@@ -70,13 +71,15 @@ def _graph(code: str) -> Graph:
         "hypothesis": "A test hypothesis.", "mechanism_type": "behavioural_bias", "expected_sign": 1,
         "horizon_rationale": "A week.", "reference": "Synthetic", "description": "test", "code": code,
     })
-    checked = Gate(GateConfig()).check(candidate, Zoo())
+    checked = Gate(GateConfig(), price_volume()).check(candidate, Zoo())
     assert not hasattr(checked, "reasons"), checked
     return checked.graph
 
 
 #: A graph that passes from_json but that KunQuant cannot compile: its window is not a number.
-UNCOMPILABLE = Graph.from_json([["Input", [["name", "adjClose"]], [], None], ["WindowedAvg", [["window", "abc"]], [0], None]])
+UNCOMPILABLE = Graph.from_json(
+    [["Input", [["name", "adjClose"]], [], None], ["WindowedAvg", [["window", "abc"]], [0], None]], price_volume().classes,
+)
 
 
 class _RankedIntraday(FactorKunQuant):

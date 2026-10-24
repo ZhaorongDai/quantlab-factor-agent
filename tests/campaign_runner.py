@@ -10,6 +10,7 @@ from factor_agent.campaign import Campaign
 from factor_agent.config import ROLES, CampaignConfig
 from quantlab.factor.kunquant_compile import CACHE_ENV
 from tests import synthetic_market
+from tests.vocabulary_files import EXAMPLE_OPERATORS, PRICE_VOLUME
 
 def candidate(description: str, code: str, **overrides) -> dict:
     """A candidate item with neutral text: no keyword the mechanism binding acts on, no date, no number."""
@@ -42,6 +43,8 @@ def write_config(root: Path, components: dict, reference=(), **sections) -> Path
         "segments": {"training": {"start": synthetic_market.TRAINING[0], "end": synthetic_market.TRAINING[1]}},
         "data": {name: components[name] for name in ("prices", "label", "membership")},
         "scoring": {"neutralize": {"exposures": components["exposures"], **NEUTRALIZE}},
+        "fields": [str(PRICE_VOLUME)],
+        "operators": str(EXAMPLE_OPERATORS),
         "reference": list(reference),
         "evaluator": {"warmup_bars": 60, "njobs": 4},
         "llm": {role: {"backend": "scripted", "model": f"model-{role}", "replies": "unused.json"} for role in ROLES},

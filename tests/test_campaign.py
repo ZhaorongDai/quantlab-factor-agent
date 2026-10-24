@@ -16,6 +16,7 @@ from pathlib import Path
 
 import pytest
 
+from factor_agent.gate.vocabulary import VocabularyError
 from quantlab.core.component import rebuild
 from quantlab.factor.config import FactorConfig, NeutralizedConfig, PolarsFactorConfig
 from quantlab.factor.predefined.alpha158 import Alpha158Stock
@@ -24,6 +25,7 @@ from tests import synthetic_market
 from tests.campaign_runner import candidate as _candidate
 from tests.campaign_runner import run, write_config
 from tests.fake_llm import FakeLLM
+from tests.vocabulary_files import PRICE_VOLUME
 
 CANDIDATES = [
     _candidate("planted", "alpha = close / open"),
@@ -392,3 +394,13 @@ def test_the_same_metrics_pass_at_a_low_trial_count_and_fail_at_a_high_one(weak_
     assert len(among.reasons) == 1
     assert "at 10 evaluated trial(s)" in among.reasons[0]
     assert weak_among_noise["result"].evaluated_trials == 10
+
+
+def test_a_field_column_missing_from_the_price_dataset_fails_at_start_before_any_llm_call(tmp_path):
+    fields = tmp_path / "fields.yaml"
+    fields.write_text(PRICE_VOLUME.read_text().replace("column: adjVolume", "column: adjVolumeTypo"))
+    config_path = write_config(tmp_path, synthetic_market.build(tmp_path / "data"), fields=[str(fields)])
+    fake = FakeLLM(lambda number, directions: [])
+    with pytest.raises(VocabularyError, match="adjVolumeTypo"):
+        run(config_path, fake, tmp_path / "kunquant_cache")
+    assert fake.requests == []

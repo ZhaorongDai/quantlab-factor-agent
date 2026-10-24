@@ -16,6 +16,8 @@ from quantlab.factor.predefined.alpha158 import Alpha158Stock
 
 from factor_agent.candidate import MECHANISM_TYPES
 from factor_agent.config import ROLES, CampaignConfig, NeutralizeConfig, load
+from factor_agent.gate.vocabulary import VocabularyError
+from tests.vocabulary_files import EXAMPLE_OPERATORS, PRICE_VOLUME
 
 
 @pytest.fixture
@@ -60,6 +62,7 @@ def test_the_reference_of_a_config_file_may_be_store_entries(store, tmp_path):
         "data": {"prices": "p", "label": "l", "membership": "m"},
         "scoring": {"neutralize": {"exposures": "e", "size_column": "marketcap", "industry_column": "industry"}},
         "reference": [{"store": str(store), "factor_names": ["KMID"]}],
+        "fields": [str(PRICE_VOLUME)], "operators": str(EXAMPLE_OPERATORS),
         "llm": {role: {"backend": "scripted", "model": "m", "replies": "r.json"} for role in ROLES},
     }))
     [factor] = [load(c) for c in CampaignConfig.from_file(path).reference]
@@ -73,6 +76,7 @@ def _minimal(tmp_path, **sections) -> Path:
         "segments": {"training": {"start": "2024-01-01", "end": "2024-01-03"}},
         "data": {"prices": "p", "label": "l"},
         "scoring": {"neutralize": None},
+        "fields": [str(PRICE_VOLUME)], "operators": str(EXAMPLE_OPERATORS),
         "llm": {role: {"backend": "scripted", "model": "m", "replies": "r.json"} for role in ROLES},
     }
     raw.update(sections)
@@ -109,6 +113,30 @@ def test_exposures_are_no_longer_data(tmp_path):
         CampaignConfig.from_file(_minimal(tmp_path, data={"prices": "p", "label": "l", "exposures": "e"}))
 
 
+def test_the_field_and_operator_files_of_a_config_make_its_vocabulary(tmp_path):
+    config = CampaignConfig.from_file(_minimal(tmp_path))
+    assert config.vocabulary().prompt()["inputs"] == "open, high, low, close, volume, vwap, amount"
+    with pytest.raises(VocabularyError, match="adjVolume"):
+        config.vocabulary(columns=["adjOpen", "adjHigh", "adjLow", "adjClose"])
+
+
+def test_vocabulary_paths_are_read_relative_to_the_config_file(tmp_path):
+    (tmp_path / "vocabulary").mkdir()
+    for source in (PRICE_VOLUME, EXAMPLE_OPERATORS):
+        (tmp_path / "vocabulary" / source.name).write_text(source.read_text())
+    config = CampaignConfig.from_file(_minimal(
+        tmp_path, fields=[f"vocabulary/{PRICE_VOLUME.name}"], operators=f"vocabulary/{EXAMPLE_OPERATORS.name}",
+    ))
+    assert config.fields == (str(tmp_path / "vocabulary" / PRICE_VOLUME.name),)
+    assert "Rank" in config.vocabulary().prompt()["operators"]
+
+
+@pytest.mark.parametrize("missing", ["fields", "operators"])
+def test_a_config_without_field_or_operator_files_is_refused(tmp_path, missing):
+    with pytest.raises(KeyError, match=missing):
+        CampaignConfig.from_file(_minimal(tmp_path, **{missing: None}))
+
+
 #: The first real campaign's config (#8); its data is on the server only, so only its text is checked here.
 REAL = Path(__file__).parent.parent / "configs" / "us3000_ret5.yaml"
 
@@ -122,3 +150,4 @@ def test_the_real_config_reads_with_sel0s_191_reference_factors_and_a_direction_
     assert {role.model for role in config.roles.values()} == {"deepseek/deepseek-v4-pro-0813"}
     assert config.data.membership == "/data/quantlab/universe/us3000/membership_estu"
     assert (config.scoring.neutralize.size_column, config.scoring.neutralize.industry_column) == ("marketcap", "industry")
+    assert config.fields == (str(PRICE_VOLUME),) and config.operators == str(EXAMPLE_OPERATORS)

@@ -1,265 +1,59 @@
-"""The operator vocabulary, shared by the Gate and the proposer's prompt: the operator registry, the parameter sets and the namespace candidate code runs in.
+"""The Vocabulary: the fields, operators and parameter values a campaign's candidates may write with.
 
-Every whitelisted KunQuant and quantlab operator is an ``OpSpec`` in
-``OPERATORS``: the class a graph records, what candidate code calls under
-that name, its series inputs, its parameters and its dimension rule. Every
-other ``OpBase`` subclass of KunQuant and quantlab is in ``EXCLUDED`` with
-the reason; a guard test keeps the two lists complete.
+It is built from files only (``Vocabulary.load``): one field file per input
+family and one operator file, named by the campaign config. The framework
+holds no field, column or operator of its own; it keeps the rules a file
+picks from (the dimension rules of ``_dimension``, the input kinds, the
+syntax of ``_checks``), the ``Input`` a graph reads a column with, and the
+``Builder`` of window loops.
 
-KunQuant's ``SetInfOrNanToValue``, ``Clip``, ``Max``, ``Min`` and ``Select``
-turn a bar with no data into a number. Candidate code calls quantlab's
-stand-ins from ``quantlab.factor.kunquant_nan`` under those names, and the
-sandbox runs it inside ``missing_bars_only``, so a symbol without a bar stays
-NaN as it does in ``Alpha158Stock``.
+A field file lists its family's fields. A field reads a column of the price
+dataset, in a unit that is a product of powers of dollars and shares, or is
+derived: a formula over the family's earlier fields, checked under the
+syntax rules of candidate code and built with the operators. Its synonyms
+name the family's phrases that bind a hypothesis to it, and the family's
+rules name phrases that need several fields. A family with ``bar: true``
+makes a missing value in any of its columns a missing bar: candidate code
+runs inside quantlab's ``missing_bars_only`` over those columns, so the
+NaN-preserving stand-ins of ``quantlab.factor.kunquant_nan`` keep such a
+bar NaN.
 
-The inputs follow ``Alpha158Stock``: the adjusted OHLCV columns, the adjusted
-typical price as ``vwap`` and ``vwap * volume`` as ``amount``.
+The operator file lists each operator's class (a KunQuant ``OpBase``
+subclass, what a graph records), the callable candidate code calls under
+its name (the class, or a stand-in such as ``kunquant_nan.Max``), its
+signature, argument and parameter kinds, dimension rule, prompt description
+and binding phrases, plus the parameter value sets and, in the
+repository's example file, every other operator class with why it is
+excluded. A class or a callable must come from KunQuant,
+``quantlab.factor`` or a module the config lists in ``operator_modules``;
+the module is checked before it is imported.
+
+``load`` reports every problem of the files at once (``VocabularyError``).
+The sandbox rebuilds the same vocabulary from ``sources``, the files' text.
 """
 
 import builtins
-from dataclasses import dataclass, field
+import contextlib
+import importlib
+import keyword
+import math
+import re
+from collections.abc import Iterable, Iterator, Mapping
+from dataclasses import dataclass
+from fractions import Fraction
+from functools import cached_property
+from pathlib import Path
 
-import KunQuant.ops as kq
-from KunQuant.Op import (
-    BinaryElementwiseOp, Builder, CompositiveOp, ConstantOp, CrossSectionalOp, ForeachBackWindow, Input,
-    IterValue, Output, Rank, ReductionOp, Scale, SimpleCrossSectionalOp, UnaryElementwiseOp,
-    WindowedDataSourceOp, WindowedTempOutput, WindowLoopIndex,
-)
-from KunQuant.ops import CompOp, ElewiseOp, MiscOp
-from KunQuant.predefined import talib
-from quantlab.factor import kunquant_cs, kunquant_nan, kunquant_ts
+import yaml
+from KunQuant.Op import Builder, Input, OpBase
+from quantlab.factor import kunquant_nan
 
-#: Candidate input name -> the dataset column it reads.
-INPUT_COLUMNS = {
-    "open": "adjOpen",
-    "high": "adjHigh",
-    "low": "adjLow",
-    "close": "adjClose",
-    "volume": "adjVolume",
-}
+from factor_agent.gate import _checks, _dimension
+from factor_agent.gate._canonical import canonical_hashes, effective_parameters
+from factor_agent.gate.graph import Graph
 
-#: Names of the derived inputs, built from the columns in ``inputs``.
-DERIVED_INPUTS = ("vwap", "amount")
-
-#: Dimension of each dataset column as ``(price exponent, volume exponent)``.
-COLUMN_DIMENSIONS = {
-    "adjOpen": (1, 0),
-    "adjHigh": (1, 0),
-    "adjLow": (1, 0),
-    "adjClose": (1, 0),
-    "adjVolume": (0, 1),
-}
-
-#: Window lengths, in bars, a time-series operator or loop may use.
-WINDOWS = (5, 10, 20, 40, 60, 120, 250)
-
-#: Values each kind of operator parameter may take; a constant may also be
-#: negative or ``"nan"``.
-PARAMETER_VALUES = {
-    "window": WINDOWS,
-    "lag": (1, *WINDOWS),
-    "half_life": WINDOWS,
-    "quantile": (0.1, 0.25, 0.5, 0.75, 0.9),
-    "lower": (0.01, 0.025, 0.05, 0.1),
-    "upper": (0.9, 0.95, 0.975, 0.99),
-    "months": (3, 6, 12),
-    "month_length": (21,),
-    "constant": (0, 1e-12, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 1.5, 2, 3, 4, 5, 10, 100, *WINDOWS),
-}
-
-#: Attribute kinds that are bookkeeping, not values, and are never checked against a set.
-FLAG_PARAMETERS = frozenset({"swap", "column"})
-
-
-@dataclass(frozen=True)
-class OpSpec:
-    """One whitelisted operator.
-
-    ``cls`` is the class a graph records; ``call`` is what candidate code
-    calls under the operator's name: ``cls`` itself, or quantlab's
-    NaN-preserving stand-in. ``inputs`` gives the kind of each series
-    argument: ``"series"``, ``"condition"`` (a comparison) or ``"loop"`` (a
-    ``ForeachBackWindow``). ``params`` maps each attribute to its kind in
-    ``PARAMETER_VALUES`` or ``FLAG_PARAMETERS``. ``dimension`` names the rule
-    by which the output's dimension follows from the inputs'. ``signature``
-    is how the prompt shows the call.
-    """
-
-    cls: type
-    signature: str
-    dimension: str
-    inputs: tuple[str, ...] = ("series",)
-    params: dict = field(default_factory=dict)
-    call: object = None
-    callable: bool = True
-
-
-def _spec(cls, signature, dimension, inputs=("series",), params=None, call=None, callable=True):
-    return cls.__name__, OpSpec(cls, signature, dimension, tuple(inputs), dict(params or {}), call or cls, callable)
-
-
-_SERIES2 = ("series", "series")
-_CONST = {"value": "constant", "swap": "swap"}
-_WINDOW = {"window": "window"}
-_EW = {"window": "window", "half_life": "half_life"}
-_BOUNDS = {"lower": "lower", "upper": "upper"}
-
-#: Every whitelisted operator by the name candidate code calls it, plus
-#: ``Input``, which graphs record but candidate code cannot call.
-OPERATORS: dict[str, OpSpec] = dict([
-    # Elementwise.
-    _spec(kq.Add, "Add(x, y)", "match", _SERIES2),
-    _spec(kq.Sub, "Sub(x, y)", "match", _SERIES2),
-    _spec(kq.Mul, "Mul(x, y)", "product", _SERIES2),
-    _spec(kq.Div, "Div(x, y)", "quotient", _SERIES2),
-    _spec(kq.AddConst, "AddConst(x, c)", "same", params=_CONST),
-    _spec(kq.SubConst, "SubConst(x, c)", "same", params=_CONST),
-    _spec(kq.MulConst, "MulConst(x, c)", "scale", params=_CONST),
-    _spec(kq.DivConst, "DivConst(x, c)", "scale", params=_CONST),
-    _spec(ConstantOp, "ConstantOp(c)", "constant", (), {"value": "constant"}),
-    _spec(kq.Abs, "Abs(x)", "same"),
-    _spec(kq.Sign, "Sign(x)", "pure"),
-    _spec(kq.Exp, "Exp(x)", "transcendental"),
-    _spec(kq.Log, "Log(x)", "transcendental"),
-    _spec(kq.Sqrt, "Sqrt(x)", "sqrt"),
-    _spec(kq.Pow, "Pow(x, y)", "power", _SERIES2),
-    _spec(kq.Max, "Max(x, y)", "match", _SERIES2, call=kunquant_nan.Max),
-    _spec(kq.Min, "Min(x, y)", "match", _SERIES2, call=kunquant_nan.Min),
-    _spec(kq.Clip, "Clip(x, c)", "same", params={"value": "constant"}, call=kunquant_nan.Clip),
-    _spec(kq.SetInfOrNanToValue, "SetInfOrNanToValue(x, c=0.0)", "same", params={"value": "constant"},
-          call=kunquant_nan.SetInfOrNanToValue),
-    _spec(kq.Select, "Select(condition, x, y)", "select", ("condition", "series", "series"),
-          call=kunquant_nan.Select),
-    # Comparisons and logic; their result is only a Select condition.
-    _spec(kq.GreaterThan, "GreaterThan(x, y)", "compare", _SERIES2),
-    _spec(kq.GreaterEqual, "GreaterEqual(x, y)", "compare", _SERIES2),
-    _spec(kq.LessThan, "LessThan(x, y)", "compare", _SERIES2),
-    _spec(kq.LessEqual, "LessEqual(x, y)", "compare", _SERIES2),
-    _spec(kq.Equals, "Equals(x, y)", "compare", _SERIES2),
-    _spec(kq.GreaterThanConst, "GreaterThanConst(x, c)", "compare_constant", params=_CONST),
-    _spec(kq.LessThanConst, "LessThanConst(x, c)", "compare_constant", params=_CONST),
-    _spec(kq.And, "And(a, b)", "logic", ("condition", "condition")),
-    _spec(kq.Or, "Or(a, b)", "logic", ("condition", "condition")),
-    _spec(kq.Not, "Not(a)", "logic", ("condition",)),
-    # Time series.
-    _spec(kq.BackRef, "BackRef(x, lag)", "same", params={"window": "lag"}),
-    _spec(kq.WindowedAvg, "WindowedAvg(x, window)", "same", params=_WINDOW),
-    _spec(kq.WindowedSum, "WindowedSum(x, window)", "same", params=_WINDOW),
-    _spec(kq.WindowedStddev, "WindowedStddev(x, window)", "same", params=_WINDOW),
-    _spec(kq.WindowedVar, "WindowedVar(x, window)", "square", params=_WINDOW),
-    _spec(kq.WindowedMax, "WindowedMax(x, window)", "same", params=_WINDOW),
-    _spec(kq.WindowedMin, "WindowedMin(x, window)", "same", params=_WINDOW),
-    _spec(kq.WindowedCorrelation, "WindowedCorrelation(x, window, y)", "pure", _SERIES2, _WINDOW),
-    _spec(kq.WindowedCovariance, "WindowedCovariance(x, window, y)", "product", _SERIES2, _WINDOW),
-    _spec(kq.WindowedSkew, "WindowedSkew(x, window)", "pure", params=_WINDOW),
-    _spec(kq.WindowedKurt, "WindowedKurt(x, window)", "pure", params=_WINDOW),
-    _spec(kq.WindowedQuantile, "WindowedQuantile(x, window, q)", "same",
-          params={"window": "window", "q": "quantile"}),
-    _spec(kq.WindowedProduct, "WindowedProduct(x, window)", "repeated_product", params=_WINDOW),
-    _spec(kq.WindowedMaxDrawdown, "WindowedMaxDrawdown(x, window)", "pure", params=_WINDOW),
-    _spec(kq.WindowedLinearRegressionSlope, "WindowedLinearRegressionSlope(x, window)", "same", params=_WINDOW),
-    _spec(kq.WindowedLinearRegressionRSqaure, "WindowedLinearRegressionRSqaure(x, window)", "pure", params=_WINDOW),
-    _spec(kq.WindowedLinearRegressionResi, "WindowedLinearRegressionResi(x, window)", "same", params=_WINDOW),
-    _spec(kq.TsRank, "TsRank(x, window)", "pure", params=_WINDOW),
-    _spec(kq.TsArgMax, "TsArgMax(x, window)", "pure", params=_WINDOW),
-    _spec(kq.TsArgMin, "TsArgMin(x, window)", "pure", params=_WINDOW),
-    _spec(kq.DecayLinear, "DecayLinear(x, window)", "same", params=_WINDOW),
-    _spec(kq.ExpMovingAvg, "ExpMovingAvg(x, window)", "same", params=_WINDOW),
-    _spec(kunquant_ts.WindowedZScore, "WindowedZScore(x, window)", "pure", params=_WINDOW),
-    _spec(kunquant_ts.EWSum, "EWSum(x, window, half_life)", "same", params=_EW),
-    _spec(kunquant_ts.EWMean, "EWMean(x, window, half_life)", "same", params=_EW),
-    _spec(kunquant_ts.EWVar, "EWVar(x, window, half_life)", "square", params=_EW),
-    _spec(kunquant_ts.EWCov, "EWCov(y, x, window, half_life)", "product", _SERIES2, _EW),
-    _spec(kunquant_ts.EWBeta, "EWBeta(y, x, window, half_life)", "quotient", _SERIES2, _EW),
-    _spec(kunquant_ts.EWAlpha, "EWAlpha(y, x, window, half_life)", "first", _SERIES2, _EW),
-    _spec(kunquant_ts.EWResidualStd, "EWResidualStd(y, x, window, half_life)", "first", _SERIES2, _EW),
-    _spec(kunquant_ts.CMRA, "CMRA(x, months=12, month_length=21)", "same",
-          params={"months": "months", "month_length": "month_length"}),
-    # Window loops: `loop = ForeachBackWindow(x, window)`, then inside
-    # `with Builder(loop):` `item = IterValue(loop, x)`, then a Reduce* outside the block.
-    _spec(ForeachBackWindow, "ForeachBackWindow(x, window, *more_series)", "loop", ("series",), _WINDOW),
-    _spec(IterValue, "IterValue(loop, x)", "second", ("loop", "series")),
-    _spec(WindowLoopIndex, "WindowLoopIndex(loop)", "pure", ("loop",)),
-    _spec(kq.ReduceAdd, "ReduceAdd(item)", "same"),
-    _spec(kq.ReduceMul, "ReduceMul(item)", "repeated_product"),
-    _spec(kq.ReduceMax, "ReduceMax(item)", "same"),
-    _spec(kq.ReduceMin, "ReduceMin(item)", "same"),
-    _spec(kq.ReduceArgMax, "ReduceArgMax(item)", "pure"),
-    _spec(kq.ReduceArgMin, "ReduceArgMin(item)", "pure"),
-    _spec(kq.ReduceRank, "ReduceRank(item)", "pure"),
-    _spec(kq.ReduceDecayLinear, "ReduceDecayLinear(item)", "same"),
-    # Cross-sectional, across the whole market on each bar.
-    _spec(Rank, "Rank(x)", "pure"),
-    _spec(Scale, "Scale(x)", "pure"),
-    _spec(kunquant_cs.CrossSectionalZScore, "CrossSectionalZScore(x)", "pure"),
-    _spec(kunquant_cs.CrossSectionalWinsorize, "CrossSectionalWinsorize(x, lower=0.01, upper=0.99)", "same",
-          params=_BOUNDS),
-    _spec(kunquant_cs.CrossSectionalTrim, "CrossSectionalTrim(x, lower=0.01, upper=0.99)", "same",
-          params=_BOUNDS),
-    # Recorded only: a dataset column.
-    _spec(Input, "Input(column)", "input", (), {"name": "column"}, callable=False),
-])
-
-_BASE = "an abstract base class, never in a graph"
-_INTERNAL = "a KunQuant internal made by its lowering passes"
-_EXTRA_INPUTS = "needs inputs beyond price and volume; the Evaluator applies it"
-_TALIB = "a KunQuant predefined composite; candidates write the formula themselves"
-
-#: Every other public ``OpBase`` subclass of KunQuant and quantlab, with why it is
-#: excluded. A class whose name starts with an underscore is a private base class
-#: of its library and is excluded without being named.
-EXCLUDED: dict[type, str] = {
-    UnaryElementwiseOp: _BASE,
-    BinaryElementwiseOp: _BASE,
-    ElewiseOp.BinaryConstOp: _BASE,
-    ElewiseOp.CmpOp: _BASE,
-    CompositiveOp: _BASE,
-    CompOp.WindowedCompositiveOp: _BASE,
-    CompOp.WindowedReduce: _BASE,
-    CompOp.WindowedLinearRegressionBase: _BASE,
-    CrossSectionalOp: _BASE,
-    SimpleCrossSectionalOp: _BASE,
-    MiscOp.GenericCrossSectionalOp: _BASE,
-    ReductionOp: _BASE,
-    WindowedDataSourceOp: _BASE,
-    MiscOp.WindowedLinearRegressionImplUnaryBase: _BASE,
-    MiscOp.WindowedLinearRegressionImplBinaryBase: _BASE,
-    Output: "the graph's sink, added by the Gate and the Evaluator",
-    WindowedTempOutput: _INTERNAL,
-    MiscOp.WindowedLinearRegressionRSqaureImpl: _INTERNAL,
-    MiscOp.WindowedLinearRegressionSlopeImpl: _INTERNAL,
-    MiscOp.WindowedLinearRegressionResiImpl: _INTERNAL,
-    MiscOp.WindowedLinearRegression: _INTERNAL,
-    MiscOp.SkipListState: _INTERNAL,
-    MiscOp.SkipListMin: _INTERNAL,
-    MiscOp.SkipListMax: _INTERNAL,
-    MiscOp.SkipListRank: _INTERNAL,
-    MiscOp.SkipListQuantile: _INTERNAL,
-    MiscOp.SkipListArgMin: _INTERNAL,
-    MiscOp.FastWindowedSum: _INTERNAL,
-    MiscOp.Accumulator: _INTERNAL,
-    MiscOp.SetAccumulator: _INTERNAL,
-    MiscOp.ReturnFirstValue: _INTERNAL,
-    MiscOp.GenericPartition: _INTERNAL,
-    MiscOp.DiffWithWeightedSum: _EXTRA_INPUTS,
-    kunquant_cs.CrossSectionalWeightedMean: _EXTRA_INPUTS,
-    kunquant_cs.CapWeightedStandardize: _EXTRA_INPUTS,
-    kunquant_cs.CrossSectionalSigmaClip: _EXTRA_INPUTS,
-    kunquant_cs.CrossSectionalWLSResidual: _EXTRA_INPUTS,
-    kunquant_cs.CrossSectionalIndustrySizeFill: _EXTRA_INPUTS,
-    kunquant_cs.CrossSectionalNeutralize: _EXTRA_INPUTS,
-    kunquant_cs.RenormalizedCombine: "combines several factors with weights, which stacks signals",
-    kunquant_cs.CrossSectionalTopN: "selects a portfolio, not a factor value",
-    talib.TRANGE: _TALIB,
-    talib.ATR: _TALIB,
-    talib.SAR: _TALIB,
-}
-
-#: Every class a recorded graph may hold, by the name it is recorded under.
-GRAPH_CLASSES = {name: spec.cls for name, spec in OPERATORS.items()}
-
-#: The operators candidate code may call, by name.
-CALLABLE = {name: spec.call for name, spec in OPERATORS.items() if spec.callable}
+#: Modules a class or a callable may always come from; the config's ``operator_modules`` add to them.
+FRAMEWORK_MODULES = ("KunQuant", "quantlab.factor")
 
 #: The builtins candidate code may call.
 BUILTINS = {
@@ -268,53 +62,627 @@ BUILTINS = {
                  "round", "tuple", "zip")
 }
 
-#: Every name candidate code may read without binding it first.
-ALLOWED_NAMES = (
-    frozenset(INPUT_COLUMNS) | frozenset(DERIVED_INPUTS) | frozenset(CALLABLE) | frozenset(BUILTINS) | {"Builder"}
-)
+#: Kinds of a series argument: a number series, a comparison, or a ``ForeachBackWindow`` loop.
+INPUT_KINDS = ("series", "condition", "loop")
 
-_NAMES = {spec.cls: name for name, spec in OPERATORS.items()}
+#: The parameter set of an attribute that is bookkeeping, never checked.
+FLAG = "flag"
+
+#: Names the framework binds in candidate code itself.
+_RESERVED = frozenset({"Builder", "Input", "alpha"})
+
+#: The bases of a unit, in the order of a dimension's exponents.
+_UNIT_BASES = ("dollars", "shares")
+_UNIT_FACTOR = re.compile(r"(dollars|shares|1)(?:\^(-?\d+))?")
+
+_FIELD_FILE_KEYS = {"family", "description", "bar", "phrases", "rules", "fields"}
+_FIELD_KEYS = {"name", "column", "formula", "unit", "description", "synonyms"}
+_OPERATOR_FILE_KEYS = {"parameters", "phrases", "operators", "excluded"}
+_OPERATOR_KEYS = {"name", "class", "call", "signature", "inputs", "params", "dimension", "description", "binding"}
 
 
-def recorded_name(op_class: type) -> str | None:
-    """Return the name a graph records ``op_class`` under, or None when it is not whitelisted.
+class VocabularyError(ValueError):
+    """The field or operator files are wrong; the message lists every problem."""
 
-    quantlab's quantile-bound operators construct a subclass per bound pair
-    (``CrossSectionalWinsorize_0p05_0p95``); such a subclass is recorded
-    under its public class's name.
+    def __init__(self, problems: list[str]):
+        self.problems = tuple(problems)
+        super().__init__("the vocabulary files have problems:\n" + "\n".join(f"- {p}" for p in problems))
+
+
+@dataclass(frozen=True)
+class Field:
+    """One field: its name, family, the column it reads or the formula it is derived by, and its description.
+
+    ``dimension`` is the unit's ``(dollars, shares)`` exponents; None for a
+    derived field, whose dimension follows from its formula.
     """
-    for klass in op_class.__mro__:
-        if klass in _NAMES:
-            return _NAMES[klass]
-        if klass in EXCLUDED or klass.__name__.startswith("_"):
+
+    name: str
+    family: str
+    column: str | None
+    formula: str | None
+    dimension: tuple | None
+    description: str
+
+
+@dataclass(frozen=True)
+class OpSpec:
+    """One registered operator; see the module docstring.
+
+    ``path`` is the class's dotted path; ``params`` maps each attribute to
+    its parameter set, or ``FLAG``.
+    """
+
+    name: str
+    cls: type
+    path: str
+    call: object
+    signature: str
+    inputs: tuple[str, ...]
+    params: dict
+    dimension: str
+    description: str
+    binding: tuple[str, ...]
+
+
+#: ``Input``, which every graph records and no candidate calls.
+INPUT = OpSpec("Input", Input, "KunQuant.Op.Input", None, "", (), {"name": FLAG}, "input", "", ())
+
+
+class Vocabulary:
+    """What candidates may write with; build it with ``load``, or ``from_sources`` in the sandbox.
+
+    Raises
+    ------
+    VocabularyError
+        If the files have any problem; every problem is listed.
+    """
+
+    def __init__(self, sources: dict, columns: Iterable[str] | None = None):
+        #: The files' paths and text and the operator modules: what the sandbox rebuilds from.
+        self.sources = sources
+        #: The parameter sets of the operator file, by kind.
+        self.parameters: dict[str, tuple] = {}
+        #: The fields of every family, in file order.
+        self.fields: dict[str, Field] = {}
+        #: The operator file's excluded classes, with their reasons.
+        self.excluded: dict[type, str] = {}
+        self._problems: list[str] = []
+        self._modules = FRAMEWORK_MODULES + tuple(sources.get("operator_modules") or ())
+        self._operators: dict[str, OpSpec] = {}
+        self._operator_phrases: dict[str, re.Pattern] = {}
+        self._field_phrases: dict[str, re.Pattern] = {}
+        self._synonyms: dict[str, list[str]] = {}
+        self._rules: list[tuple[str, tuple[str, ...]]] = []
+        self._bar_columns: list[str] = []
+        operators = sources["operators"]
+        self._read_operators(operators["path"], self._yaml(operators))
+        for document in sources["fields"]:
+            self._read_fields(document["path"], self._yaml(document))
+        if not self._problems:
+            self._build_derived()
+        if columns is not None:
+            available = set(columns)
+            self._problems += [
+                f"field {f.name} ({f.family}): column {f.column!r} is not in the price dataset"
+                for f in self.fields.values() if f.column is not None and f.column not in available
+            ]
+        if self._problems:
+            raise VocabularyError(self._problems)
+
+    @classmethod
+    def load(
+        cls, fields: Iterable[str | Path], operators: str | Path, operator_modules: Iterable[str] = (),
+        columns: Iterable[str] | None = None,
+    ) -> "Vocabulary":
+        """Read the field files ``fields`` and the operator file ``operators``.
+
+        ``operator_modules`` are the modules besides KunQuant and
+        ``quantlab.factor`` a class or a callable may come from; ``columns``,
+        when given, are the price dataset's columns, among which every
+        field's column must be.
+
+        Raises
+        ------
+        VocabularyError
+            With every problem of the files.
+        """
+        def document(path) -> dict:
+            return {"path": str(path), "text": Path(path).read_text()}
+
+        sources = {
+            "fields": [document(path) for path in fields], "operators": document(operators),
+            "operator_modules": list(operator_modules),
+        }
+        return cls(sources, columns)
+
+    @classmethod
+    def from_sources(cls, sources: dict) -> "Vocabulary":
+        """Rebuild a vocabulary from another's ``sources``."""
+        return cls(sources)
+
+    # What candidate code may use.
+
+    @property
+    def names(self) -> frozenset[str]:
+        """Every name candidate code may read without binding it first."""
+        return frozenset(self.fields) | frozenset(self._operators) | frozenset(BUILTINS) | {"Builder"}
+
+    @property
+    def classes(self) -> dict[str, type]:
+        """Every class a graph may hold, by the name it is recorded under (``Input`` included)."""
+        return {"Input": Input, **{name: spec.cls for name, spec in self._operators.items()}}
+
+    @property
+    def operator_classes(self) -> dict[type, str]:
+        """The registered classes, each with the name a graph records it under."""
+        return {spec.cls: name for name, spec in self._operators.items()}
+
+    def spec(self, name: str) -> OpSpec:
+        """The operator a graph records as ``name``."""
+        return INPUT if name == "Input" else self._operators[name]
+
+    def class_paths(self, graphs: Iterable[list]) -> dict[str, str]:
+        """The class path of every operator recorded graphs (``Graph.to_json()``) hold, by name."""
+        used = {node[0] for graph in graphs for node in graph}
+        return {name: self.spec(name).path for name in sorted(used)}
+
+    @contextlib.contextmanager
+    def namespace(self) -> Iterator[dict]:
+        """Fresh globals for one execution of candidate code, which runs inside the block.
+
+        The fields are new operators every time, so two executions share no
+        node; inside the block the NaN-preserving stand-ins add the bar mask.
+        """
+        fields = self._inputs()
+        callables = {name: spec.call for name, spec in self._operators.items()}
+        with self._bar_mask(fields):
+            yield {"__builtins__": dict(BUILTINS), **callables, "Builder": Builder, **fields}
+
+    def recorded_name(self, op_class: type) -> str | None:
+        """Return the name a graph records ``op_class`` under, or None when it is not registered.
+
+        A class made at run time (``CrossSectionalWinsorize_0p05_0p95``,
+        which quantlab's public class makes per bound pair) is recorded
+        under the registered class it derives from; a declared class that is
+        not registered is not.
+        """
+        registered = self.operator_classes
+        for klass in op_class.__mro__:
+            if klass is Input:
+                return "Input"
+            if klass in registered:
+                return registered[klass]
+            if klass.__name__.startswith("_") or _declared(klass):
+                return None
+        return None
+
+    # What the Gate checks.
+
+    def check(self, graph: Graph) -> tuple[list[str], str]:
+        """Return why ``graph``'s parameter values or dimensions are refused (empty if none) and its dimension."""
+        reasons = self._parameter_reasons(graph) or self._effective_reasons(graph)
+        dimension, dimension_reasons = _dimension.infer(graph, self)
+        return reasons + dimension_reasons, _dimension.name(dimension)
+
+    def bind(self, hypothesis: str, fields: Iterable[str], operators: Iterable[str]) -> list[str]:
+        """Return the mechanism-binding failures of ``hypothesis`` against the graph's ``fields`` and ``operators``.
+
+        A deterministic check of the text against the graph (after
+        FactorMiner's ``mechanism_binding``, MIT): it does not judge whether
+        the story is right, only that the code uses what the story says it
+        uses. A field phrase the hypothesis names needs one of the fields
+        listing it as a synonym, and each field of a rule on it; an operator
+        phrase needs one of the operators bound to it. Negations are not
+        understood: the check errs toward passing.
+        """
+        text, read, used = hypothesis.lower(), set(fields), set(operators)
+        found = []
+        for name, pattern in self._field_phrases.items():
+            if not pattern.search(text):
+                continue
+            groups = [set(self._synonyms[name])] if name in self._synonyms else []
+            groups += [{field} for phrase, needs in self._rules if phrase == name for field in needs]
+            missing = [group for group in groups if not group & read]
+            if missing:
+                wanted = " and ".join(" or ".join(sorted(group)) for group in missing)
+                found.append(f"mechanism binding: the hypothesis names {name}, but the graph never reads {wanted}")
+        for name, pattern in self._operator_phrases.items():
+            ops = {op for op, spec in self._operators.items() if name in spec.binding}
+            if ops and pattern.search(text) and not ops & used:
+                found.append(
+                    f"mechanism binding: the hypothesis names {name}, but the graph has none of {', '.join(sorted(ops))}"
+                )
+        return found
+
+    def allowed(self, kind: str, value) -> bool:
+        """Whether ``value`` is in the parameter set ``kind``; a constant may also be negative or ``"nan"``."""
+        if kind == "constant" and value == "nan":
+            return True
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            return False
+        magnitude = abs(value) if kind == "constant" else value
+        return any(
+            math.isclose(magnitude, v, rel_tol=1e-9, abs_tol=0.0) or magnitude == v
+            for v in self.parameters.get(kind, ())
+        )
+
+    def field_name(self, column: str) -> str:
+        """The field reading ``column``, or the column itself when no field reads it."""
+        return self._column_fields.get(column, column)
+
+    def column_dimension(self, column: str) -> tuple | None:
+        """The ``(dollars, shares)`` exponents of the field reading ``column``, or None."""
+        name = self._column_fields.get(column)
+        return None if name is None else self.fields[name].dimension
+
+    @cached_property
+    def reference_hashes(self) -> tuple[dict[str, str], str | None]:
+        """The canonical hashes of the derived fields (hash -> name) and of the bar mask (None without one)."""
+        fields = self._inputs()
+        derived = {
+            canonical_hashes(Graph.record(fields[f.name], self, strict=False))[-1]: f.name
+            for f in self.fields.values() if f.formula is not None
+        }
+        if not self._bar_columns:
+            return derived, None
+        with self._bar_mask(fields):
+            probe = kunquant_nan.SetInfOrNanToValue(fields[self._column_fields[self._bar_columns[0]]])
+        return derived, canonical_hashes(Graph.record(probe.inputs[1], self, strict=False))[-1]
+
+    # What the prompts show.
+
+    def prompt(self) -> dict[str, str]:
+        """The prompt's description of the vocabulary: inputs, operators, parameter values, builtins."""
+        def operator(spec: OpSpec) -> str:
+            return f"- {spec.signature}: {spec.description}" if spec.description else f"- {spec.signature}"
+
+        return {
+            "inputs": ", ".join(self.fields),
+            "operators": "\n".join(operator(spec) for spec in self._operators.values()),
+            "parameters": "\n".join(
+                f"- {kind}: {', '.join(f'{v:g}' for v in values)}" for kind, values in self.parameters.items()
+            ),
+            "builtins": ", ".join(sorted(BUILTINS)),
+        }
+
+    # Internals.
+
+    @cached_property
+    def _column_fields(self) -> dict[str, str]:
+        return {f.column: f.name for f in self.fields.values() if f.column is not None}
+
+    def _inputs(self) -> dict[str, OpBase]:
+        """Fresh input operators by field name: an ``Input`` per column, each derived field built by its formula."""
+        fields: dict[str, OpBase] = {}
+        for f in self.fields.values():
+            fields[f.name] = Input(f.column) if f.column is not None else self._derive(f, fields)
+        return fields
+
+    def _derive(self, f: Field, fields: dict[str, OpBase]) -> OpBase:
+        """Build a derived field over the ``fields`` before it; its formula passed ``_checks.expression_reasons``."""
+        scope = {"__builtins__": {}, **{name: spec.call for name, spec in self._operators.items()}, **fields}
+        return eval(compile(f.formula, f"<field {f.name}>", "eval"), scope)
+
+    def _bar_mask(self, fields: dict):
+        if not self._bar_columns:
+            return contextlib.nullcontext()
+        return kunquant_nan.missing_bars_only([fields[self._column_fields[c]] for c in self._bar_columns])
+
+    def _parameter_reasons(self, graph: Graph) -> list[str]:
+        reasons = []
+        for node in graph.nodes:
+            params = self.spec(node.op).params
+            for key, value in node.attrs:
+                kind = params.get(key)
+                if kind is None:
+                    reasons.append(f"{node.op} has an attribute {key!r} the gate does not know")
+                elif kind != FLAG and not self.allowed(kind, value):
+                    allowed = ", ".join(f"{v:g}" for v in sorted(set(self.parameters[kind])))
+                    reasons.append(f"{node.op}: {kind} {value!r} is not one of the allowed values ({allowed})")
+        return reasons
+
+    def _effective_reasons(self, graph: Graph) -> list[str]:
+        """Refuse values reached by chaining allowed ones, such as ``x * 0.25 * 1.5`` or a lag of 5 plus 10.
+
+        A merged lag is checked against the ``lag`` set and a merged offset
+        or scale against the ``constant`` set, when the operator file has them.
+        """
+        reasons = []
+        for op, kind, value in effective_parameters(graph):
+            checked = "constant" if kind == "scale" else kind
+            if checked not in self.parameters:
+                continue
+            if kind == "scale":
+                ok = value == 0 or self.allowed("constant", value) or self.allowed("constant", 1 / value)
+            else:
+                ok = self.allowed(kind, value) or (kind == "constant" and math.isnan(value))
+            if not ok:
+                reasons.append(
+                    f"the constants combine to {op} {kind} {value:g}, which is not one of the allowed values; "
+                    "use one allowed value instead of chaining several"
+                )
+        return list(dict.fromkeys(reasons))
+
+    # Reading the files.
+
+    def _problem(self, where: str, text: str) -> None:
+        self._problems.append(f"{where}: {text}")
+
+    def _yaml(self, document: dict) -> dict | None:
+        try:
+            value = yaml.safe_load(document["text"])
+        except yaml.YAMLError as exc:
+            self._problem(document["path"], f"not YAML: {exc}")
             return None
-    return None
+        if not isinstance(value, dict):
+            self._problem(document["path"], "must be a mapping")
+            return None
+        return value
+
+    def _unknown_keys(self, where: str, entry: dict, known: set) -> None:
+        unknown = set(entry) - known
+        if unknown:
+            self._problem(where, f"unknown key(s) {sorted(unknown)}")
+
+    def _phrases(self, where: str, raw) -> dict[str, re.Pattern]:
+        phrases = {}
+        for name, pattern in (raw or {}).items():
+            try:
+                phrases[str(name)] = re.compile(str(pattern))
+            except re.error as exc:
+                self._problem(where, f"phrase {name!r} is not a regular expression: {exc}")
+        return phrases
+
+    def _resolve(self, where: str, path, what: str) -> object | None:
+        """Import ``path`` from an allowed module; None, with the problem recorded, if it cannot be."""
+        if not isinstance(path, str) or not path:
+            self._problem(where, f"{what} must be a dotted path, got {path!r}")
+            return None
+        if not any(path.startswith(module + ".") for module in self._modules):
+            self._problem(
+                where, f"{what} {path} is not from KunQuant, quantlab.factor or a module listed in operator_modules"
+            )
+            return None
+        try:
+            return resolve(path)
+        except (ImportError, AttributeError) as exc:
+            self._problem(where, f"{what} {path} cannot be imported: {exc}")
+            return None
+
+    def _name_ok(self, where: str, name) -> bool:
+        if not isinstance(name, str) or not name.isidentifier() or keyword.iskeyword(name):
+            self._problem(where, f"name {name!r} is not a Python identifier")
+            return False
+        if name in BUILTINS or name in _RESERVED:
+            self._problem(where, f"the name {name} is a builtin of candidate code")
+            return False
+        return True
+
+    def _read_operators(self, path: str, document: dict | None) -> None:
+        if document is None:
+            return
+        self._unknown_keys(path, document, _OPERATOR_FILE_KEYS)
+        for kind, values in (document.get("parameters") or {}).items():
+            if not isinstance(values, list) or not all(_number(v) for v in values):
+                self._problem(path, f"parameter set {kind!r} must be a list of numbers")
+            else:
+                self.parameters[str(kind)] = tuple(values)
+        self._operator_phrases = self._phrases(path, document.get("phrases"))
+        for i, entry in enumerate(document.get("operators") or []):
+            self._read_operator(f"{path}: operator {i + 1}", entry)
+        for class_path, reason in (document.get("excluded") or {}).items():
+            where = f"{path}: excluded {class_path}"
+            cls = self._resolve(where, class_path, "class")
+            if cls is None:
+                continue
+            if not _is_operator(cls):
+                self._problem(where, "is not a KunQuant operator class (an OpBase subclass)")
+            elif cls in self.operator_classes:
+                self._problem(where, f"is also registered as {self.operator_classes[cls]}")
+            else:
+                self.excluded[cls] = str(reason)
+
+    def _read_operator(self, where: str, entry) -> None:
+        if not isinstance(entry, dict):
+            self._problem(where, "must be a mapping")
+            return
+        name = entry.get("name")
+        where = f"{where} ({name})"
+        self._unknown_keys(where, entry, _OPERATOR_KEYS)
+        ok = self._name_ok(where, name)
+        if ok and name in self._operators:
+            self._problem(where, f"the name {name} is registered twice")
+            ok = False
+        cls = self._resolve(where, entry.get("class"), "class")
+        if cls is not None and not _is_operator(cls):
+            self._problem(where, f"class {entry['class']} is not a KunQuant operator class (an OpBase subclass)")
+            cls = None
+        call = cls
+        if "call" in entry:
+            call = self._resolve(where, entry["call"], "callable")
+            if call is not None and not callable(call):
+                self._problem(where, f"callable {entry['call']} cannot be called")
+                call = None
+        inputs = tuple(entry.get("inputs", ["series"]))
+        for kind in inputs:
+            if kind not in INPUT_KINDS:
+                self._problem(where, f"input kind {kind!r} is not one of {list(INPUT_KINDS)}")
+        params = dict(entry.get("params") or {})
+        for attribute, kind in params.items():
+            if kind != FLAG and kind not in self.parameters:
+                self._problem(where, f"parameter {attribute!r} names the set {kind!r}, which the file does not define")
+        dimension = entry.get("dimension")
+        if dimension not in _dimension.OPERATOR_RULES:
+            self._problem(where, f"dimension rule {dimension!r} is not one of {list(_dimension.OPERATOR_RULES)}")
+        binding = tuple(entry.get("binding") or ())
+        for phrase in binding:
+            if phrase not in self._operator_phrases:
+                self._problem(where, f"binding phrase {phrase!r} is not under the file's phrases")
+        if ok and cls is not None and call is not None:
+            self._operators[name] = OpSpec(
+                name, cls, entry["class"], call, str(entry.get("signature", name)), inputs, params, dimension,
+                str(entry.get("description", "")), binding,
+            )
+
+    def _read_fields(self, path: str, document: dict | None) -> None:
+        if document is None:
+            return
+        self._unknown_keys(path, document, _FIELD_FILE_KEYS)
+        family = str(document.get("family", Path(path).stem))
+        for name, pattern in self._phrases(path, document.get("phrases")).items():
+            if name in self._field_phrases and self._field_phrases[name].pattern != pattern.pattern:
+                self._problem(path, f"phrase {name!r} is defined differently by another field file")
+            self._field_phrases[name] = pattern
+        mine: list[str] = []
+        declared: list[str] = []  # every name the file gives, so a formula over a refused field adds no problem
+        for i, entry in enumerate(document.get("fields") or []):
+            name = self._read_field(f"{path}: field {i + 1}", family, entry, declared)
+            if name is not None:
+                mine.append(name)
+            if isinstance(entry, dict) and isinstance(entry.get("name"), str):
+                declared.append(entry["name"])
+        if document.get("bar"):
+            self._bar_columns += [self.fields[n].column for n in mine if self.fields[n].column is not None]
+        for i, rule in enumerate(document.get("rules") or []):
+            where = f"{path}: rule {i + 1}"
+            if not isinstance(rule, dict) or set(rule) != {"phrase", "needs"}:
+                self._problem(where, "must be a mapping of phrase and needs")
+                continue
+            if rule["phrase"] not in self._field_phrases:
+                self._problem(where, f"phrase {rule['phrase']!r} is not under the file's phrases")
+            unknown = [f for f in rule["needs"] if f not in mine]
+            if unknown:
+                self._problem(where, f"needs field(s) {unknown} the family does not have")
+            self._rules.append((rule["phrase"], tuple(rule["needs"])))
+
+    def _read_field(self, where: str, family: str, entry, earlier: list[str]) -> str | None:
+        if not isinstance(entry, dict):
+            self._problem(where, "must be a mapping")
+            return None
+        name = entry.get("name")
+        where = f"{where} ({name})"
+        self._unknown_keys(where, entry, _FIELD_KEYS)
+        ok = self._name_ok(where, name)
+        if ok and name in self._operators:
+            self._problem(where, f"the name {name} is also an operator")
+            ok = False
+        if ok and name in self.fields:
+            self._problem(where, f"the name {name} is also a field of {self.fields[name].family}")
+            ok = False
+        column, formula, dimension = entry.get("column"), entry.get("formula"), None
+        if (column is None) == (formula is None):
+            self._problem(where, "needs exactly one of column and formula")
+            ok = False
+        elif column is not None:
+            reader = next((f for f in self.fields.values() if f.column == column), None)
+            if reader is not None:
+                self._problem(where, f"column {column!r} is also read by field {reader.name}")
+                ok = False
+            dimension = _unit(entry.get("unit"))
+            if dimension is None:  # still a field, so formulas over it report nothing more
+                self._problem(where, f"unit {entry.get('unit')!r} is not a product of powers of dollars and shares")
+        else:
+            if "unit" in entry:
+                self._problem(where, "a derived field's unit follows from its formula; give none")
+            for reason in _checks.expression_reasons(str(formula), frozenset(earlier) | frozenset(self._operators)):
+                self._problem(where, f"formula {formula!r}: {reason}")
+                ok = False
+        for phrase in entry.get("synonyms") or ():
+            if phrase not in self._field_phrases:
+                self._problem(where, f"synonym {phrase!r} is not under the file's phrases")
+            elif ok:
+                self._synonyms.setdefault(phrase, []).append(name)
+        if not ok:
+            return None
+        self.fields[name] = Field(name, family, column, formula, dimension, str(entry.get("description", "")))
+        return name
+
+    def _build_derived(self) -> None:
+        """Build every derived field once, so a formula that cannot be built is a start-up error."""
+        fields: dict[str, OpBase] = {}
+        for f in self.fields.values():
+            if f.column is not None:
+                fields[f.name] = Input(f.column)
+                continue
+            where = f"field {f.name} ({f.family})"
+            try:
+                fields[f.name] = self._derive(f, fields)
+            except Exception as exc:  # the formula's own error, reported with its field
+                self._problem(where, f"formula {f.formula!r} cannot be built: {type(exc).__name__}: {exc}")
+                return
+            if not isinstance(fields[f.name], OpBase):
+                self._problem(where, f"formula {f.formula!r} is not an operator")
+                return
 
 
-def inputs() -> dict:
-    """Return fresh input operators by candidate name: the five columns, ``vwap`` and ``amount``."""
-    columns = {name: Input(column) for name, column in INPUT_COLUMNS.items()}
-    vwap = (columns["high"] + columns["low"] + columns["close"]) / 3.0
-    return {**columns, "vwap": vwap, "amount": vwap * columns["volume"]}
+def resolve(path: str) -> object:
+    """Import the object at ``path``: the longest importable module prefix, then attributes.
+
+    Raises
+    ------
+    ImportError, AttributeError
+        If no prefix imports or an attribute is missing.
+    """
+    parts = path.split(".")
+    for cut in range(len(parts) - 1, 0, -1):
+        try:
+            value = importlib.import_module(".".join(parts[:cut]))
+        except ModuleNotFoundError:
+            continue
+        for attribute in parts[cut:]:
+            value = getattr(value, attribute)
+        return value
+    raise ImportError(f"no module of {path} can be imported")
 
 
-def bar_mask_inputs(fields: dict) -> list:
-    """Return the inputs whose missing values make a bar missing, for ``missing_bars_only``."""
-    return [fields[name] for name in INPUT_COLUMNS]
+def resolve_classes(paths: Mapping[str, str]) -> dict[str, type]:
+    """The operator class at each path, by name, as ``Vocabulary.class_paths`` gave them.
+
+    Raises
+    ------
+    TypeError
+        If a path is not a KunQuant operator class.
+    """
+    classes = {name: resolve(path) for name, path in paths.items()}
+    wrong = [paths[name] for name, cls in classes.items() if not _is_operator(cls)]
+    if wrong:
+        raise TypeError(f"not KunQuant operator classes: {wrong}")
+    return classes
 
 
-def namespace(fields: dict) -> dict:
-    """Return fresh globals for one execution of candidate code over the input operators ``fields``."""
-    return {"__builtins__": dict(BUILTINS), **CALLABLE, "Builder": Builder, **fields}
+def _unit(text) -> tuple | None:
+    """The ``(dollars, shares)`` exponents of a unit such as ``dollars/shares`` or ``1``; None if malformed."""
+    if text == 1:
+        text = "1"
+    if not isinstance(text, str):
+        return None
+    exponents = [Fraction(0), Fraction(0)]
+    sign = 1
+    for i, token in enumerate(re.split(r"\s*([*/])\s*", text.strip())):
+        if i % 2:
+            sign = -1 if token == "/" else 1
+            continue
+        match = _UNIT_FACTOR.fullmatch(token)
+        if match is None:
+            return None
+        if match.group(1) != "1":
+            exponents[_UNIT_BASES.index(match.group(1))] += sign * int(match.group(2) or 1)
+    return tuple(exponents)
 
 
-def describe() -> dict[str, str]:
-    """Return the prompt's description of the vocabulary: inputs, operators, windows, constants, builtins."""
-    return {
-        "inputs": ", ".join([*INPUT_COLUMNS, *DERIVED_INPUTS]),
-        "operators": "\n".join(f"- {spec.signature}" for spec in OPERATORS.values() if spec.callable),
-        "parameters": "\n".join(
-            f"- {kind}: {', '.join(str(v) for v in values)}" for kind, values in PARAMETER_VALUES.items()
-        ),
-        "builtins": ", ".join(sorted(BUILTINS)),
-    }
+def _is_operator(cls) -> bool:
+    return isinstance(cls, type) and issubclass(cls, OpBase)
+
+
+def _declared(klass: type) -> bool:
+    """Whether ``klass`` is its module's attribute of its name: declared, not made at run time."""
+    try:
+        module = importlib.import_module(klass.__module__)
+    except ImportError:
+        return False
+    return getattr(module, klass.__name__, None) is klass
+
+
+def _number(value) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool)

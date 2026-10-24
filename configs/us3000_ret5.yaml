@@ -102,6 +102,11 @@ scoring:
     - /data/quantlab/market/sharadar/sharadar_industry_1d
     size_column: marketcap
     industry_column: industry
+
+# What candidates may write with (paths relative to this file).
+fields: [fields/sharadar_price_volume.yaml]
+operators: operators/kunquant_example.yaml
+
 reference:
   # alpha101_neutral: 70
   - store: /data/quantlab/factors/market/alpha101_neutral

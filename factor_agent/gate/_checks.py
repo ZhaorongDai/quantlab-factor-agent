@@ -7,8 +7,6 @@ names and constants. Anything else, attribute access included, is refused.
 
 import ast
 
-from factor_agent.gate.vocabulary import ALLOWED_NAMES
-
 #: The syntax candidate code may use.
 _ALLOWED_NODES = (
     ast.Module, ast.Expr, ast.Assign, ast.AugAssign, ast.Name, ast.Load, ast.Store,
@@ -27,15 +25,32 @@ _REASONS = {
 }
 
 
-def static_reasons(code: str) -> list[str]:
-    """Return why ``code`` is refused before it runs; empty when it may run."""
+def static_reasons(code: str, names: frozenset[str]) -> list[str]:
+    """Return why ``code`` is refused before it runs; empty when it may run.
+
+    ``names`` are the names the code may read without binding them (the vocabulary's).
+    """
     try:
         tree = ast.parse(code, mode="exec")
     except SyntaxError as exc:
         return [f"syntax error at line {exc.lineno}: {exc.msg}"]
+    reasons = _reasons(tree, names, _bound_names(tree))
+    if "alpha" not in _bound_names(tree):
+        reasons.append("the code never assigns alpha; it must end by assigning the factor to alpha")
+    return list(dict.fromkeys(reasons))
 
+
+def expression_reasons(expression: str, names: frozenset[str]) -> list[str]:
+    """Return why ``expression`` (a derived field's formula) is refused: one expression over ``names`` only."""
+    try:
+        tree = ast.parse(expression, mode="eval")
+    except SyntaxError as exc:
+        return [f"syntax error: {exc.msg}; a formula is one expression"]
+    return list(dict.fromkeys(_reasons(tree, names, set())))
+
+
+def _reasons(tree: ast.AST, names: frozenset[str], bound: set[str]) -> list[str]:
     reasons: list[str] = []
-    bound = _bound_names(tree)
     for node in ast.walk(tree):
         line = getattr(node, "lineno", None)
         where = f"line {line}: " if line else ""
@@ -43,18 +58,16 @@ def static_reasons(code: str) -> list[str]:
             reasons.append(where + _REASONS[type(node)])
         elif isinstance(node, ast.Attribute):
             reasons.append(f"{where}attribute access (.{node.attr}) is not allowed")
-        elif not isinstance(node, _ALLOWED_NODES):
+        elif not isinstance(node, _ALLOWED_NODES + (ast.Expression,)):
             reasons.append(f"{where}{type(node).__name__} is not allowed in candidate code")
         elif (
             isinstance(node, ast.Name)
             and isinstance(node.ctx, ast.Load)
-            and node.id not in ALLOWED_NAMES
+            and node.id not in names
             and node.id not in bound
         ):
             reasons.append(f"{where}name {node.id} is not in the operator whitelist")
-    if "alpha" not in bound:
-        reasons.append("the code never assigns alpha; it must end by assigning the factor to alpha")
-    return list(dict.fromkeys(reasons))
+    return reasons
 
 
 def _bound_names(tree: ast.AST) -> set[str]:

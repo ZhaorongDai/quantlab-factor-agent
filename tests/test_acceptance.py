@@ -32,6 +32,7 @@ from factor_agent.gate.graph import Graph
 from factor_agent.segments import HoldoutLocked
 from tests import synthetic_market
 from tests.campaign_runner import candidate, run, write_config
+from tests.vocabulary_files import price_volume
 from tests.fake_llm import FakeLLM
 
 SEGMENTS = {
@@ -156,7 +157,7 @@ class _Evaluated(FactorKunQuant):
         return ("evaluated",)
 
     def _get_factor_func(self) -> Function:
-        output, ops = Graph.from_json(self.graph).build({})
+        output, ops = Graph.from_json(self.graph, price_volume().classes).build({})
         ranked = Rank(output)
         return Function([*ops, ranked, Output(ranked, "evaluated")])
 

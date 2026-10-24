@@ -1,0 +1,583 @@
+# The example operator file: the KunQuant operators candidates may call, the values their parameters
+# may take and the phrases that bind a hypothesis to them.
+#
+# Each operator:
+#   name         what candidate code calls, and what a graph records the operator as
+#   class        the KunQuant operator class (an OpBase subclass) a graph holds
+#   call         what candidate code calls under the name, when it is not the class itself:
+#                quantlab's NaN-preserving stand-ins keep a bar with no data NaN
+#   signature    how the prompt shows the call
+#   inputs       the kind of each series argument: series (default: one), condition (a comparison)
+#                or loop (a ForeachBackWindow)
+#   params       each attribute of the operator and the parameter set its value must be in
+#                (flag: bookkeeping, never checked)
+#   dimension    the rule the output's dimension follows: input, constant, same, first, second,
+#                pure, match, product, quotient, scale, square, sqrt, transcendental,
+#                repeated_product, power, select, compare, compare_constant, logic, loop
+#   description  one line in the prompt
+#   binding      the phrases under `phrases` the operator satisfies: a hypothesis that names one
+#                needs a graph holding one of its operators
+#
+# A class and a call come from KunQuant, quantlab.factor, or a module the campaign config lists in
+# operator_modules. `excluded` names every other public KunQuant and quantlab operator class with
+# why it is left out; a guard test keeps this file complete. A user's own operator file needs no
+# such section.
+
+# Window lengths, in bars, a time-series operator or loop may use, and the other value sets; a
+# constant may also be negative or "nan".
+parameters:
+  window: [5, 10, 20, 40, 60, 120, 250]
+  lag: [1, 5, 10, 20, 40, 60, 120, 250]
+  half_life: [5, 10, 20, 40, 60, 120, 250]
+  quantile: [0.1, 0.25, 0.5, 0.75, 0.9]
+  lower: [0.01, 0.025, 0.05, 0.1]
+  upper: [0.9, 0.95, 0.975, 0.99]
+  months: [3, 6, 12]
+  month_length: [21]
+  constant: [0, 1.0e-12, 0.01, 0.05, 0.1, 0.25, 0.5, 1, 1.5, 2, 3, 4, 5, 10, 20, 40, 60, 100, 120, 250]
+
+# Phrases of a hypothesis (regular expressions over its lower-cased text) and the name a refusal
+# gives them.
+phrases:
+  volatility: '\bvolatilit(?:y|ies)\b|\bstandard deviations?\b|\bvariances?\b'
+  correlation: '\bcorrelat(?:ion|ions|ed)\b'
+  covariance: '\bcovariances?\b'
+  beta: '\bbetas?\b'
+  regression: '\bregressions?\b|\bresiduals?\b'
+  skewness: '\bskew(?:ness)?\b'
+  kurtosis: '\bkurtosis\b'
+  drawdown: '\bdrawdowns?\b'
+  moving average: '\bmoving averages?\b'
+  exponential weighting: '\bexponential(?:ly)?\b'
+
+operators:
+  - name: Add
+    class: KunQuant.ops.Add
+    signature: "Add(x, y)"
+    inputs: [series, series]
+    dimension: match
+    description: "sum; also written x + y"
+  - name: Sub
+    class: KunQuant.ops.Sub
+    signature: "Sub(x, y)"
+    inputs: [series, series]
+    dimension: match
+    description: "difference; also written x - y"
+  - name: Mul
+    class: KunQuant.ops.Mul
+    signature: "Mul(x, y)"
+    inputs: [series, series]
+    dimension: product
+    description: "product; also written x * y"
+  - name: Div
+    class: KunQuant.ops.Div
+    signature: "Div(x, y)"
+    inputs: [series, series]
+    dimension: quotient
+    description: "quotient; also written x / y"
+  - name: AddConst
+    class: KunQuant.ops.AddConst
+    signature: "AddConst(x, c)"
+    params: {value: constant, swap: flag}
+    dimension: same
+    description: "x plus c; also written x + c"
+  - name: SubConst
+    class: KunQuant.ops.SubConst
+    signature: "SubConst(x, c)"
+    params: {value: constant, swap: flag}
+    dimension: same
+    description: "x minus c; also written x - c"
+  - name: MulConst
+    class: KunQuant.ops.MulConst
+    signature: "MulConst(x, c)"
+    params: {value: constant, swap: flag}
+    dimension: scale
+    description: "x times c; also written x * c"
+  - name: DivConst
+    class: KunQuant.ops.DivConst
+    signature: "DivConst(x, c)"
+    params: {value: constant, swap: flag}
+    dimension: scale
+    description: "x divided by c; also written x / c"
+  - name: ConstantOp
+    class: KunQuant.Op.ConstantOp
+    signature: "ConstantOp(c)"
+    inputs: []
+    params: {value: constant}
+    dimension: constant
+    description: the constant c as a series
+  - name: Abs
+    class: KunQuant.ops.Abs
+    signature: "Abs(x)"
+    dimension: same
+    description: absolute value
+  - name: Sign
+    class: KunQuant.ops.Sign
+    signature: "Sign(x)"
+    dimension: pure
+    description: -1, 0 or 1 by the sign of x
+  - name: Exp
+    class: KunQuant.ops.Exp
+    signature: "Exp(x)"
+    dimension: transcendental
+    description: exponential
+  - name: Log
+    class: KunQuant.ops.Log
+    signature: "Log(x)"
+    dimension: transcendental
+    description: natural logarithm
+  - name: Sqrt
+    class: KunQuant.ops.Sqrt
+    signature: "Sqrt(x)"
+    dimension: sqrt
+    description: square root
+  - name: Pow
+    class: KunQuant.ops.Pow
+    signature: "Pow(x, y)"
+    inputs: [series, series]
+    dimension: power
+    description: x to the power y
+  - name: Max
+    class: KunQuant.ops.Max
+    call: quantlab.factor.kunquant_nan.Max
+    signature: "Max(x, y)"
+    inputs: [series, series]
+    dimension: match
+    description: elementwise maximum of x and y
+  - name: Min
+    class: KunQuant.ops.Min
+    call: quantlab.factor.kunquant_nan.Min
+    signature: "Min(x, y)"
+    inputs: [series, series]
+    dimension: match
+    description: elementwise minimum of x and y
+  - name: Clip
+    class: KunQuant.ops.Clip
+    call: quantlab.factor.kunquant_nan.Clip
+    signature: "Clip(x, c)"
+    params: {value: constant}
+    dimension: same
+    description: x clipped to [-c, c]
+  - name: SetInfOrNanToValue
+    class: KunQuant.ops.SetInfOrNanToValue
+    call: quantlab.factor.kunquant_nan.SetInfOrNanToValue
+    signature: "SetInfOrNanToValue(x, c=0.0)"
+    params: {value: constant}
+    dimension: same
+    description: x with NaN and infinity set to c where the bar has data
+  - name: Select
+    class: KunQuant.ops.Select
+    call: quantlab.factor.kunquant_nan.Select
+    signature: "Select(condition, x, y)"
+    inputs: [condition, series, series]
+    dimension: select
+    description: x where the condition holds, else y
+  - name: GreaterThan
+    class: KunQuant.ops.GreaterThan
+    signature: "GreaterThan(x, y)"
+    inputs: [series, series]
+    dimension: compare
+    description: "true where x is above y; also written x > y"
+  - name: GreaterEqual
+    class: KunQuant.ops.GreaterEqual
+    signature: "GreaterEqual(x, y)"
+    inputs: [series, series]
+    dimension: compare
+    description: "true where x is at least y; also written x >= y"
+  - name: LessThan
+    class: KunQuant.ops.LessThan
+    signature: "LessThan(x, y)"
+    inputs: [series, series]
+    dimension: compare
+    description: "true where x is below y; also written x < y"
+  - name: LessEqual
+    class: KunQuant.ops.LessEqual
+    signature: "LessEqual(x, y)"
+    inputs: [series, series]
+    dimension: compare
+    description: "true where x is at most y; also written x <= y"
+  - name: Equals
+    class: KunQuant.ops.Equals
+    signature: "Equals(x, y)"
+    inputs: [series, series]
+    dimension: compare
+    description: true where x equals y
+  - name: GreaterThanConst
+    class: KunQuant.ops.GreaterThanConst
+    signature: "GreaterThanConst(x, c)"
+    params: {value: constant, swap: flag}
+    dimension: compare_constant
+    description: "true where x is above c"
+  - name: LessThanConst
+    class: KunQuant.ops.LessThanConst
+    signature: "LessThanConst(x, c)"
+    params: {value: constant, swap: flag}
+    dimension: compare_constant
+    description: "true where x is below c"
+  - name: And
+    class: KunQuant.ops.And
+    signature: "And(a, b)"
+    inputs: [condition, condition]
+    dimension: logic
+    description: both conditions hold
+  - name: Or
+    class: KunQuant.ops.Or
+    signature: "Or(a, b)"
+    inputs: [condition, condition]
+    dimension: logic
+    description: either condition holds
+  - name: Not
+    class: KunQuant.ops.Not
+    signature: "Not(a)"
+    inputs: [condition]
+    dimension: logic
+    description: the condition does not hold
+  - name: BackRef
+    class: KunQuant.ops.BackRef
+    signature: "BackRef(x, lag)"
+    params: {window: lag}
+    dimension: same
+    description: x lag bars ago
+  - name: WindowedAvg
+    class: KunQuant.ops.WindowedAvg
+    signature: "WindowedAvg(x, window)"
+    params: {window: window}
+    dimension: same
+    description: mean of x over the last window bars
+    binding: [moving average]
+  - name: WindowedSum
+    class: KunQuant.ops.WindowedSum
+    signature: "WindowedSum(x, window)"
+    params: {window: window}
+    dimension: same
+    description: sum of x over the last window bars
+    binding: [moving average]
+  - name: WindowedStddev
+    class: KunQuant.ops.WindowedStddev
+    signature: "WindowedStddev(x, window)"
+    params: {window: window}
+    dimension: same
+    description: standard deviation of x over the last window bars
+    binding: [volatility]
+  - name: WindowedVar
+    class: KunQuant.ops.WindowedVar
+    signature: "WindowedVar(x, window)"
+    params: {window: window}
+    dimension: square
+    description: variance of x over the last window bars
+    binding: [volatility]
+  - name: WindowedMax
+    class: KunQuant.ops.WindowedMax
+    signature: "WindowedMax(x, window)"
+    params: {window: window}
+    dimension: same
+    description: maximum of x over the last window bars
+    binding: [drawdown]
+  - name: WindowedMin
+    class: KunQuant.ops.WindowedMin
+    signature: "WindowedMin(x, window)"
+    params: {window: window}
+    dimension: same
+    description: minimum of x over the last window bars
+  - name: WindowedCorrelation
+    class: KunQuant.ops.WindowedCorrelation
+    signature: "WindowedCorrelation(x, window, y)"
+    inputs: [series, series]
+    params: {window: window}
+    dimension: pure
+    description: correlation of x and y over the last window bars
+    binding: [correlation]
+  - name: WindowedCovariance
+    class: KunQuant.ops.WindowedCovariance
+    signature: "WindowedCovariance(x, window, y)"
+    inputs: [series, series]
+    params: {window: window}
+    dimension: product
+    description: covariance of x and y over the last window bars
+    binding: [covariance, beta]
+  - name: WindowedSkew
+    class: KunQuant.ops.WindowedSkew
+    signature: "WindowedSkew(x, window)"
+    params: {window: window}
+    dimension: pure
+    description: skewness of x over the last window bars
+    binding: [skewness]
+  - name: WindowedKurt
+    class: KunQuant.ops.WindowedKurt
+    signature: "WindowedKurt(x, window)"
+    params: {window: window}
+    dimension: pure
+    description: kurtosis of x over the last window bars
+    binding: [kurtosis]
+  - name: WindowedQuantile
+    class: KunQuant.ops.WindowedQuantile
+    signature: "WindowedQuantile(x, window, q)"
+    params: {window: window, q: quantile}
+    dimension: same
+    description: the q quantile of x over the last window bars
+  - name: WindowedProduct
+    class: KunQuant.ops.WindowedProduct
+    signature: "WindowedProduct(x, window)"
+    params: {window: window}
+    dimension: repeated_product
+    description: product of x over the last window bars
+  - name: WindowedMaxDrawdown
+    class: KunQuant.ops.WindowedMaxDrawdown
+    signature: "WindowedMaxDrawdown(x, window)"
+    params: {window: window}
+    dimension: pure
+    description: largest fall of x from a running peak over the last window bars
+    binding: [drawdown]
+  - name: WindowedLinearRegressionSlope
+    class: KunQuant.ops.WindowedLinearRegressionSlope
+    signature: "WindowedLinearRegressionSlope(x, window)"
+    params: {window: window}
+    dimension: same
+    description: slope of x regressed on time over the last window bars
+    binding: [beta, regression]
+  - name: WindowedLinearRegressionRSqaure
+    class: KunQuant.ops.WindowedLinearRegressionRSqaure
+    signature: "WindowedLinearRegressionRSqaure(x, window)"
+    params: {window: window}
+    dimension: pure
+    description: R squared of x regressed on time over the last window bars
+    binding: [regression]
+  - name: WindowedLinearRegressionResi
+    class: KunQuant.ops.WindowedLinearRegressionResi
+    signature: "WindowedLinearRegressionResi(x, window)"
+    params: {window: window}
+    dimension: same
+    description: last residual of x regressed on time over the last window bars
+    binding: [regression]
+  - name: TsRank
+    class: KunQuant.ops.TsRank
+    signature: "TsRank(x, window)"
+    params: {window: window}
+    dimension: pure
+    description: rank of the latest x among the last window bars
+  - name: TsArgMax
+    class: KunQuant.ops.TsArgMax
+    signature: "TsArgMax(x, window)"
+    params: {window: window}
+    dimension: pure
+    description: bars since the maximum of x in the last window bars
+  - name: TsArgMin
+    class: KunQuant.ops.TsArgMin
+    signature: "TsArgMin(x, window)"
+    params: {window: window}
+    dimension: pure
+    description: bars since the minimum of x in the last window bars
+  - name: DecayLinear
+    class: KunQuant.ops.DecayLinear
+    signature: "DecayLinear(x, window)"
+    params: {window: window}
+    dimension: same
+    description: linearly decaying weighted mean of x over the last window bars
+    binding: [moving average]
+  - name: ExpMovingAvg
+    class: KunQuant.ops.ExpMovingAvg
+    signature: "ExpMovingAvg(x, window)"
+    params: {window: window}
+    dimension: same
+    description: exponential moving average of x with span window
+    binding: [moving average, exponential weighting]
+  - name: WindowedZScore
+    class: quantlab.factor.kunquant_ts.WindowedZScore
+    signature: "WindowedZScore(x, window)"
+    params: {window: window}
+    dimension: pure
+    description: (x - its mean) / its standard deviation over the last window bars
+    binding: [volatility]
+  - name: EWSum
+    class: quantlab.factor.kunquant_ts.EWSum
+    signature: "EWSum(x, window, half_life)"
+    params: {window: window, half_life: half_life}
+    dimension: same
+    description: exponentially weighted sum of x over window bars with the given half-life
+    binding: [moving average, exponential weighting]
+  - name: EWMean
+    class: quantlab.factor.kunquant_ts.EWMean
+    signature: "EWMean(x, window, half_life)"
+    params: {window: window, half_life: half_life}
+    dimension: same
+    description: exponentially weighted mean of x over window bars with the given half-life
+    binding: [moving average, exponential weighting]
+  - name: EWVar
+    class: quantlab.factor.kunquant_ts.EWVar
+    signature: "EWVar(x, window, half_life)"
+    params: {window: window, half_life: half_life}
+    dimension: square
+    description: exponentially weighted variance of x over window bars with the given half-life
+    binding: [volatility, moving average, exponential weighting]
+  - name: EWCov
+    class: quantlab.factor.kunquant_ts.EWCov
+    signature: "EWCov(y, x, window, half_life)"
+    inputs: [series, series]
+    params: {window: window, half_life: half_life}
+    dimension: product
+    description: exponentially weighted covariance of y and x
+    binding: [covariance, beta, moving average, exponential weighting]
+  - name: EWBeta
+    class: quantlab.factor.kunquant_ts.EWBeta
+    signature: "EWBeta(y, x, window, half_life)"
+    inputs: [series, series]
+    params: {window: window, half_life: half_life}
+    dimension: quotient
+    description: exponentially weighted regression slope of y on x
+    binding: [beta, regression, moving average, exponential weighting]
+  - name: EWAlpha
+    class: quantlab.factor.kunquant_ts.EWAlpha
+    signature: "EWAlpha(y, x, window, half_life)"
+    inputs: [series, series]
+    params: {window: window, half_life: half_life}
+    dimension: first
+    description: exponentially weighted regression intercept of y on x
+    binding: [regression, moving average, exponential weighting]
+  - name: EWResidualStd
+    class: quantlab.factor.kunquant_ts.EWResidualStd
+    signature: "EWResidualStd(y, x, window, half_life)"
+    inputs: [series, series]
+    params: {window: window, half_life: half_life}
+    dimension: first
+    description: standard deviation of the residual of the exponentially weighted regression of y on x
+    binding: [volatility, regression, moving average, exponential weighting]
+  - name: CMRA
+    class: quantlab.factor.kunquant_ts.CMRA
+    signature: "CMRA(x, months=12, month_length=21)"
+    params: {months: months, month_length: month_length}
+    dimension: same
+    description: cumulative range of monthly log returns of x (Barra CMRA)
+  - name: ForeachBackWindow
+    class: KunQuant.Op.ForeachBackWindow
+    signature: "ForeachBackWindow(x, window, *more_series)"
+    params: {window: window}
+    dimension: loop
+    description: a loop over the last window bars of x (and more series); read it inside `with Builder(loop):`
+  - name: IterValue
+    class: KunQuant.Op.IterValue
+    signature: "IterValue(loop, x)"
+    inputs: [loop, series]
+    dimension: second
+    description: the value of x at the loop's current bar, inside `with Builder(loop):`
+  - name: WindowLoopIndex
+    class: KunQuant.Op.WindowLoopIndex
+    signature: "WindowLoopIndex(loop)"
+    inputs: [loop]
+    dimension: pure
+    description: the loop's current position, inside `with Builder(loop):`
+  - name: ReduceAdd
+    class: KunQuant.ops.ReduceAdd
+    signature: "ReduceAdd(item)"
+    dimension: same
+    description: sum of a loop item over the loop's window
+    binding: [moving average]
+  - name: ReduceMul
+    class: KunQuant.ops.ReduceMul
+    signature: "ReduceMul(item)"
+    dimension: repeated_product
+    description: product of a loop item over the loop's window
+  - name: ReduceMax
+    class: KunQuant.ops.ReduceMax
+    signature: "ReduceMax(item)"
+    dimension: same
+    description: maximum of a loop item over the loop's window
+    binding: [drawdown]
+  - name: ReduceMin
+    class: KunQuant.ops.ReduceMin
+    signature: "ReduceMin(item)"
+    dimension: same
+    description: minimum of a loop item over the loop's window
+  - name: ReduceArgMax
+    class: KunQuant.ops.ReduceArgMax
+    signature: "ReduceArgMax(item)"
+    dimension: pure
+    description: position of the maximum of a loop item
+  - name: ReduceArgMin
+    class: KunQuant.ops.ReduceArgMin
+    signature: "ReduceArgMin(item)"
+    dimension: pure
+    description: position of the minimum of a loop item
+  - name: ReduceRank
+    class: KunQuant.ops.ReduceRank
+    signature: "ReduceRank(item)"
+    dimension: pure
+    description: rank of the latest loop item among the window
+  - name: ReduceDecayLinear
+    class: KunQuant.ops.ReduceDecayLinear
+    signature: "ReduceDecayLinear(item)"
+    dimension: same
+    description: linearly decaying weighted mean of a loop item
+    binding: [moving average]
+  - name: Rank
+    class: KunQuant.Op.Rank
+    signature: "Rank(x)"
+    dimension: pure
+    description: rank of x across the whole market each day, in [0, 1]
+  - name: Scale
+    class: KunQuant.Op.Scale
+    signature: "Scale(x)"
+    dimension: pure
+    description: x divided by the sum of its absolute values across the market
+  - name: CrossSectionalZScore
+    class: quantlab.factor.kunquant_cs.CrossSectionalZScore
+    signature: "CrossSectionalZScore(x)"
+    dimension: pure
+    description: z-score of x across the whole market each day
+  - name: CrossSectionalWinsorize
+    class: quantlab.factor.kunquant_cs.CrossSectionalWinsorize
+    signature: "CrossSectionalWinsorize(x, lower=0.01, upper=0.99)"
+    params: {lower: lower, upper: upper}
+    dimension: same
+    description: x clipped to its lower and upper quantiles across the market
+  - name: CrossSectionalTrim
+    class: quantlab.factor.kunquant_cs.CrossSectionalTrim
+    signature: "CrossSectionalTrim(x, lower=0.01, upper=0.99)"
+    params: {lower: lower, upper: upper}
+    dimension: same
+    description: x set to NaN outside its lower and upper quantiles across the market
+
+excluded:
+  KunQuant.Op.UnaryElementwiseOp: an abstract base class, never in a graph
+  KunQuant.Op.BinaryElementwiseOp: an abstract base class, never in a graph
+  KunQuant.ops.BinaryConstOp: an abstract base class, never in a graph
+  KunQuant.ops.CmpOp: an abstract base class, never in a graph
+  KunQuant.Op.CompositiveOp: an abstract base class, never in a graph
+  KunQuant.ops.WindowedCompositiveOp: an abstract base class, never in a graph
+  KunQuant.ops.WindowedReduce: an abstract base class, never in a graph
+  KunQuant.ops.WindowedLinearRegressionBase: an abstract base class, never in a graph
+  KunQuant.Op.CrossSectionalOp: an abstract base class, never in a graph
+  KunQuant.Op.SimpleCrossSectionalOp: an abstract base class, never in a graph
+  KunQuant.ops.GenericCrossSectionalOp: an abstract base class, never in a graph
+  KunQuant.Op.ReductionOp: an abstract base class, never in a graph
+  KunQuant.Op.WindowedDataSourceOp: an abstract base class, never in a graph
+  KunQuant.ops.WindowedLinearRegressionImplUnaryBase: an abstract base class, never in a graph
+  KunQuant.ops.WindowedLinearRegressionImplBinaryBase: an abstract base class, never in a graph
+  KunQuant.Op.Output: the graph's sink, added by the Gate and the Evaluator
+  KunQuant.Op.WindowedTempOutput: a KunQuant internal made by its lowering passes
+  KunQuant.ops.WindowedLinearRegressionRSqaureImpl: a KunQuant internal made by its lowering passes
+  KunQuant.ops.WindowedLinearRegressionSlopeImpl: a KunQuant internal made by its lowering passes
+  KunQuant.ops.WindowedLinearRegressionResiImpl: a KunQuant internal made by its lowering passes
+  KunQuant.ops.WindowedLinearRegression: a KunQuant internal made by its lowering passes
+  KunQuant.ops.SkipListState: a KunQuant internal made by its lowering passes
+  KunQuant.ops.SkipListMin: a KunQuant internal made by its lowering passes
+  KunQuant.ops.SkipListMax: a KunQuant internal made by its lowering passes
+  KunQuant.ops.SkipListRank: a KunQuant internal made by its lowering passes
+  KunQuant.ops.SkipListQuantile: a KunQuant internal made by its lowering passes
+  KunQuant.ops.SkipListArgMin: a KunQuant internal made by its lowering passes
+  KunQuant.ops.FastWindowedSum: a KunQuant internal made by its lowering passes
+  KunQuant.ops.Accumulator: a KunQuant internal made by its lowering passes
+  KunQuant.ops.SetAccumulator: a KunQuant internal made by its lowering passes
+  KunQuant.ops.ReturnFirstValue: a KunQuant internal made by its lowering passes
+  KunQuant.ops.GenericPartition: a KunQuant internal made by its lowering passes
+  KunQuant.ops.DiffWithWeightedSum: needs inputs beyond price and volume; the Evaluator applies it
+  quantlab.factor.kunquant_cs.CrossSectionalWeightedMean: needs inputs beyond price and volume; the Evaluator applies it
+  quantlab.factor.kunquant_cs.CapWeightedStandardize: needs inputs beyond price and volume; the Evaluator applies it
+  quantlab.factor.kunquant_cs.CrossSectionalSigmaClip: needs inputs beyond price and volume; the Evaluator applies it
+  quantlab.factor.kunquant_cs.CrossSectionalWLSResidual: needs inputs beyond price and volume; the Evaluator applies it
+  quantlab.factor.kunquant_cs.CrossSectionalIndustrySizeFill: needs inputs beyond price and volume; the Evaluator applies it
+  quantlab.factor.kunquant_cs.CrossSectionalNeutralize: needs inputs beyond price and volume; the Evaluator applies it
+  quantlab.factor.kunquant_cs.RenormalizedCombine: combines several factors with weights, which stacks signals
+  quantlab.factor.kunquant_cs.CrossSectionalTopN: selects a portfolio, not a factor value
+  KunQuant.predefined.talib.TRANGE: a KunQuant predefined composite; candidates write the formula themselves
+  KunQuant.predefined.talib.ATR: a KunQuant predefined composite; candidates write the formula themselves
+  KunQuant.predefined.talib.SAR: a KunQuant predefined composite; candidates write the formula themselves

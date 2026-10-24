@@ -8,6 +8,11 @@ some of its outputs. ``reference`` lists the reference set: the factors
 candidates must be original against (the ``Zoo``) and, in admission,
 uncorrelated with and incremental to; a factor's ``factor_names`` selects
 its columns.
+
+``fields`` (field files, one per input family) and ``operators`` (the
+operator file) make the ``Vocabulary`` candidates write with; the
+framework has none of its own. ``operator_modules`` lists the modules,
+besides KunQuant and ``quantlab.factor``, an operator may come from.
 """
 
 import dataclasses
@@ -21,6 +26,7 @@ from quantlab.core.component import rebuild
 from quantlab.core.store_folder import load_component
 
 from factor_agent.candidate import MECHANISM_TYPES
+from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.segments import PURGE_BARS, Segment, Segments
 
 
@@ -271,6 +277,12 @@ class CampaignConfig:
     data: DataConfig
     scoring: ScoringConfig
     roles: dict
+    #: The field files, one per input family candidates may read; see ``Vocabulary``.
+    fields: tuple
+    #: The operator file: the operators candidates may call and their parameter values.
+    operators: str
+    #: Modules besides KunQuant and ``quantlab.factor`` an operator's class or callable may come from.
+    operator_modules: tuple = ()
     #: The reference factors, as components; see the module docstring.
     reference: tuple = ()
     directions: tuple = ()
@@ -285,9 +297,19 @@ class CampaignConfig:
         """The segment the campaign evaluates."""
         return self.segments.training
 
+    def vocabulary(self, columns=None) -> Vocabulary:
+        """The Vocabulary of the field and operator files; ``columns``, given, are the price dataset's.
+
+        Raises
+        ------
+        VocabularyError
+            With every problem of the files, a field column missing from ``columns`` included.
+        """
+        return Vocabulary.load(self.fields, self.operators, self.operator_modules, columns)
+
     @classmethod
     def from_file(cls, path: str | Path) -> "CampaignConfig":
-        """Read a campaign config from YAML.
+        """Read a campaign config from YAML; the paths of ``fields`` and ``operators`` are relative to its folder.
 
         Raises
         ------
@@ -299,11 +321,15 @@ class CampaignConfig:
             If a section's values do not fit together.
         """
         raw = yaml.safe_load(Path(path).read_text())
+        folder = Path(path).parent
         sections = {
             "evaluator": EvaluatorConfig, "gate": GateConfig,
             "admission": AdmissionConfig, "round": RoundConfig, "acceptance": AcceptanceConfig,
         }
-        unknown = set(raw) - {"run_dir", "segments", "data", "scoring", "reference", "directions", "llm", *sections}
+        unknown = set(raw) - {
+            "run_dir", "segments", "data", "scoring", "fields", "operators", "operator_modules", "reference",
+            "directions", "llm", *sections,
+        }
         if unknown:
             raise TypeError(f"campaign config: unknown section(s) {sorted(unknown)}")
         unknown_roles = set(raw["llm"]) - set(ROLES)
@@ -315,6 +341,9 @@ class CampaignConfig:
             data=DataConfig(**raw["data"]),
             scoring=ScoringConfig.from_dict(raw["scoring"]),
             roles={role: RoleConfig.from_dict(raw["llm"][role]) for role in ROLES},
+            fields=tuple(str(folder / f) for f in raw["fields"]),
+            operators=str(folder / raw["operators"]),
+            operator_modules=tuple(raw.get("operator_modules") or ()),
             reference=tuple(raw.get("reference") or ()),
             directions=tuple(raw.get("directions") or ()),
             **{name: klass(**raw[name]) for name, klass in sections.items() if name in raw},

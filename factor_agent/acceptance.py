@@ -167,6 +167,8 @@ class Acceptance:
     def __init__(self, config: CampaignConfig, run_dir: str | Path | None = None):
         self.config = config
         self.run_dir = Path(run_dir if run_dir is not None else config.run_dir)
+        #: The campaign's vocabulary, whose operator classes the accepted graphs are built from.
+        self.vocabulary = config.vocabulary()
         self._loaded: dict = {}
 
     @property
@@ -258,7 +260,7 @@ class Acceptance:
         folders = []
         for (key, name), record in zip(names.items(), records):
             module, folder = package_dir / f"{name}.py", root / name
-            module.write_text(_module_source(name, record, self.run_dir))
+            module.write_text(_module_source(name, record, self.run_dir, self.vocabulary.class_paths([record.graph])))
             try:
                 importlib.invalidate_caches()
                 factor_class = getattr(importlib.import_module(f"{package.__name__}.{name}"), _class_name(name))
@@ -360,7 +362,8 @@ class Acceptance:
     def _accepted_feature(self, records: list[TrialRecord], outputs: list[str], end: str):
         """The accepted factors, scored, from a store under the run directory, read as the scoring reads."""
         graphs = dict(zip(outputs, (r.graph for r in records)))
-        factor = GraphFactor(self._factor_config(graphs, kwargs={"graphs": graphs}))
+        classes = self.vocabulary.class_paths(graphs.values())
+        factor = GraphFactor(self._factor_config(graphs, kwargs={"graphs": graphs, "classes": classes}))
         folder = self.run_dir / "acceptance" / "accepted"
         scored = self._scoring().apply(factor, folder / "accepted.zarr")
         start = self.config.segments.training.start
@@ -455,8 +458,11 @@ def _class_name(name: str) -> str:
     return "".join(part.capitalize() for part in name.split("_") if part) or "Factor"
 
 
-def _module_source(name: str, record: TrialRecord, run_dir: Path) -> str:
-    """The module of an exported factor: the candidate as data and a ``GraphFactor`` subclass fixing its graph."""
+def _module_source(name: str, record: TrialRecord, run_dir: Path, classes: dict) -> str:
+    """The module of an exported factor: the candidate as data and a ``GraphFactor`` subclass fixing its graph.
+
+    ``classes`` are the class paths of the graph's operators, from the campaign's vocabulary.
+    """
     code = "\n".join(f"#     {line}" for line in record.candidate["code"].splitlines())
     return (
         f'"""{name}: a factor accepted by quantlab-factor-agent, exported by ``Acceptance.export``.\n\n'
@@ -470,4 +476,5 @@ def _module_source(name: str, record: TrialRecord, run_dir: Path) -> str:
         f"class {_class_name(name)}(GraphFactor):\n"
         f'    """The accepted factor ``{name}``, ranked across the market; see ``CANDIDATE``."""\n\n'
         f"    GRAPHS = {{{name!r}: {pprint.pformat(record.graph, width=100)}}}\n"
+        f"    CLASSES = {pprint.pformat(classes, width=100)}\n"
     )

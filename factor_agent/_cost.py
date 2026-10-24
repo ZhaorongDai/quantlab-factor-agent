@@ -15,6 +15,7 @@ from dataclasses import dataclass
 
 from factor_agent import _prompts
 from factor_agent.config import ROLES, RoundConfig
+from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.researcher import _PLANNER_SECTIONS, _PROPOSER_SECTIONS, _render, _rules
 
 #: Characters per token of English prose and code.
@@ -64,21 +65,22 @@ class CostEstimate:
         return line
 
 
-def estimate(settings: RoundConfig, backends: dict, context: dict[str, str]) -> CostEstimate:
+def estimate(settings: RoundConfig, backends: dict, context: dict[str, str], vocabulary: Vocabulary) -> CostEstimate:
     """Estimate a campaign's calls and cost.
 
     ``backends`` maps each role to its backend; a backend prices a call
     with ``estimate(input_tokens, output_tokens)``, and one without that
     method makes its role's cost unknown. ``context`` holds the first
-    round's sections (the seed directions and the reference families).
+    round's sections (the seed directions and the reference families);
+    ``vocabulary`` is what the proposer's prompts describe.
     """
     rounds = min(settings.max_rounds, settings.max_trials // settings.candidates)
     n = settings.candidates
     planner_base = len(_prompts.PLAN.format(round=1, context=_render(context, _PLANNER_SECTIONS), quota="{}"))
     proposer_base = len(_prompts.PROPOSE.format(
-        round=1, context=_render(context, _PROPOSER_SECTIONS), n=n, directions="", **_rules(),
+        round=1, context=_render(context, _PROPOSER_SECTIONS), n=n, directions="", **_rules(vocabulary),
     ))
-    retry_base = len(_prompts.RETRY.format(round=1, failures="", n=n, **_rules()))
+    retry_base = len(_prompts.RETRY.format(round=1, failures="", n=n, **_rules(vocabulary)))
     review_base = len(_prompts.REVIEW.format(round=1, candidates=""))
     distill_base = len(_prompts.DISTILL.format(round=1, history=""))
 

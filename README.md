@@ -31,6 +31,31 @@ stops at `max_rounds`, `max_trials`, `patience` rounds without an acceptance, or
 records why in `state.json`; `ledger.jsonl` holds every candidate, and `run()` on the same run
 directory resumes from the last written round. See [docs/design.md](docs/design.md).
 
+## Vocabulary
+
+What candidates may write with comes from files the config names, not from the framework:
+
+```yaml
+fields: [fields/sharadar_price_volume.yaml]   # one field file per input family, relative to the config
+operators: operators/kunquant_example.yaml    # the operator file
+operator_modules: []                          # modules besides KunQuant and quantlab.factor operators may come from
+```
+
+- A field file lists its family's fields: each with the price dataset's `column` it reads and its `unit`
+  (a product of powers of `dollars` and `shares`: a price is `dollars/shares`, volume `shares`), or a
+  derived field's `formula` over the family's earlier fields (under candidate code's syntax rules), a
+  description, and the `synonyms` (phrases) that bind a hypothesis to it; `rules` name phrases that need
+  several fields (overnight needs open and close). `bar: true` makes a missing value in the family's
+  columns a missing bar, which quantlab's NaN-preserving stand-ins keep NaN.
+- The operator file lists each operator's KunQuant `class`, the `call` candidate code uses (such as
+  `quantlab.factor.kunquant_nan.Max`), its signature, argument and parameter kinds, dimension rule,
+  description and binding phrases, plus the parameter value sets. The repository's example file also
+  lists every other KunQuant and quantlab operator class under `excluded` with a reason, which a guard
+  test checks; a user's own file needs no such section.
+- At start every field and operator is checked and every problem reported at once, before any LLM call:
+  a column missing from the price dataset, a malformed unit, a name clash, a class that is not a KunQuant
+  operator, a class or callable from a module not listed, a formula outside the syntax rules.
+
 ## LLM backends
 
 Each role under `llm` picks its backend and model; the other keys are the backend's settings.

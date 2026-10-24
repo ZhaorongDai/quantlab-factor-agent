@@ -17,11 +17,10 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from factor_agent.gate._canonical import canonical_hashes, canonical_terms, ranked_root, shape_key, term_key
-from factor_agent.gate._constraints import reference_hashes
 from factor_agent.gate.graph import Graph
-from factor_agent.gate.vocabulary import INPUT_COLUMNS
 
 if TYPE_CHECKING:
+    from factor_agent.gate.vocabulary import Vocabulary
     from factor_agent.zoo import Zoo, ZooEntry
 
 #: Characters of a common subtree quoted in a reason.
@@ -53,8 +52,8 @@ def _index(graph: Graph) -> _Index:
     return cached[1]
 
 
-def reasons(graph: Graph, zoo: "Zoo", max_common_nodes: int) -> list[str]:
-    """Return why ``graph`` is not original against ``zoo`` (empty if it is)."""
+def reasons(graph: Graph, zoo: "Zoo", max_common_nodes: int, vocabulary: "Vocabulary") -> list[str]:
+    """Return why ``graph`` is not original against ``zoo`` (empty if it is); ``vocabulary`` names its fields."""
     root = ranked_root(canonical_terms(graph)[-1])
     mine = _Index(frozenset(), term_key(root), shape_key(root))
     entries = [(entry, _index(entry.graph)) for entry in zoo.entries]
@@ -63,7 +62,7 @@ def reasons(graph: Graph, zoo: "Zoo", max_common_nodes: int) -> list[str]:
         terms = canonical_terms(graph)
         root = max((i for i, term in enumerate(terms) if term_key(term) == mine.root), default=len(terms) - 1)
         return [
-            f"the factor rewrites {_names(rewrites)}: {_render(graph, root)} is that factor's whole graph, up to "
+            f"the factor rewrites {_names(rewrites)}: {_render(graph, root, vocabulary)} is that factor's whole graph, up to "
             "a transform that keeps or reverses its ranking; propose a different mechanism"
         ]
     found = []
@@ -73,19 +72,19 @@ def reasons(graph: Graph, zoo: "Zoo", max_common_nodes: int) -> list[str]:
             f"the factor is {_names(tuned)} with other windows or parameter values only; a refinement must "
             "change the expression of the mechanism, not its parameters"
         )
-    size, node, sharing = _largest_common_subtree(graph, entries)
+    size, node, sharing = _largest_common_subtree(graph, entries, vocabulary)
     if size > max_common_nodes:
         found.append(
             f"the factor shares a {size}-node subtree with {_names(sharing)}, more than the limit of "
-            f"{max_common_nodes}: {_render(graph, node)}; express the mechanism without reusing that expression"
+            f"{max_common_nodes}: {_render(graph, node, vocabulary)}; express the mechanism without reusing that expression"
         )
     return found
 
 
-def _largest_common_subtree(graph: Graph, entries: list) -> tuple[int, int | None, list["ZooEntry"]]:
+def _largest_common_subtree(graph: Graph, entries: list, vocabulary: "Vocabulary") -> tuple[int, int | None, list["ZooEntry"]]:
     """Return the size and node of the candidate's largest subtree found in a zoo factor, and those factors."""
     hashes = canonical_hashes(graph)
-    sizes = _subtree_sizes(graph, hashes)
+    sizes = _subtree_sizes(graph, hashes, vocabulary)
     best, node, sharing = 0, None, []
     for i in sorted(range(len(hashes)), key=lambda i: -sizes[i]):
         if sizes[i] <= best and node is not None:
@@ -96,9 +95,9 @@ def _largest_common_subtree(graph: Graph, entries: list) -> tuple[int, int | Non
     return best, node, sharing
 
 
-def _subtree_sizes(graph: Graph, hashes: list[str]) -> list[int]:
+def _subtree_sizes(graph: Graph, hashes: list[str], vocabulary: "Vocabulary") -> list[int]:
     """Return the number of distinct nodes under each node, itself included."""
-    derived, mask = reference_hashes()
+    derived, mask = vocabulary.reference_hashes
     reach: list[frozenset[str]] = []
     for i, node in enumerate(graph.nodes):
         if hashes[i] == mask:
@@ -117,11 +116,10 @@ def _names(entries: list["ZooEntry"]) -> str:
     return named + (f" and {rest} more" if rest > 0 else "")
 
 
-def _render(graph: Graph, node: int) -> str:
+def _render(graph: Graph, node: int, vocabulary: "Vocabulary") -> str:
     """Return the expression under ``node`` as candidate code would write it."""
     hashes = canonical_hashes(graph)
-    derived, mask = reference_hashes()
-    columns = {column: name for name, column in INPUT_COLUMNS.items()}
+    derived, mask = vocabulary.reference_hashes
 
     def render(i: int) -> str:
         n = graph.nodes[i]
@@ -129,7 +127,7 @@ def _render(graph: Graph, node: int) -> str:
             return derived[hashes[i]]
         attrs = dict(n.attrs)
         if n.op == "Input":
-            return columns.get(attrs["name"], attrs["name"])
+            return vocabulary.field_name(attrs["name"])
         if n.op == "ConstantOp":
             return _display(attrs["value"])
         inputs = [j for j in n.inputs if hashes[j] != mask]

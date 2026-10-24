@@ -1,10 +1,11 @@
 """The Gate: deterministic checks that every candidate passes before it is evaluated.
 
-``Gate.check`` never reads data. A bad candidate comes back ``Rejected``
+``Gate.check`` never reads data; what candidates may write with is its
+``Vocabulary``, from the campaign's field and operator files. A bad candidate comes back ``Rejected``
 with readable reasons; only an infrastructure failure raises. The checks
 run in this order:
 
-1. static checks on the code (syntax allow-list, names in the whitelist, ``alpha`` assigned);
+1. static checks on the code (syntax allow-list, names in the vocabulary, ``alpha`` assigned);
 2. the graph build in a sandboxed subprocess (timeout, memory limit,
    bubblewrap filesystem isolation where it is installed);
 3. the graph's size, parameter values, dimensions and complexity, and
@@ -17,6 +18,7 @@ run in this order:
 
 import ctypes
 import ctypes.util
+import importlib
 import json
 import os
 import shutil
@@ -32,12 +34,13 @@ from typing import TYPE_CHECKING
 import psutil
 
 from factor_agent.candidate import Candidate
-from factor_agent.gate import _binding, _constraints, _originality
+from factor_agent.gate import _constraints, _originality
 from factor_agent.gate._checks import static_reasons
 from factor_agent.gate.graph import Graph
 
 if TYPE_CHECKING:  # the sandbox imports this package; it must not load pandas through the config
     from factor_agent.config import GateConfig
+    from factor_agent.gate.vocabulary import Vocabulary
     from factor_agent.zoo import Zoo
 
 #: Characters of the subprocess's standard error quoted when it crashes.
@@ -76,13 +79,17 @@ class Gate:
     ----------
     config : GateConfig
         The sandbox limits and the graph constraints.
+    vocabulary : Vocabulary
+        The fields, operators and parameter values candidates may use;
+        the sandbox rebuilds the same one from its sources.
     seen : iterable of str, optional
         Fingerprints of candidates passed before, such as those of a
         campaign that is resumed.
     """
 
-    def __init__(self, config: "GateConfig", seen=()):
+    def __init__(self, config: "GateConfig", vocabulary: "Vocabulary", seen=()):
         self.config = config
+        self.vocabulary = vocabulary
         self._seen: set[str] = set(seen)
 
     def check(self, candidate: Candidate, zoo: "Zoo") -> Passed | Rejected:
@@ -96,15 +103,15 @@ class Gate:
             If the sandbox cannot be started or replies with something
             that is not its protocol.
         """
-        reasons = static_reasons(candidate.code)
+        reasons = static_reasons(candidate.code, self.vocabulary.names)
         if reasons:
             return Rejected(tuple(reasons))
         reply = self._build(candidate.code)
         if isinstance(reply, Rejected):
             return reply
-        graph = Graph.from_json(reply)
-        reasons, stats = _constraints.check(graph, self.config)
-        reasons += _binding.reasons(candidate.hypothesis, stats["base_fields"], {n.op for n in graph.nodes})
+        graph = Graph.from_json(reply, self.vocabulary.classes)
+        reasons, stats = _constraints.check(graph, self.config, self.vocabulary)
+        reasons += self.vocabulary.bind(candidate.hypothesis, stats["base_fields"], {n.op for n in graph.nodes})
         if reasons:
             return Rejected(tuple(reasons))
         fingerprint = graph.fingerprint()
@@ -113,7 +120,7 @@ class Gate:
                 "the graph is a duplicate of an earlier candidate (same canonical fingerprint); "
                 "propose a different mechanism",
             ))
-        reasons = _originality.reasons(graph, zoo, self.config.max_common_subtree_nodes)
+        reasons = _originality.reasons(graph, zoo, self.config.max_common_subtree_nodes, self.vocabulary)
         if reasons:
             return Rejected(tuple(reasons))
         self._seen.add(fingerprint)
@@ -121,19 +128,23 @@ class Gate:
 
     def _build(self, code: str) -> list | Rejected:
         """Build the graph in the sandbox subprocess; return its nodes or the rejection."""
-        request = json.dumps({"code": code, "memory_mb": self.config.memory_mb})
-        with tempfile.TemporaryDirectory(prefix="factor-agent-gate-") as scratch:
+        request = json.dumps({"code": code, "memory_mb": self.config.memory_mb, "vocabulary": self.vocabulary.sources})
+        # The request (the vocabulary's files included) is larger than a pipe holds, so it is read from a file.
+        with tempfile.TemporaryDirectory(prefix="factor-agent-gate-") as scratch, tempfile.TemporaryFile("w+") as stdin:
+            stdin.write(request)
+            stdin.flush()
+            stdin.seek(0)
             command = [sys.executable, "-I", "-m", "factor_agent.gate._sandbox"]
             if shutil.which("bwrap") and _bubblewrap_works():
-                command = _bubblewrap(command)
+                command = _bubblewrap(command, self.vocabulary.sources["operator_modules"])
             try:
                 process = subprocess.Popen(
-                    command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                    command, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                     text=True, cwd=scratch, env={"PATH": os.defpath},
                 )
             except OSError as exc:
                 raise RuntimeError(f"Gate: cannot start the sandbox: {exc}") from exc
-            outcome = self._watch(process, request)
+            outcome = self._watch(process)
         if isinstance(outcome, Rejected):
             return outcome
         stdout, stderr = outcome
@@ -152,17 +163,16 @@ class Gate:
             return Rejected(tuple(message["reasons"]))
         return message["graph"]
 
-    def _watch(self, process: subprocess.Popen, request: str) -> tuple[str, str] | Rejected:
-        """Feed ``request`` and wait for the reply, killing the sandbox past the time or memory limit."""
+    def _watch(self, process: subprocess.Popen) -> tuple[str, str] | Rejected:
+        """Wait for the reply, killing the sandbox past the time or memory limit."""
         deadline = time.monotonic() + self.config.timeout_seconds
         limit = self.config.memory_mb * 2**20
         watched = psutil.Process(process.pid)
-        pending = request
         while True:
             try:
-                return process.communicate(pending, timeout=_POLL_SECONDS)
+                return process.communicate(timeout=_POLL_SECONDS)
             except subprocess.TimeoutExpired:
-                pending = None
+                pass
             try:
                 used = sum(_memory(p) for p in [watched, *watched.children(recursive=True)])
             except psutil.Error:
@@ -216,19 +226,21 @@ def _bubblewrap_works() -> bool:
     return True
 
 
-def _bubblewrap(command: list[str]) -> list[str]:
+def _bubblewrap(command: list[str], modules=()) -> list[str]:
     """Wrap ``command`` in bubblewrap.
 
     The sandbox gets no network, a private /tmp, and read-only access to the
-    system directories, the Python installation and the packages it imports,
-    nothing else. A package imported from outside the Python installation (an editable
-    checkout) is bound alone, so the rest of its checkout, credentials
-    included, stays out of view.
+    system directories, the Python installation and the packages it imports
+    (the vocabulary's ``modules`` among them), nothing else. A package
+    imported from outside the Python installation (an editable checkout) is
+    bound alone, so the rest of its checkout, credentials included, stays
+    out of view.
     """
     prefixes = {Path(p).resolve() for p in (sys.prefix, sys.base_prefix, sys.exec_prefix)}
     visible = set(prefixes) | {Path(p) for p in ("/usr", "/lib", "/lib64", "/bin", "/etc/ld.so.cache")}
-    for name in ("factor_agent", "quantlab", "KunQuant"):
-        package = Path(sys.modules[name].__file__).resolve().parent
+    for name in dict.fromkeys(["factor_agent", "quantlab", "KunQuant", *(m.split(".")[0] for m in modules)]):
+        source = Path(importlib.import_module(name).__file__).resolve()
+        package = source.parent if source.name == "__init__.py" else source
         if not any(package.is_relative_to(prefix) for prefix in prefixes):
             visible.add(package)
     binds = []

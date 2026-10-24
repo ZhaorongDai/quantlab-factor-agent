@@ -1,17 +1,24 @@
-"""Dimension inference: what each node of a graph measures, from the registry's dimension rules.
+"""Dimension inference: what each node of a graph measures, from the operators' dimension rules.
 
-A dimension is a pair of exponents ``(price, volume)``: price ``(1, 0)``,
-volume ``(0, 1)``, money ``(1, 1)``, a pure number ``(0, 0)``, a variance of
-price ``(2, 0)``. Besides those, a node may be a comparison (``BOOL``), a
-constant that takes whatever dimension it is combined with (``ANY``), a window
-loop (``LOOP``) or something the rules cannot say (``UNKNOWN``, e.g. the log
+A dimension is a pair of exponents ``(dollars, shares)``, from the units of
+the fields: a price ``(1, -1)``, a volume or a share count ``(0, 1)``, money
+(an amount traded or a statement total) ``(1, 0)``, a pure number (a ratio)
+``(0, 0)``, a variance of price ``(2, -2)``. The rules are linear in the
+exponents, so this basis gives the verdicts the earlier ``(price, volume)``
+basis gave on price and volume. The rules are the framework's fixed set;
+each operator of the operator file picks one (``OPERATOR_RULES``).
+
+Besides those, a node may be a comparison (``BOOL``), a constant that
+takes whatever dimension it is combined with (``ANY``), a window loop (``LOOP``) or something the rules cannot say (``UNKNOWN``, e.g. the log
 of a price). An invalid combination, such as price plus volume, is a reason
 to reject; ``UNKNOWN`` is passed on.
 """
 
 from fractions import Fraction
+from typing import TYPE_CHECKING
 
-from factor_agent.gate.vocabulary import COLUMN_DIMENSIONS, OPERATORS
+if TYPE_CHECKING:
+    from factor_agent.gate.vocabulary import Vocabulary
 
 BOOL = "bool"
 ANY = "any"
@@ -19,17 +26,18 @@ LOOP = "loop"
 UNKNOWN = "unknown"
 PURE = (Fraction(0), Fraction(0))
 
-_NAMES = {PURE: "pure number", (1, 0): "price", (0, 1): "volume", (1, 1): "money"}
+_NAMES = {PURE: "pure number", (1, -1): "price", (0, 1): "volume", (1, 0): "money"}
+_BASES = ("dollars", "shares")
 
 
 def name(dim) -> str:
-    """Return a readable name: ``"price"``, ``"price^2"``, ``"price/volume"``, ``"unknown"``..."""
+    """Return a readable name: ``"price"``, ``"money"``, ``"dollars^2/shares^2"``, ``"unknown"``..."""
     if isinstance(dim, str):
         return {BOOL: "comparison", ANY: "constant"}.get(dim, dim)
     if dim in _NAMES:
         return _NAMES[dim]
-    up = [f"{base}^{e}" if e != 1 else base for base, e in zip(("price", "volume"), dim) if e > 0]
-    down = [f"{base}^{-e}" if e != -1 else base for base, e in zip(("price", "volume"), dim) if e < 0]
+    up = [f"{base}^{e}" if e != 1 else base for base, e in zip(_BASES, dim) if e > 0]
+    down = [f"{base}^{-e}" if e != -1 else base for base, e in zip(_BASES, dim) if e < 0]
     return ("*".join(up) or "1") + ("/" + "*".join(down) if down else "")
 
 
@@ -37,17 +45,25 @@ class _Invalid(Exception):
     pass
 
 
-def infer(graph) -> tuple[object, list[str]]:
-    """Return the factor's dimension and the reasons the graph's dimensions are invalid (empty if none)."""
+def infer(graph, vocabulary: "Vocabulary") -> tuple[object, list[str]]:
+    """Return the factor's dimension and the reasons the graph's dimensions are invalid (empty if none).
+
+    An ``Input`` has the dimension of the field reading its column; each
+    operator follows the rule ``vocabulary`` gives it.
+    """
     dims: list = []
     reasons: list[str] = []
     for node in graph.nodes:
-        spec = OPERATORS[node.op]
+        spec = vocabulary.spec(node.op)
         attrs = dict(node.attrs)
         ins = [dims[i] for i in node.inputs]
         try:
             _check_kinds(node.op, spec.inputs, ins)
-            dims.append(_RULES[spec.dimension](node.op, ins, attrs))
+            if spec.dimension == "input":
+                exponents = vocabulary.column_dimension(attrs["name"])
+                dims.append(UNKNOWN if exponents is None else tuple(Fraction(e) for e in exponents))
+            else:
+                dims.append(OPERATOR_RULES[spec.dimension](node.op, ins, attrs))
         except _Invalid as exc:
             reasons.append(str(exc))
             dims.append(UNKNOWN)
@@ -137,13 +153,8 @@ def _compare(op, ins, attrs):
     return BOOL
 
 
-def _input(op, ins, attrs):
-    exponents = COLUMN_DIMENSIONS.get(attrs["name"])
-    return UNKNOWN if exponents is None else tuple(Fraction(e) for e in exponents)
-
-
-_RULES = {
-    "input": _input,
+#: The dimension rules an operator may pick, by name.
+OPERATOR_RULES = {
     "constant": lambda op, ins, attrs: ANY,
     "same": lambda op, ins, attrs: ins[0],
     "first": lambda op, ins, attrs: ins[0],

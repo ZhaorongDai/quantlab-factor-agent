@@ -1,12 +1,13 @@
 """The sandbox subprocess: run candidate code once and send back its graph.
 
-Reads ``{"code": ..., "memory_mb": ...}`` on standard input and writes one
+Reads ``{"code": ..., "memory_mb": ..., "vocabulary": ...}`` on standard input and writes one
 JSON object on standard output: ``{"graph": [...]}`` or ``{"reasons": [...]}``.
 The parent runs it with ``python -I``, an empty environment, a scratch
 working directory, a timeout, a memory watchdog and, where bubblewrap is
-installed, its own filesystem view; the code sees only the whitelisted
-namespace. Where the platform allows it (Linux), the address space is also
-capped here, so an allocation past the limit fails at once.
+installed, its own filesystem view; the code sees only the namespace of
+the vocabulary, rebuilt here from the parent's ``Vocabulary.sources``.
+Where the platform allows it (Linux), the address space is also capped
+here, so an allocation past the limit fails at once.
 """
 
 import json
@@ -15,19 +16,16 @@ import sys
 
 from KunQuant.Op import OpBase, Output
 from KunQuant.Stage import Function
-from quantlab.factor.kunquant_nan import missing_bars_only
 
 from factor_agent.gate import MEMORY_REASON
 from factor_agent.gate.graph import Graph
-from factor_agent.gate.vocabulary import bar_mask_inputs, inputs, namespace
+from factor_agent.gate.vocabulary import Vocabulary
 
 
-def build(code: str, memory_mb: int) -> dict:
-    """Run ``code`` and return the message for the parent."""
-    fields = inputs()
-    scope = namespace(fields)
+def build(code: str, memory_mb: int, vocabulary: Vocabulary) -> dict:
+    """Run ``code`` over ``vocabulary`` and return the message for the parent."""
     try:
-        with missing_bars_only(bar_mask_inputs(fields)):
+        with vocabulary.namespace() as scope:
             exec(compile(code, "<candidate>", "exec"), scope)
     except MemoryError:
         return {"reasons": [MEMORY_REASON.format(memory_mb=memory_mb)]}
@@ -41,7 +39,7 @@ def build(code: str, memory_mb: int) -> dict:
     if not isinstance(alpha, OpBase):
         return {"reasons": [f"alpha must be an operator, got {type(alpha).__name__}"]}
     try:
-        graph = Graph.record(alpha)
+        graph = Graph.record(alpha, vocabulary)
     except ValueError as exc:
         return {"reasons": [str(exc)]}
     try:
@@ -68,8 +66,9 @@ def main() -> None:
     request = json.load(sys.stdin)
     out = sys.stdout
     sys.stdout = sys.stderr  # nothing the code does can corrupt the reply
+    vocabulary = Vocabulary.from_sources(request["vocabulary"])
     _cap_address_space(request["memory_mb"])
-    json.dump(build(request["code"], request["memory_mb"]), out)
+    json.dump(build(request["code"], request["memory_mb"], vocabulary), out)
     out.flush()
 
 
