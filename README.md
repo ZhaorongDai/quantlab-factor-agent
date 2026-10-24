@@ -29,7 +29,7 @@ accepted factors with their marginal weight and residual IC in the accepted pool
 date or a held-out metric. Every `memory_every` rounds the distiller writes `memory.md`. The run
 stops at `max_rounds`, `max_trials`, `patience` rounds without an acceptance, or `budget_usd` (checked before every call), and
 records why in `state.json`; `ledger.jsonl` holds every candidate, and `run()` on the same run
-directory resumes from the last written round. A first start copies the field and operator files into
+directory resumes from the last written round. A first start copies the field, operator and replaced template files into
 `<run_dir>/snapshot/` with their hashes (`snapshot.json`); the run, its Acceptance and its replays read
 those copies. A resume whose files differ from the snapshot fails (a new search space needs a new run
 directory); a resume on other commits of factor_agent or quantlab only warns, and `state.json` lists the
@@ -59,6 +59,30 @@ operator_modules: []                          # modules besides KunQuant and qua
 - At start every field and operator is checked and every problem reported at once, before any LLM call:
   a column missing from the price dataset, a malformed unit, a name clash, a class that is not a KunQuant
   operator, a class or callable from a module not listed, a formula outside the syntax rules.
+
+## Prompts
+
+The prompts describe the config's data and research, not one market:
+
+```yaml
+market: adjusted daily bars of every US common stock   # required: the data, as the prompts say it
+mechanisms:                                             # optional: the default is the five types below
+  - {name: behavioural_bias, description: investors' systematic errors that prices correct later}
+prompts:                                                # optional: templates replaced from files
+  review: prompts/review.txt
+```
+
+- The prediction horizon is the label's `span_bars()`; the data section is the market, each field of
+  the opened families with its unit and description, and the scoring's sentence.
+- `mechanisms` are the types the planner allocates slots to and a candidate may have, each with a
+  one-line description the planner reads; `round.min_per_type` times their number must fit in
+  `round.candidates`. The default is `behavioural_bias`, `risk_compensation`, `liquidity`,
+  `microstructure` and `information_diffusion`.
+- `prompts` may replace the templates `plan`, `propose`, `retry` (the proposer's fix request), `review`,
+  `distill` and `data` (the data section), each a Python format string. At start each replaced template
+  is checked for the placeholders its role needs (and for any it may not use), before anything is
+  written; a replaced template is snapshotted like the field and operator files, so changing it needs a
+  new run directory. The placeholders are listed in `factor_agent/_prompts.py` (`PLACEHOLDERS`).
 
 ## LLM backends
 

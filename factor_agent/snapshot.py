@@ -1,7 +1,7 @@
 """The RunSnapshot: the files a run searched with and the code it ran, kept in its run directory.
 
 A run's search space is what its files say: the field files and the
-operator file (and, later, the prompt templates). On a first start
+operator file and the replaced prompt templates. On a first start
 ``open`` copies each file into ``<run_dir>/snapshot/<name>`` and records
 its hash and the code versions (the commits of this package and of
 quantlab) in ``<run_dir>/snapshot.json``. On a resume a file whose name or

@@ -13,7 +13,7 @@ import re
 
 import pytest
 
-from factor_agent.candidate import MECHANISM_TYPES
+from factor_agent.config import DEFAULT_MECHANISMS
 from tests import synthetic_market
 from tests.campaign_runner import candidate, run, write_config
 from tests.fake_llm import FakeLLM, Interrupted, round_of
@@ -95,7 +95,7 @@ def test_every_round_holds_the_quota_of_every_mechanism_type(five_rounds):
     assert sorted(by_round) == [1, 2, 3, 4, 5]
     for counts in by_round.values():
         assert sum(counts.values()) == 10
-        assert all(counts[kind] >= 1 for kind in MECHANISM_TYPES)
+        assert all(counts[kind] >= 1 for kind in [m.name for m in DEFAULT_MECHANISMS])
     assert all(r.candidate["mechanism_type"] == r.direction["mechanism_type"] for r in records)
 
 
@@ -109,7 +109,7 @@ def test_the_extra_slots_shift_toward_the_type_that_keeps_being_accepted(five_ro
     by_round = _types_by_round(result.records)
     extra = collections.Counter()
     for n in (2, 3, 4, 5):
-        extra.update({kind: by_round[n][kind] - 1 for kind in MECHANISM_TYPES})
+        extra.update({kind: by_round[n][kind] - 1 for kind in [m.name for m in DEFAULT_MECHANISMS]})
     assert extra.most_common(1)[0][0] == "liquidity", extra
     assert extra["liquidity"] >= 8, extra  # of 20 extra slots, against 4 for a uniform draw
     assert by_round[2]["liquidity"] - 1 >= 3, by_round[2]

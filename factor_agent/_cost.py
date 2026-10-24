@@ -13,10 +13,9 @@ bound: the budget is what stops a run.
 
 from dataclasses import dataclass
 
-from factor_agent import _prompts
+from factor_agent._prompts import Prompts
 from factor_agent.config import ROLES, RoundConfig
-from factor_agent.gate.vocabulary import Vocabulary
-from factor_agent.researcher import _PLANNER_SECTIONS, _PROPOSER_SECTIONS, _render, _rules
+from factor_agent.researcher import _PLANNER_SECTIONS, _PROPOSER_SECTIONS, _render
 
 #: Characters per token of English prose and code.
 _CHARS_PER_TOKEN = 4
@@ -65,24 +64,24 @@ class CostEstimate:
         return line
 
 
-def estimate(settings: RoundConfig, backends: dict, context: dict[str, str], vocabulary: Vocabulary) -> CostEstimate:
+def estimate(settings: RoundConfig, backends: dict, context: dict[str, str], prompts: Prompts) -> CostEstimate:
     """Estimate a campaign's calls and cost.
 
     ``backends`` maps each role to its backend; a backend prices a call
     with ``estimate(input_tokens, output_tokens)``, and one without that
     method makes its role's cost unknown. ``context`` holds the first
     round's sections (the seed directions and the reference families);
-    ``vocabulary`` is what the proposer's prompts describe.
+    ``prompts`` are the campaign's templates and what fills them.
     """
     rounds = min(settings.max_rounds, settings.max_trials // settings.candidates)
     n = settings.candidates
-    planner_base = len(_prompts.PLAN.format(round=1, context=_render(context, _PLANNER_SECTIONS), quota="{}"))
-    proposer_base = len(_prompts.PROPOSE.format(
-        round=1, context=_render(context, _PROPOSER_SECTIONS), n=n, directions="", **_rules(vocabulary),
+    planner_base = len(prompts.render("plan", round=1, context=_render(context, _PLANNER_SECTIONS), quota="{}"))
+    proposer_base = len(prompts.render(
+        "propose", round=1, context=_render(context, _PROPOSER_SECTIONS), n=n, directions="",
     ))
-    retry_base = len(_prompts.RETRY.format(round=1, failures="", n=n, **_rules(vocabulary)))
-    review_base = len(_prompts.REVIEW.format(round=1, candidates=""))
-    distill_base = len(_prompts.DISTILL.format(round=1, history=""))
+    retry_base = len(prompts.render("retry", round=1, failures="", n=n))
+    review_base = len(prompts.render("review", round=1, candidates=""))
+    distill_base = len(prompts.render("distill", round=1, history=""))
 
     prompts: dict[str, list[tuple[int, int]]] = {role: [] for role in ROLES}  # (input chars, reply tokens)
     distilled = 0

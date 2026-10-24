@@ -26,6 +26,9 @@ def candidate(description: str, code: str, **overrides) -> dict:
     }
 
 
+#: The synthetic store as the prompts describe it.
+SYNTHETIC_MARKET = "adjusted daily bars of every synthetic test symbol"
+
 #: The synthetic store's exposure columns.
 NEUTRALIZE = {"size_column": "marketcap", "industry_column": "industry"}
 
@@ -40,6 +43,7 @@ def write_config(root: Path, components: dict, reference=(), **sections) -> Path
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(yaml.safe_dump(json.loads(json.dumps({
         "run_dir": str(root / "run"),
+        "market": SYNTHETIC_MARKET,
         "segments": {"training": {"start": synthetic_market.TRAINING[0], "end": synthetic_market.TRAINING[1]}},
         "data": {name: components[name] for name in ("prices", "label", "membership")},
         "scoring": {"neutralize": {"exposures": components["exposures"], **NEUTRALIZE}},

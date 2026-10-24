@@ -14,8 +14,7 @@ from quantlab.dataset.stock import StockDataset
 from quantlab.factor.config import FactorConfig
 from quantlab.factor.predefined.alpha158 import Alpha158Stock
 
-from factor_agent.candidate import MECHANISM_TYPES
-from factor_agent.config import ROLES, CampaignConfig, NeutralizeConfig, load
+from factor_agent.config import DEFAULT_MECHANISMS, ROLES, CampaignConfig, NeutralizeConfig, load
 from factor_agent.gate.vocabulary import VocabularyError
 from tests.vocabulary_files import EXAMPLE_OPERATORS, PRICE_VOLUME
 
@@ -62,7 +61,7 @@ def test_the_reference_of_a_config_file_may_be_store_entries(store, tmp_path):
         "data": {"prices": "p", "label": "l", "membership": "m"},
         "scoring": {"neutralize": {"exposures": "e", "size_column": "marketcap", "industry_column": "industry"}},
         "reference": [{"store": str(store), "factor_names": ["KMID"]}],
-        "fields": [str(PRICE_VOLUME)], "operators": str(EXAMPLE_OPERATORS),
+        "fields": [str(PRICE_VOLUME)], "operators": str(EXAMPLE_OPERATORS), "market": "test bars",
         "llm": {role: {"backend": "scripted", "model": "m", "replies": "r.json"} for role in ROLES},
     }))
     [factor] = [load(c) for c in CampaignConfig.from_file(path).reference]
@@ -76,7 +75,7 @@ def _minimal(tmp_path, **sections) -> Path:
         "segments": {"training": {"start": "2024-01-01", "end": "2024-01-03"}},
         "data": {"prices": "p", "label": "l"},
         "scoring": {"neutralize": None},
-        "fields": [str(PRICE_VOLUME)], "operators": str(EXAMPLE_OPERATORS),
+        "fields": [str(PRICE_VOLUME)], "operators": str(EXAMPLE_OPERATORS), "market": "test bars",
         "llm": {role: {"backend": "scripted", "model": "m", "replies": "r.json"} for role in ROLES},
     }
     raw.update(sections)
@@ -145,7 +144,7 @@ def test_the_real_config_reads_with_sel0s_191_reference_factors_and_a_direction_
     config = CampaignConfig.from_file(REAL)
     names = [name for entry in config.reference for name in entry["factor_names"]]
     assert len(names) == len(set(names)) == 191
-    assert {direction.split(":")[0] for direction in config.directions} == set(MECHANISM_TYPES)
+    assert {direction.split(":")[0] for direction in config.directions} == {m.name for m in DEFAULT_MECHANISMS}
     assert not re.search(r"\b(19|20)\d\d\b", " ".join(config.directions))  # no date reaches a prompt
     assert {role.model for role in config.roles.values()} == {"deepseek/deepseek-v4-pro-0813"}
     assert config.data.membership == "/data/quantlab/universe/us3000/membership_estu"

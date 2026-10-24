@@ -13,10 +13,16 @@ its columns.
 operator file) make the ``Vocabulary`` candidates write with; the
 framework has none of its own. ``operator_modules`` lists the modules,
 besides KunQuant and ``quantlab.factor``, an operator may come from.
+
+``market`` describes the data in the prompts, ``mechanisms`` lists the
+mechanism types candidates belong to (by default ``DEFAULT_MECHANISMS``),
+each with a one-line description, and ``prompts`` maps a template's name
+(see ``_prompts.TEMPLATES``) to the file that replaces it.
 """
 
 import dataclasses
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -25,7 +31,7 @@ import yaml
 from quantlab.core.component import rebuild
 from quantlab.core.store_folder import load_component
 
-from factor_agent.candidate import MECHANISM_TYPES
+from factor_agent._prompts import Templates
 from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.segments import PURGE_BARS, Segment, Segments
 
@@ -193,13 +199,6 @@ class RoundConfig:
     #: Seed of the Thompson sampling; round n draws from ``(seed, n)``.
     seed: int = 0
 
-    def __post_init__(self):
-        if self.candidates < self.min_per_type * len(MECHANISM_TYPES):
-            raise ValueError(
-                f"round: {self.candidates} candidates cannot hold {self.min_per_type} of each of "
-                f"{len(MECHANISM_TYPES)} mechanism types"
-            )
-
 
 #: SEL0's xgb_deep (quantlab-experiment 2026-10-18-us3000-factor-selection-xgb), without its thread count.
 XGB_DEEP = {
@@ -267,12 +266,37 @@ ROLES = ("planner", "proposer", "reviewer", "distiller")
 
 
 @dataclass(frozen=True)
+class Mechanism:
+    """A mechanism type a candidate's hypothesis belongs to, with the line the prompts describe it by."""
+
+    name: str
+    description: str
+
+
+#: The mechanism types of a config that names none.
+DEFAULT_MECHANISMS = (
+    Mechanism("behavioural_bias", "investors' systematic errors (over- and underreaction, anchoring, limited "
+              "attention) that prices correct later"),
+    Mechanism("risk_compensation", "a return paid for bearing a risk investors demand to be compensated for"),
+    Mechanism("liquidity", "the cost and the pressure of trading: illiquidity premia, liquidity demand and its "
+              "reversal"),
+    Mechanism("microstructure", "the mechanics of trading within and between bars: order flow, the bid-ask "
+              "bounce, the open and the close"),
+    Mechanism("information_diffusion", "news that reaches prices gradually, across investors, related firms "
+              "or time"),
+)
+
+
+@dataclass(frozen=True)
 class CampaignConfig:
     """Every setting of a campaign, read from one YAML file with ``from_file``.
 
     ``roles`` maps each of ``ROLES`` to its LLM; the roles may use
     different backends, so the reviewer can be another provider's model.
     ``directions`` are the seed research directions the planner is shown.
+    ``market`` describes the data in the prompts, ``mechanisms`` are the
+    mechanism types in plan order, and ``prompts`` maps a template's name to
+    the file that replaces it.
     """
 
     run_dir: str
@@ -284,6 +308,8 @@ class CampaignConfig:
     fields: tuple
     #: The operator file: the operators candidates may call and their parameter values.
     operators: str
+    #: The data as the prompts describe it, such as "adjusted daily bars of every US common stock".
+    market: str
     #: Modules besides KunQuant and ``quantlab.factor`` an operator's class or callable may come from.
     operator_modules: tuple = ()
     #: The reference factors, as components; see the module docstring.
@@ -294,6 +320,24 @@ class CampaignConfig:
     admission: AdmissionConfig = AdmissionConfig()
     round: RoundConfig = RoundConfig()
     acceptance: AcceptanceConfig = AcceptanceConfig()
+    mechanisms: tuple = DEFAULT_MECHANISMS
+    prompts: dict = field(default_factory=dict)
+
+    def __post_init__(self):
+        object.__setattr__(self, "mechanisms", tuple(self.mechanisms))
+        names = self.mechanism_types
+        if not names or len(set(names)) != len(names):
+            raise ValueError(f"campaign config: the mechanism types {list(names)} must be given and distinct")
+        if self.round.candidates < self.round.min_per_type * len(names):
+            raise ValueError(
+                f"round: {self.round.candidates} candidates cannot hold {self.round.min_per_type} of each of "
+                f"{len(names)} mechanism types"
+            )
+
+    @property
+    def mechanism_types(self) -> tuple[str, ...]:
+        """The names of the mechanism types, in plan order."""
+        return tuple(m.name for m in self.mechanisms)
 
     @property
     def training(self) -> Segment:
@@ -304,7 +348,8 @@ class CampaignConfig:
         """Every file the run searches with, by its name in the run's snapshot (see ``RunSnapshot``).
 
         A field file is ``fields/<file name>``, the operator file
-        ``operators/<file name>``.
+        ``operators/<file name>`` and a replaced template
+        ``prompts/<template>/<file name>``.
 
         Raises
         ------
@@ -314,7 +359,20 @@ class CampaignConfig:
         files = {f"fields/{Path(path).name}": path for path in self.fields}
         if len(files) != len(self.fields):
             raise ValueError(f"campaign config: the field files {list(self.fields)} repeat a file name")
-        return {**files, f"operators/{Path(self.operators).name}": self.operators}
+        templates = {f"prompts/{name}/{Path(path).name}": path for name, path in self.prompts.items()}
+        return {**files, f"operators/{Path(self.operators).name}": self.operators, **templates}
+
+    def templates(self, snapshot: "RunSnapshot | None" = None) -> Templates:
+        """The prompt templates: the built-in ones, those the config replaces read from their files.
+
+        With ``snapshot`` the replacing files are the snapshot's copies.
+
+        Raises
+        ------
+        PromptError
+            With every problem of the replacing files.
+        """
+        return Templates.load(self.prompts) if snapshot is None else snapshot_templates(snapshot.files)
 
     def vocabulary(self, columns=None, snapshot: "RunSnapshot | None" = None) -> Vocabulary:
         """The Vocabulary of the field and operator files; ``columns``, given, are the price dataset's.
@@ -335,7 +393,7 @@ class CampaignConfig:
 
     @classmethod
     def from_file(cls, path: str | Path) -> "CampaignConfig":
-        """Read a campaign config from YAML; the paths of ``fields`` and ``operators`` are relative to its folder.
+        """Read a campaign config from YAML; the paths of ``fields``, ``operators`` and ``prompts`` are relative to its folder.
 
         Raises
         ------
@@ -354,15 +412,22 @@ class CampaignConfig:
         }
         unknown = set(raw) - {
             "run_dir", "segments", "data", "scoring", "fields", "operators", "operator_modules", "reference",
-            "directions", "llm", *sections,
+            "directions", "llm", "market", "mechanisms", "prompts", *sections,
         }
         if unknown:
             raise TypeError(f"campaign config: unknown section(s) {sorted(unknown)}")
         unknown_roles = set(raw["llm"]) - set(ROLES)
         if unknown_roles:
             raise TypeError(f"campaign config: unknown LLM role(s) {sorted(unknown_roles)}; known: {list(ROLES)}")
+        if "market" not in raw:
+            raise KeyError("campaign config: market is needed, the data as the prompts describe it")
+        optional = {}
+        if raw.get("mechanisms") is not None:
+            optional["mechanisms"] = tuple(Mechanism(**m) for m in raw["mechanisms"])
         return cls(
             run_dir=raw["run_dir"],
+            market=str(raw["market"]),
+            prompts={name: str(folder / file) for name, file in (raw.get("prompts") or {}).items()},
             segments=_segments(raw["segments"]),
             data=DataConfig(**raw["data"]),
             scoring=ScoringConfig.from_dict(raw["scoring"]),
@@ -373,7 +438,19 @@ class CampaignConfig:
             reference=tuple(raw.get("reference") or ()),
             directions=tuple(raw.get("directions") or ()),
             **{name: klass(**raw[name]) for name, klass in sections.items() if name in raw},
+            **optional,
         )
+
+
+def snapshot_templates(files: Mapping[str, str | Path]) -> Templates:
+    """The templates the ``prompts/<template>/<file name>`` entries of a run's ``files`` replace.
+
+    Raises
+    ------
+    PromptError
+        With every problem of those files.
+    """
+    return Templates.load({name.split("/")[1]: path for name, path in files.items() if name.startswith("prompts/")})
 
 
 def _segments(raw: dict) -> Segments:
