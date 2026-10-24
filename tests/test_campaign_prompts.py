@@ -5,6 +5,7 @@ request; the Gate and the Evaluator are the real ones on the synthetic
 store. A test reads what each role was asked.
 """
 
+import json
 import re
 from pathlib import Path
 
@@ -12,11 +13,11 @@ import pytest
 from quantlab.core.component import rebuild
 
 from factor_agent.config import CampaignConfig
-from factor_agent.prompts import PromptError
+from factor_agent.prompts import TEMPLATES, PromptError, Templates
 from factor_agent.snapshot import SnapshotMismatch
 from tests import synthetic_market
 from tests.campaign_runner import SYNTHETIC_MARKET, candidate, run, write_config
-from tests.fake_llm import FakeLLM, last_block
+from tests.fake_llm import FakeLLM, tagged
 
 #: A market the synthetic store could be, described in no words the default prompts use.
 MARKET = "daily bars of every company listed on the Lunar exchange"
@@ -65,6 +66,88 @@ def lunar(tmp_path_factory, market):
 
 def test_every_role_is_asked(lunar):
     assert {request.role for request in lunar.requests} == {"planner", "proposer", "reviewer", "distiller"}
+
+
+#: The XML tag that holds what each kind of request asks about.
+INPUT_TAG = {"planner": "quota", "proposer": "directions", "fix": "refused_candidates", "reviewer": "candidates"}
+_JSON_FENCE = re.compile(r"```json\n(.*?)```", re.DOTALL)
+
+
+def _kind(request) -> str:
+    """The kind of a request: its role, or "fix" for the proposer's fix request."""
+    return "fix" if request.role == "proposer" and "\n<refused_candidates>\n" in request.prompt else request.role
+
+
+def test_the_campaign_sends_every_kind_of_request(lunar):
+    assert {_kind(request) for request in lunar.requests} == {*INPUT_TAG, "distiller"}
+
+
+@pytest.mark.parametrize("kind", list(INPUT_TAG))
+def test_a_json_role_prompt_ends_with_its_output_skeleton_in_the_only_json_fence(lunar, kind):
+    for request in (r for r in lunar.requests if _kind(r) == kind):
+        prompt = request.prompt.rstrip()
+        [skeleton] = _JSON_FENCE.findall(prompt)
+        assert prompt.endswith("```json\n" + skeleton + "```"), prompt[-400:]
+        assert prompt.index(f"</{INPUT_TAG[kind]}>") < prompt.index("```json")
+
+
+@pytest.mark.parametrize("kind", list(INPUT_TAG))
+def test_a_role_reads_its_input_from_its_tag_not_from_a_json_fence(lunar, kind):
+    for request in (r for r in lunar.requests if _kind(r) == kind):
+        given = tagged(request.prompt, INPUT_TAG[kind])
+        [skeleton] = _JSON_FENCE.findall(request.prompt)
+        values = given.values() if isinstance(given, dict) else given
+        for value in values:
+            shown = value if isinstance(value, str) else json.dumps(value)
+            assert shown not in skeleton
+
+
+@pytest.mark.parametrize("kind", [*INPUT_TAG, "distiller"])
+def test_a_role_prompt_opens_with_the_role_and_who_uses_its_output(lunar, kind):
+    request = next(r for r in lunar.requests if _kind(r) == kind)
+    assert request.prompt.startswith("You are "), request.prompt[:200]
+
+
+def test_the_fix_request_asks_for_each_corrected_candidate_itself(lunar):
+    fix = next(r for r in lunar.requests if _kind(r) == "fix").prompt
+    entries = tagged(fix, "refused_candidates")
+    assert all("refused_version" in entry and "candidate" not in entry for entry in entries)
+    ending = fix[fix.index("</refused_candidates>"):]
+    assert "corrected candidate object itself" in ending
+    assert 'Leave out "number", "direction", "refused_because" and "how_to_write_it"' in ending
+    [skeleton] = _JSON_FENCE.findall(fix)
+    assert all(f'"{field}"' in skeleton for field in candidate("x", "y"))
+    assert "refused_version" not in skeleton and '"direction"' not in skeleton
+
+
+def test_the_reviewer_is_asked_for_the_reason_before_the_verdict(lunar):
+    review = next(r for r in lunar.requests if r.role == "reviewer").prompt
+    [skeleton] = _JSON_FENCE.findall(review)
+    assert skeleton.index('"number"') < skeleton.index('"reason"') < skeleton.index('"consistent"')
+    assert "1. " in review and "2. " in review
+    assert "length of the code" in review
+
+
+def test_the_distiller_prompt_ends_with_the_three_parts_of_the_memory(lunar):
+    distill = lunar.of_role("distiller")[0].prompt.rstrip()
+    assert distill.endswith("```")
+    ending = distill[distill.index("</history>"):]
+    assert _in_order(ending, ["Working mechanism patterns", "Failure constraints", "Directional findings"])
+    assert "at most 6" in ending
+
+
+def test_the_built_in_templates_load_as_replaced_templates(tmp_path):
+    files = {}
+    for name, text in TEMPLATES.items():
+        files[name] = tmp_path / f"{name}.txt"
+        files[name].write_text(text)
+    loaded = Templates.load(files)
+    assert loaded.format("review", market="M", horizon=3, round=1, candidates="[]").rstrip().endswith("```")
+
+
+def test_no_prompt_shouts(lunar):
+    for request in lunar.requests:
+        assert not re.search(r"\b(?:MUST|NEVER|ALWAYS|DO NOT|EXACTLY|IMPORTANT|ONLY)\b", request.prompt), request.role
 
 
 def test_every_prompt_describes_the_configured_market_and_the_labels_horizon(lunar):
@@ -120,7 +203,7 @@ def three_types(tmp_path_factory, market):
 
 def test_a_round_is_planned_over_the_configured_mechanism_types(three_types):
     [plan] = three_types["fake"].of_role("planner")
-    quota = last_block(plan.prompt)
+    quota = tagged(plan.prompt, "quota")
     assert list(quota) == ["value", "momentum", "carry"] and sum(quota.values()) == 4
     for kind in THREE:
         assert f"- {kind['name']}: {kind['description']}" in plan.prompt
@@ -144,9 +227,9 @@ def test_a_quota_the_configured_types_cannot_hold_fails_at_start(tmp_path, marke
 REVIEW = """Judge each candidate on {market} below, horizon {horizon} bars. Answer with a JSON array of
 objects with "number", "consistent" and "reason".
 Round: {round}
-```json
+<candidates>
 {candidates}
-```
+</candidates>
 """
 
 DATA = "MARKET {market}; SCORING {scoring}; HORIZON {horizon} bars; INPUTS\n{inputs}"
@@ -238,21 +321,24 @@ def _in_order(text: str, markers: list[str]) -> bool:
     return -1 not in positions and positions == sorted(positions)
 
 
-def test_with_the_defaults_the_planner_prompt_carries_todays_sections(defaults):
+def test_with_the_defaults_the_planner_prompt_carries_every_section_in_order(defaults):
     [plan] = defaults.of_role("planner")
     assert _in_order(plan.prompt, [
-        "You are the research planner", "Round: 1", "The data: " + SYNTHETIC_MARKET,
+        "You are the research planner", "Round: 1", "\n<data>\n", "The data: " + SYNTHETIC_MARKET,
         "A factor is ranked across the whole market each day, neutralised", "the next 5 bars",
-        "The inputs, by family:", "## Seed research directions", "The mechanism types:",
-        "- information_diffusion: ", "Plan exactly the number of directions", "```json",
+        "The inputs, by family:", "\n</data>\n",
+        "## Seed research directions", "\n<seed>\n", "a seed direction", "\n</seed>\n",
+        "The mechanism types:", "- information_diffusion: ",
+        '"refinement"', "\n<quota>\n", "\n</quota>\n", "Now plan this round's research directions", "```json",
     ]), plan.prompt
 
 
-def test_with_the_defaults_the_proposer_prompt_carries_todays_sections(defaults):
+def test_with_the_defaults_the_proposer_prompt_carries_every_section_in_order(defaults):
     [propose] = defaults.of_role("proposer")
     assert _in_order(propose.prompt, [
-        "You are a quantitative researcher", "the next 5 bars", "Round: 1", "The data: " + SYNTHETIC_MARKET,
-        "The inputs, by family:", "Write each factor as Python code", "Inputs: open, high, low, close, volume",
-        "Operators:", "Parameter values", "Builtins:", '"horizon_rationale": why the effect plays out over about 5 bars',
-        "The directions:", "```json",
+        "You are a quantitative researcher", "the next 5 bars", "Round: 1", "\n<data>\n", "The data: " + SYNTHETIC_MARKET,
+        "The inputs, by family:", "\n</data>\n",
+        "Write each factor as Python code", "\n<vocabulary>\n", "Inputs: open, high, low, close, volume",
+        "Operators:", "Parameter values", "Builtins:", "\n</vocabulary>\n", "\n<directions>\n", "\n</directions>\n",
+        "Now write one candidate", '"horizon_rationale": why the effect plays out over about 5 bars', "```json",
     ]), propose.prompt

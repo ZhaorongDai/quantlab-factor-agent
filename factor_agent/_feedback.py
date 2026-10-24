@@ -109,11 +109,11 @@ def best(records: list[TrialRecord], contributions: dict[str, Contribution]) -> 
 
 
 def direction_text(ic_mean: float) -> str:
-    """The direction the training IC shows, in words."""
+    """The factor direction the training IC shows, in words."""
     sign = direction(ic_mean)
     if sign == 0:
-        return "no direction (the training IC is zero or not a number)"
-    return f"direction {sign:+d} (a higher value went with a {'higher' if sign > 0 else 'lower'} return)"
+        return "no factor direction (the training IC is zero or not a number)"
+    return f"factor direction {sign:+d} (a higher value went with a {'higher' if sign > 0 else 'lower'} return)"
 
 
 def _direction(r: TrialRecord) -> str:

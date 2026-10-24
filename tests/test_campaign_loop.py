@@ -16,7 +16,7 @@ import pytest
 from factor_agent.config import DEFAULT_MECHANISMS
 from tests import synthetic_market
 from tests.campaign_runner import candidate, run, write_config
-from tests.fake_llm import FakeLLM, Interrupted, round_of
+from tests.fake_llm import FakeLLM, Interrupted, round_of, tagged
 
 SIGNALS = [
     candidate("intraday move", "alpha = close / open"),
@@ -53,7 +53,7 @@ def proposer(fake_holder: list) -> callable:
     """``liquidity_wins`` that skips the signals already accepted, as the prompt's best mechanisms say."""
     def propose(number, directions):
         prompt = fake_holder[0].of_role("proposer")[-1].prompt
-        best = prompt.split("Current best mechanisms", 1)[-1].split("```json", 1)[0]
+        best = prompt.split("Current best mechanisms", 1)[-1].split("</best>", 1)[0]
         return liquidity_wins(number, directions, best)
     return propose
 
@@ -121,7 +121,7 @@ def test_the_planner_is_asked_for_the_quota_it_is_held_to(five_rounds):
     fake, records = five_rounds["fake"], five_rounds["result"].records
     by_round = _types_by_round(records)
     for request in fake.of_role("planner"):
-        quota = json.loads(re.findall(r"```json\s*(.*?)```", request.prompt, re.DOTALL)[-1])
+        quota = tagged(request.prompt, "quota")
         assert collections.Counter(quota) == by_round[round_of(request.prompt)]
 
 

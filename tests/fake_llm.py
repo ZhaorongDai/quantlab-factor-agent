@@ -1,12 +1,11 @@
 """A scripted fake of every LLM role, answering from what each request asks for.
 
-The Researcher's prompts end with one fenced JSON block holding what the
-role must answer about: the quota per mechanism type (planner), the
-directions (proposer), the refused candidates (a fix request) or the
-candidates to judge (reviewer). The fake reads that block and the
-``Round: N`` line, and answers through the test's functions, so a script
-holds whatever the quotas turn out to be. Every request is kept in
-``requests``.
+The Researcher's prompts hold what the role must answer about as JSON inside
+an XML tag on lines of its own: ``<quota>`` (planner), ``<directions>``
+(proposer), ``<refused_candidates>`` (a fix request) or ``<candidates>``
+(reviewer). The fake reads that tag and the ``Round: N`` line, and answers
+through the test's functions, so a script holds whatever the quotas turn
+out to be. Every request is kept in ``requests``.
 """
 
 import json
@@ -17,13 +16,18 @@ from factor_agent.config import DEFAULT_MECHANISMS
 from factor_agent.config import ROLES
 from factor_agent.llm.base import Reply, Request
 
-_BLOCK = re.compile(r"```json\s*(.*?)```", re.DOTALL)
 _ROUND = re.compile(r"^Round: (\d+)$", re.MULTILINE)
 
 
-def last_block(prompt: str):
-    """The last fenced JSON block of ``prompt``."""
-    return json.loads(_BLOCK.findall(prompt)[-1])
+def tagged(prompt: str, tag: str):
+    """The JSON between the lines ``<tag>`` and ``</tag>`` of ``prompt``."""
+    [body] = re.findall(rf"^<{tag}>\n(.*?)\n</{tag}>$", prompt, re.DOTALL | re.MULTILINE)
+    return json.loads(body)
+
+
+def has_tag(prompt: str, tag: str) -> bool:
+    """Whether ``prompt`` has the line ``<tag>``."""
+    return re.search(rf"^<{tag}>$", prompt, re.MULTILINE) is not None
 
 
 def round_of(prompt: str) -> int:
@@ -43,8 +47,9 @@ class FakeLLM:
     propose : callable
         ``propose(round, directions)`` returns one candidate item per direction.
     fix : callable, optional
-        ``fix(round, failures)`` returns one item per refused candidate;
-        by default each comes back unchanged.
+        ``fix(round, failures)`` returns one item per refused entry (each
+        with its ``direction``, ``refused_version`` and ``refused_because``);
+        by default each refused version comes back unchanged.
     consistent : callable, optional
         ``consistent(candidate)`` is the reviewer's verdict; by default
         every candidate whose description does not say "inconsistent" passes.
@@ -67,7 +72,7 @@ class FakeLLM:
         cost: float = 0.0, interrupt: Callable | None = None, plan: Callable | None = None,
     ):
         self._propose = propose
-        self._fix = fix or (lambda number, failures: [f["candidate"] for f in failures])
+        self._fix = fix or (lambda number, failures: [f["refused_version"] for f in failures])
         self._consistent = consistent or (lambda candidate: "inconsistent" not in candidate["description"])
         self._cost = cost
         self._interrupt = interrupt or (lambda request: False)
@@ -90,15 +95,16 @@ class FakeLLM:
         return [r for r in self.requests if r.role == role]
 
     def _planner(self, prompt: str) -> str:
-        return reply(self._plan(round_of(prompt), last_block(prompt), prompt))
+        return reply(self._plan(round_of(prompt), tagged(prompt, "quota"), prompt))
 
     def _proposer(self, prompt: str) -> str:
-        number, block = round_of(prompt), last_block(prompt)
-        if isinstance(block, list) and block and "refused_because" in block[0]:
-            items = self._fix(number, block)
-            directions = [failure["direction"] for failure in block]
+        number = round_of(prompt)
+        if has_tag(prompt, "refused_candidates"):
+            failures = tagged(prompt, "refused_candidates")
+            items = self._fix(number, failures)
+            directions = [failure["direction"] for failure in failures]
         else:
-            directions = block
+            directions = tagged(prompt, "directions")
             items = self._propose(number, directions)
         return reply([_typed(item, d) for item, d in zip(items, directions)])
 
@@ -106,7 +112,7 @@ class FakeLLM:
         return reply([
             {"number": c["number"], "consistent": self._consistent(c),
              "reason": "consistent" if self._consistent(c) else "the code does not compute what the description says"}
-            for c in last_block(prompt)
+            for c in tagged(prompt, "candidates")
         ])
 
     def _distiller(self, prompt: str) -> str:

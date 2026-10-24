@@ -14,6 +14,7 @@ vocabulary and the mechanism types, which also set the plan's slots and
 the types a candidate may have.
 """
 
+import dataclasses
 import json
 import re
 from dataclasses import asdict, dataclass
@@ -246,7 +247,7 @@ class Researcher:
         items = [item.previous if isinstance(item, _Missing) else item for _, item, _ in failures]
         listed = [
             {
-                "number": i + 1, "direction": direction.to_dict(), "candidate": item,
+                "number": i + 1, "direction": direction.to_dict(), "refused_version": item,
                 "refused_because": list(attempt.reasons), **({"how_to_write_it": list(attempt.hints)} if attempt.hints else {}),
             }
             for i, ((direction, _, attempt), item) in enumerate(zip(failures, items))
@@ -286,7 +287,26 @@ def _items(text: str, previous: list) -> list:
     except ValueError as exc:
         return [_Missing(str(exc), item) for item in previous]
     short = f"the reply had {len(items)} items for {len(previous)} candidates"
-    return [items[i] if i < len(items) else _Missing(short, item) for i, item in enumerate(previous)]
+    return [_unwrapped(items[i]) if i < len(items) else _Missing(short, item) for i, item in enumerate(previous)]
+
+
+#: The fields of a candidate, as the proposer writes them.
+_CANDIDATE_FIELDS = frozenset(field.name for field in dataclasses.fields(Candidate))
+#: The keys a reply may nest a candidate under when it echoes the entry it answers.
+_NESTED = ("candidate", "refused_version")
+
+
+def _unwrapped(item: object) -> object:
+    """``item``, or the candidate it nests under "candidate" or "refused_version" when it lacks a candidate's fields.
+
+    A reply to a fix request sometimes echoes the refused entry with the
+    corrected candidate inside it; only that shape is unwrapped, so any other
+    item reaches the parser as it came.
+    """
+    if not isinstance(item, dict) or _CANDIDATE_FIELDS <= item.keys():
+        return item
+    nested = [item[key] for key in _NESTED if isinstance(item.get(key), dict)]
+    return nested[0] if nested else item
 
 
 def _direction_problem(item: object, parents: list[str], types: tuple[str, ...]) -> str:
@@ -303,9 +323,10 @@ def _direction_problem(item: object, parents: list[str], types: tuple[str, ...])
 
 
 def _render(context: dict[str, str], keys: tuple[str, ...]) -> str:
-    """The non-empty sections of ``context`` among ``keys``."""
+    """The non-empty sections of ``context`` among ``keys``, each under its heading inside the tag of its key."""
     return "\n\n".join(
-        f"## {heading}\n{context[key]}" for key, heading in SECTIONS if key in keys and context.get(key)
+        f"## {heading}\n<{key}>\n{context[key]}\n</{key}>"
+        for key, heading in SECTIONS if key in keys and context.get(key)
     )
 
 

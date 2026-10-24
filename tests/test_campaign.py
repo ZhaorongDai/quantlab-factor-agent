@@ -48,7 +48,7 @@ STILL_FAILING = [c for c in CANDIDATES if c["description"] in REFUSED[1:]]
 
 
 def _fix(number, failures):
-    return [FIXED if f["candidate"]["description"] == "syntax error" else f["candidate"] for f in failures]
+    return [FIXED if f["refused_version"]["description"] == "syntax error" else f["refused_version"] for f in failures]
 
 
 @pytest.fixture(scope="module")
@@ -156,17 +156,18 @@ def test_the_round_is_compiled_once_with_its_neutralisation(outcome):
     assert 1 <= len(entries) <= 2
 
 
-def _run(root: Path, rounds: list[list[dict]], reference=(), **sections) -> dict:
+def _run(root: Path, rounds: list[list[dict]], reference=(), fix=None, **sections) -> dict:
     """Run a campaign on a fresh synthetic store; ``rounds`` holds the proposer's candidates of each round.
 
-    Each item of ``reference`` makes a reference factor from the prices and the exposures.
+    Each item of ``reference`` makes a reference factor from the prices and the exposures; ``fix``
+    answers the fix requests (``FakeLLM``'s).
     """
     components = synthetic_market.build(root / "data")
     prices, exposures = rebuild(components["prices"]), rebuild(components["exposures"])
     sections["round"] = {"min_per_type": 0, "max_rounds": len(rounds), **sections.get("round", {})}
     made = [factor(prices, exposures).get_config() for factor in reference]
     config_path = write_config(root, components, made, **sections)
-    fake = FakeLLM(lambda number, directions: rounds[number - 1])
+    fake = FakeLLM(lambda number, directions: rounds[number - 1], fix=fix)
     result = run(config_path, fake, root / "kunquant_cache")
     return {"result": result, "run_dir": root / "run", "fake": fake}
 
@@ -300,7 +301,7 @@ def test_a_signal_read_backwards_is_accepted_with_the_direction_its_training_ic_
 def test_the_prompts_name_an_accepted_factors_direction(backwards):
     prompt = backwards["fake"].of_role("proposer")[-1].prompt
     best = prompt.split("Current best mechanisms", 1)[1]
-    assert "direction -1 (a higher value went with a lower return)" in best
+    assert "factor direction -1 (a higher value went with a lower return)" in best
     assert "expected sign" not in prompt.lower() and "expected_sign" not in prompt
 
 
@@ -312,6 +313,34 @@ def test_a_fix_hint_goes_to_the_fix_request_but_not_into_the_recorded_reasons(tm
     [record] = outcome["result"].failed
     assert any("Bad inputs, given" in r for r in record.reasons), record.reasons
     assert not any("ConstantOp(1)" in r for r in record.reasons), record.reasons
+
+
+def _wrapped(number, failures):
+    """A fix reply that echoes each refused entry with the fixed candidate nested under "candidate"."""
+    return [
+        {"number": i + 1, "direction": f["direction"], "refused_because": f["refused_because"],
+         "candidate": {**FIXED, "mechanism_type": f["direction"]["mechanism_type"]}}
+        for i, f in enumerate(failures)
+    ]
+
+
+def test_a_fixed_candidate_nested_under_candidate_in_the_reply_is_read(tmp_path):
+    outcome = _run(tmp_path, [[_candidate("syntax error", "alpha = close /")]], fix=_wrapped,
+                   round={"candidates": 1, "retries": 1})
+    [record] = outcome["result"].records
+    assert record.stage != "parse", record.reasons
+    assert record.candidate["code"] == FIXED["code"]
+
+
+def test_a_reply_item_of_another_shape_still_fails_to_parse(tmp_path):
+    def nested_twice(number, failures):
+        return [{"fixed": {"candidate": FIXED}} for _ in failures]
+
+    outcome = _run(tmp_path, [[_candidate("syntax error", "alpha = close /")]], fix=nested_twice,
+                   round={"candidates": 1, "retries": 1})
+    [record] = outcome["result"].failed
+    assert record.stage == "parse"
+    assert "candidate fields: missing" in record.reasons[0]
 
 
 def test_one_trial_is_judged_as_two_tests_one_per_direction(weak_alone, tmp_path):
