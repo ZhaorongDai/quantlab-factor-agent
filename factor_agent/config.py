@@ -29,21 +29,64 @@ class DataConfig:
     """The data the Evaluator reads.
 
     ``prices`` is the whole-market price dataset, ``label`` the forward
-    label masked by day-t membership, ``membership`` the members of each
-    day (an ``IndexConstituentDataset``) and ``exposures`` the market cap
-    and industry dataset, or a list of datasets, that neutralisation
-    regresses on (``NeutralizedConfig.dataset``).
+    label (masked by day-t membership when there is a membership) and
+    ``membership`` the members of each day (an ``IndexConstituentDataset``)
+    or None, when every symbol is scored.
     """
 
     prices: dict | str
     label: dict | str
-    membership: dict | str
-    exposures: dict | str | list
+    membership: dict | str | None = None
 
     def load(self, name: str) -> Any:
         """Rebuild the component ``name``; a list of components is rebuilt item by item."""
         value = getattr(self, name)
         return [load(item) for item in value] if isinstance(value, list) else load(value)
+
+
+@dataclass(frozen=True)
+class NeutralizeConfig:
+    """What ranked factors are neutralised against.
+
+    ``exposures`` is the dataset, or list of datasets, as components, that
+    holds ``size_column`` (the market cap; its logarithm is regressed on) and
+    ``industry_column`` (the integer industry code).
+    """
+
+    exposures: dict | str | list
+    size_column: str
+    industry_column: str
+
+
+@dataclass(frozen=True)
+class ScoringConfig:
+    """How a factor's raw values become the values that are judged (``factor_agent.scoring``).
+
+    ``neutralize`` is what ranked factors are neutralised against, or None
+    to score them as ranked. It must be given, as null to turn
+    neutralisation off, so no campaign is scored one way by default.
+    """
+
+    neutralize: NeutralizeConfig | None
+
+    @classmethod
+    def from_dict(cls, raw: dict) -> "ScoringConfig":
+        """Read the ``scoring`` section.
+
+        Raises
+        ------
+        TypeError
+            If the section holds another key than ``neutralize``, or ``neutralize`` another key than its fields.
+        KeyError
+            If ``neutralize`` is missing.
+        """
+        unknown = set(raw) - {"neutralize"}
+        if unknown:
+            raise TypeError(f"campaign config: unknown scoring key(s) {sorted(unknown)}")
+        if "neutralize" not in raw:
+            raise KeyError("campaign config: scoring needs neutralize (null to score the ranked values)")
+        neutralize = raw["neutralize"]
+        return cls(neutralize=None if neutralize is None else NeutralizeConfig(**neutralize))
 
 
 def load(component: dict | str) -> Any:
@@ -161,7 +204,7 @@ class AcceptanceConfig:
 
     ``features`` are the baseline model's features (SEL0's), as components;
     empty, the reference set is used. Every feature, and each accepted
-    factor's neutralised values, is read on the members of day t.
+    factor's scored values, is read as the campaign's ``scoring`` reads.
     """
 
     features: tuple = ()
@@ -224,6 +267,7 @@ class CampaignConfig:
     run_dir: str
     segments: Segments
     data: DataConfig
+    scoring: ScoringConfig
     roles: dict
     #: The reference factors, as components; see the module docstring.
     reference: tuple = ()
@@ -257,7 +301,7 @@ class CampaignConfig:
             "evaluator": EvaluatorConfig, "gate": GateConfig,
             "admission": AdmissionConfig, "round": RoundConfig, "acceptance": AcceptanceConfig,
         }
-        unknown = set(raw) - {"run_dir", "segments", "data", "reference", "directions", "llm", *sections}
+        unknown = set(raw) - {"run_dir", "segments", "data", "scoring", "reference", "directions", "llm", *sections}
         if unknown:
             raise TypeError(f"campaign config: unknown section(s) {sorted(unknown)}")
         unknown_roles = set(raw["llm"]) - set(ROLES)
@@ -267,6 +311,7 @@ class CampaignConfig:
             run_dir=raw["run_dir"],
             segments=_segments(raw["segments"]),
             data=DataConfig(**raw["data"]),
+            scoring=ScoringConfig.from_dict(raw["scoring"]),
             roles={role: RoleConfig.from_dict(raw["llm"][role]) for role in ROLES},
             reference=tuple(raw.get("reference") or ()),
             directions=tuple(raw.get("directions") or ()),

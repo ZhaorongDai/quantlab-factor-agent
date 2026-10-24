@@ -2,11 +2,11 @@
 
 It is fixed to one segment when it is made. ``evaluate`` compiles all of a
 round's graphs as one KunQuant graph and computes it on the whole-market
-dataset (the segment plus the warm-up bars before it). Each candidate is
-then put on the footing of the shared ``*_neutral`` stores: ranked across
-the whole market (KunQuant ``Rank``), neutralised against industry and log
-market cap and z-scored by quantlab's ``NeutralizedFactor``, and masked to
-the members of day t (``IndexConstituentDataset.mask``). A batch that does
+dataset (the segment plus the warm-up bars before it). Each candidate, and
+each reference factor, is then scored by the campaign's ``Scoring``: ranked
+across the whole market (KunQuant ``Rank``), neutralised when the scoring
+neutralises, and masked to the members of day t, or kept on every symbol
+without a membership. A batch that does
 not compile or run is bisected until the failing graphs are found; they
 become ``CompileFailure`` and the rest are evaluated.
 
@@ -48,15 +48,14 @@ import pandas as pd
 import xarray as xr
 from KunQuant.Stage import Function
 from quantlab.analysis.factor_report import newey_west_lags, newey_west_t_stat
-from quantlab.factor.config import FactorConfig, NeutralizedConfig, StartClippedConfig
+from quantlab.factor.config import FactorConfig
 from quantlab.factor.kunquant import FactorKunQuant
-from quantlab.factor.predefined.neutralized import NeutralizedFactor
-from quantlab.factor.predefined.start_clipped import StartClippedFactor
 from quantlab.model.evaluation import cross_sectional_rank_ic_series
 from scipy import stats
 
 from factor_agent.exported import ranked_function
 from factor_agent.gate.graph import Graph
+from factor_agent.scoring import Scoring
 from factor_agent.segments import PURGE_BARS, Segment, purge
 from factor_agent.zoo import owner
 
@@ -130,8 +129,8 @@ Admit = Callable[[int, Metrics, int], str | None]
 class _RoundGraph(FactorKunQuant):
     """A batch of graphs as one factor, one whole-market rank per candidate.
 
-    ``compute`` keeps its last result, so the ``NeutralizedFactor`` that wraps
-    it reads the panel the bisection already computed instead of computing
+    ``compute`` keeps its last result, so the scored factor that wraps it
+    (a ``NeutralizedFactor`` when the scoring neutralises) reads the panel the bisection already computed instead of computing
     it again.
     """
 
@@ -168,15 +167,14 @@ class Evaluator:
     """
 
     def __init__(
-        self, segment: Segment, prices, label, membership, exposures, reference: Sequence,
+        self, segment: Segment, prices, label, scoring: Scoring, reference: Sequence,
         warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS,
     ):
         self._segment = segment
         self._purge_bars = purge_bars
         self._prices = prices
         self._label = label
-        self._membership = membership
-        self._exposures = exposures
+        self._scoring = scoring
         self._reference = tuple(reference)
         self._warmup_bars = warmup_bars
         self._njobs = njobs
@@ -184,7 +182,7 @@ class Evaluator:
 
     @classmethod
     def for_segment(
-        cls, segment: Segment, *, prices, label, membership, exposures, reference: Sequence = (),
+        cls, segment: Segment, *, prices, label, scoring: Scoring, reference: Sequence = (),
         warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS,
     ) -> "Evaluator":
         """Return an evaluator of ``segment``.
@@ -196,23 +194,19 @@ class Evaluator:
         prices : quantlab dataset
             The whole-market adjusted bars the graphs run on.
         label : quantlab label
-            The forward return, masked to the members of day t, read from
-            its store.
-        membership : quantlab IndexConstituentDataset
-            The members of each day; candidates and reference factors are
-            masked to them.
-        exposures : quantlab dataset or list of datasets
-            The market cap and industry code ``NeutralizedFactor`` regresses
-            on (its ``dataset``).
+            The forward return, read from its store; only the symbols it
+            has a value for on a date are scored on that date.
+        scoring : Scoring
+            How candidates are scored and reference factors read.
         reference : sequence of quantlab factors
             The reference set: every output enters the pool. A factor with
-            a store is read from it, any other is computed.
+            a store is read from it, any other is computed (``Scoring.read``).
         warmup_bars, njobs : int
             Warm-up bars and KunQuant executor threads.
         purge_bars : int
             The fewest bars dropped at the end of the segment (``segments.purge``).
         """
-        return cls(segment, prices, label, membership, exposures, reference, warmup_bars, njobs, purge_bars)
+        return cls(segment, prices, label, scoring, reference, warmup_bars, njobs, purge_bars)
 
     @property
     def segment(self) -> Segment:
@@ -291,21 +285,13 @@ class Evaluator:
         return self._frame
 
     def _reference_scores(self, factor) -> Iterator[tuple[str, list[np.ndarray]]]:
-        """Yield ``(name, daily normal scores)`` of every output of a reference factor, masked to day-t members.
-
-        The outputs are read one at a time, so only one of them is in memory as a full panel. A
-        stored factor is read from its store's first bar on: it has no value, so no score, before.
-        """
-        start, end = self._segment.start, self._segment.end
-        clipped = StartClippedFactor(StartClippedConfig(factor=factor))
-        panel = clipped.read(start, end) if factor.store_range() is not None else factor.compute(start, end)
+        """Yield ``(name, daily normal scores)`` of every output of a reference factor, as ``Scoring.read`` reads it."""
         source = type(owner(factor)).__name__
-        for name in factor.get_factor_names():
-            masked = self._membership.mask(panel[[name]])[name]
-            yield f"{name} ({source})", self._frame.daily_scores(self._frame.on_axes(masked))
+        for name, values in self._scoring.read(factor, self._segment.start, self._segment.end):
+            yield f"{name} ({source})", self._frame.daily_scores(self._frame.on_axes(values))
 
     def _values(self, graphs: list[Graph], frame: "_Frame") -> list["np.ndarray | CompileFailure"]:
-        """Each graph's ranked, neutralised and masked values, bisecting a batch that fails."""
+        """Each graph's scored values, bisecting a batch that fails."""
         columns = sorted({name for graph in graphs for name in graph.input_names})
         factor = _RoundGraph(
             FactorConfig(
@@ -322,8 +308,7 @@ class Evaluator:
                 return [CompileFailure(f"{type(exc).__name__}: {exc}")]
             half = len(graphs) // 2
             return self._values(graphs[:half], frame) + self._values(graphs[half:], frame)
-        neutral = NeutralizedFactor(NeutralizedConfig(factor=factor, dataset=self._exposures, njobs=self._njobs))
-        panel = self._membership.mask(neutral.compute(start, end))
+        panel = self._scoring.mask(self._scoring.apply(factor).compute(start, end))
         return [frame.on_axes(panel[_output_name(i)]) for i in range(len(graphs))]
 
 

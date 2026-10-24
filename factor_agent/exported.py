@@ -1,7 +1,7 @@
 """Accepted factors as quantlab factors: a ``FactorKunQuant`` whose outputs are recorded graphs.
 
 Each output is a candidate's graph ranked across the whole market (KunQuant
-``Rank``), the values the Evaluator neutralises and scores, built by the
+``Rank``), the values the Evaluator scores (``factor_agent.scoring``), built by the
 same ``ranked_function``. ``Acceptance.export`` writes one module per
 factor, a subclass of ``GraphFactor`` that fixes ``GRAPHS``;
 ``Acceptance.validate`` uses ``GraphFactor`` itself, with the graphs in

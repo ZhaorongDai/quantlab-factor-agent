@@ -2,20 +2,21 @@
 
 ``validate`` trains the xgb of ``AcceptanceConfig`` twice per seed: on the
 baseline features (``features``, or the reference set) and on those plus
-every factor the campaign accepted, all read on the members of day t. It
-trains on the training segment and predicts the validation segment, both
-purged by ``Segments``. Each accepted
-factor enters the model as the Evaluator scored it: its graph ranked across
-the whole market, neutralised against industry and log market cap (a
-``NeutralizedFactor`` store written under the run directory), read on the
-members of day t.
+every factor the campaign accepted, all read through the campaign's
+``Scoring`` (on the members of day t, or on every symbol without a
+membership). It trains on the training segment and predicts the validation
+segment, both purged by ``Segments``. Each accepted factor enters the model
+as the Evaluator scored it: its graph ranked across the whole market and
+neutralised when the scoring neutralises (a store written under the run
+directory), read as the scoring reads.
 
 ``open_holdout`` makes the same comparison on the hold-out, trained on the
 training and validation segments. It first records the open in the lock
 (``Segments.open_holdout``): a second open is refused unless forced, and a
 forced one is stated in its report.
 
-The comparison, on the members of each day of the predicted segment and
+The comparison, on the members of each day of the predicted segment (every
+symbol without a membership) and
 against the label the model trains on, per model and averaged over seeds:
 
 - ``rank_ic``, ``ic``: the mean daily rank and Pearson IC of the prediction;
@@ -31,7 +32,7 @@ against the label the model trains on, per model and averaged over seeds:
 
 ``export`` writes each named accepted factor as a module of
 ``AcceptanceConfig.package`` holding a ``GraphFactor`` subclass, and its
-whole-market store, the ranked graph neutralised as above, under
+whole-market store, the ranked graph scored as above (neutralised or not), under
 ``factor_root/<name>/`` with ``README.md`` and ``component.json``.
 """
 
@@ -49,13 +50,7 @@ import numpy as np
 import xarray as xr
 from quantlab.config import get_data_root
 from quantlab.core.store_folder import save_component
-from quantlab.factor.config import (
-    FactorConfig, MembershipMaskedFactorConfig, NeutralizedConfig, RosterConfig, StartClippedConfig,
-)
-from quantlab.factor.predefined.membership_mask import MembershipMaskedFactor
-from quantlab.factor.predefined.neutralized import NeutralizedFactor
-from quantlab.factor.predefined.roster import RosterFactor
-from quantlab.factor.predefined.start_clipped import StartClippedFactor
+from quantlab.factor.config import FactorConfig
 from quantlab.model.config import ModelConfig
 from quantlab.model.evaluation import cross_sectional_ic_series, cross_sectional_rank_ic_series
 from quantlab.model.predefined.xgb import XGBoostRegressor
@@ -66,6 +61,7 @@ from factor_agent.config import CampaignConfig, load
 from factor_agent.evaluator import decile_returns
 from factor_agent.exported import GraphFactor
 from factor_agent.ledger import Ledger, TrialRecord
+from factor_agent.scoring import Scoring
 from factor_agent.segments import HoldoutLock, Segment, code_version
 
 #: Bars a year, for ``top_k_annualised``.
@@ -267,9 +263,9 @@ class Acceptance:
                 importlib.invalidate_caches()
                 factor_class = getattr(importlib.import_module(f"{package.__name__}.{name}"), _class_name(name))
                 factor = factor_class(self._factor_config(factor_class.GRAPHS))
-                neutral = self._neutralised(factor, folder / f"{name}.zarr")
-                neutral.build(start, end)
-                save_component(neutral, folder, readme=self._readme(name, record, factor_class, start, end))
+                scored = self._scoring().apply(factor, folder / f"{name}.zarr")
+                scored.build(start, end)
+                save_component(scored, folder, readme=self._readme(name, record, factor_class, start, end))
             except BaseException:  # leave nothing half written, so the export can be run again
                 module.unlink(missing_ok=True)
                 shutil.rmtree(folder, ignore_errors=True)
@@ -284,7 +280,7 @@ class Acceptance:
         if not records:
             raise ValueError(f"acceptance: {self.run_dir} has no accepted factor")
         settings, segments = self.config.acceptance, self.config.segments
-        label, membership = self._data("label"), self._data("membership")
+        label, scoring = self._data("label"), self._scoring()
         calendar = self._data("prices").calendar(segments.training.start, segment.end)
         lookahead = label.lookahead_bars()
         train_window = (segments.training.start, segments.scored(trained_to, calendar, lookahead)[1])
@@ -293,7 +289,7 @@ class Acceptance:
         if len(outputs) != len(records):
             raise ValueError("acceptance: two accepted factors share a label (description and round)")
         accepted = self._accepted_feature(records, list(outputs.values()), test_window[1])
-        baseline_features = [self._on_members(load(c)) for c in (settings.features or self.config.reference)]
+        baseline_features = [scoring.on_members(load(c)) for c in (settings.features or self.config.reference)]
         if not baseline_features:
             raise ValueError("acceptance: the baseline has no feature (neither acceptance.features nor reference)")
         name = label.get_factor_names()[0]
@@ -317,7 +313,7 @@ class Acceptance:
                 else:
                     head.use_panel(panel)
                 run = TrainedRun.open(head.train())
-                predictions = membership.mask(xr.open_zarr(run.test_predictions)[[name]].load())[name]
+                predictions = scoring.mask(xr.open_zarr(run.test_predictions)[[name]].load())[name]
                 results[kind].append(self._result(seed, predictions, truth, label.span_bars(), str(run.path)))
         report = AcceptanceReport(
             segment=segment.name, train_window=train_window, test_window=test_window, seeds=settings.seeds,
@@ -362,26 +358,19 @@ class Acceptance:
             )
 
     def _accepted_feature(self, records: list[TrialRecord], outputs: list[str], end: str):
-        """The accepted factors, neutralised, from a store under the run directory, on day-t members."""
+        """The accepted factors, scored, from a store under the run directory, read as the scoring reads."""
         graphs = dict(zip(outputs, (r.graph for r in records)))
         factor = GraphFactor(self._factor_config(graphs, kwargs={"graphs": graphs}))
         folder = self.run_dir / "acceptance" / "accepted"
-        neutral = self._neutralised(factor, folder / "accepted.zarr")
+        scored = self._scoring().apply(factor, folder / "accepted.zarr")
         start = self.config.segments.training.start
-        built = {"start": start, "end": end, "config": neutral.get_config()}
+        built = {"start": start, "end": end, "config": scored.get_config()}
         record = folder / "accepted.json"
         if not record.exists() or json.loads(record.read_text()) != json.loads(json.dumps(built)):
             shutil.rmtree(folder, ignore_errors=True)
-            neutral.build(start, end)
+            scored.build(start, end)
             record.write_text(json.dumps(built) + "\n")
-        return self._on_members(neutral)
-
-    def _on_members(self, factor) -> MembershipMaskedFactor:
-        """``factor`` read from its store's first bar on, on the membership's roster, masked to the members of day t."""
-        membership = self._data("membership")
-        clipped = StartClippedFactor(StartClippedConfig(factor=factor))
-        viewed = RosterFactor(RosterConfig(factor=clipped, roster=membership))
-        return MembershipMaskedFactor(MembershipMaskedFactorConfig(factor=viewed, membership=membership))
+        return self._scoring().on_members(scored)
 
     # Shared.
 
@@ -391,10 +380,13 @@ class Acceptance:
             data_columns=GraphFactor.data_columns(graphs), njobs=self.config.evaluator.njobs, kwargs=kwargs,
         )
 
-    def _neutralised(self, factor, path: Path) -> NeutralizedFactor:
-        return NeutralizedFactor(NeutralizedConfig(
-            factor=factor, dataset=self._data("exposures"), file_path=str(path), njobs=self.config.evaluator.njobs,
-        ))
+    def _scoring(self) -> Scoring:
+        """The campaign's scoring, the one its Evaluator admitted with, built once."""
+        if "scoring" not in self._loaded:
+            self._loaded["scoring"] = Scoring.from_config(
+                self.config.scoring, self.config.data, njobs=self.config.evaluator.njobs,
+            )
+        return self._loaded["scoring"]
 
     def _data(self, name: str):
         """A data component of the config, rebuilt once."""
@@ -434,8 +426,8 @@ class Acceptance:
             f"- Mechanism type: {candidate['mechanism_type']}; expected sign: {candidate['expected_sign']:+d}.",
             f"- Horizon: {candidate['horizon_rationale']}",
             f"- Reference: {candidate['reference']}",
-            f"- Output `{name}`: the graph ranked across the whole market, then neutralised against industry "
-            "and log market cap (`NeutralizedFactor`), as the shared `*_neutral` stores are.", "",
+            f"- Output `{name}`: the graph's whole-market values as the campaign scored them "
+            f"({self._scoring().describe()}); the store is not masked to members.", "",
             "```python", candidate["code"], "```", "",
             "## How it was made", "",
             f"- Proposed and accepted in round {record.round} of the factor-agent campaign `{self.run_dir}` "

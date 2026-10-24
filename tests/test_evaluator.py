@@ -26,6 +26,7 @@ from factor_agent.config import GateConfig
 from factor_agent.evaluator import CompileFailure, Evaluator, Metrics
 from factor_agent.gate import Gate
 from factor_agent.gate.graph import Graph
+from factor_agent.scoring import Neutralization, Scoring
 from factor_agent.segments import Segment
 from factor_agent.zoo import Zoo
 from tests import synthetic_market
@@ -43,11 +44,17 @@ def market(tmp_path_factory):
         yield {name: rebuild(component) for name, component in components.items()}
 
 
-def _evaluator(market, reference=()) -> Evaluator:
+def _scoring(market, neutralised=True, membership=True) -> Scoring:
+    """The campaign's scoring, or one without neutralisation or without membership."""
+    neutralization = Neutralization(market["exposures"], "marketcap", "industry") if neutralised else None
+    return Scoring(market["membership"] if membership else None, neutralization, njobs=4)
+
+
+def _evaluator(market, reference=(), scoring=None, label=None) -> Evaluator:
     return Evaluator.for_segment(
         Segment("training", *synthetic_market.TRAINING),
-        prices=market["prices"], label=market["label"], membership=market["membership"],
-        exposures=market["exposures"], reference=reference, warmup_bars=WARMUP, njobs=4,
+        prices=market["prices"], label=label or market["label"], scoring=scoring or _scoring(market),
+        reference=reference, warmup_bars=WARMUP, njobs=4,
     )
 
 
@@ -91,12 +98,13 @@ def _same(a: Metrics, b: Metrics) -> bool:
     return json.dumps(a.to_dict()) == json.dumps(b.to_dict())
 
 
-def _ic_of(market, panel) -> tuple[float, float]:
-    """Mean daily rank IC and its NW t of ``panel`` masked to members, on the dates the evaluator scores."""
-    label_factor = market["label"]
+def _ic_of(market, panel, label_factor=None, masked=True) -> tuple[float, float]:
+    """Mean daily rank IC and its NW t of ``panel``, masked to members unless not ``masked``, on the scored dates."""
+    label_factor = label_factor or market["label"]
     label = label_factor.read(*synthetic_market.TRAINING)[label_factor.get_factor_names()[0]]
     label = label.isel(timestamp=slice(0, label.sizes["timestamp"] - label_factor.lookahead_bars()))
-    values = market["membership"].mask(panel)["intraday"].reindex(timestamp=label["timestamp"], symbol=label["symbol"])
+    panel = market["membership"].mask(panel) if masked else panel
+    values = panel["intraday"].reindex(timestamp=label["timestamp"], symbol=label["symbol"])
     ic = cross_sectional_rank_ic_series(values.values, label.values)
     series = pd.Series(ic[np.isfinite(ic)])
     t_stat, _ = newey_west_t_stat(series, newey_west_lags(len(series), label_factor.span_bars()))
@@ -115,6 +123,36 @@ def test_neutralisation_matches_quantlabs_neutralised_factor(market):
 
     assert (metrics.ic_mean, metrics.ic_t) == pytest.approx(expected, rel=1e-9)
     assert abs(metrics.ic_mean - unneutralised[0]) > 1e-4
+
+
+def _ranked_intraday(market) -> "_RankedIntraday":
+    return _RankedIntraday(FactorConfig(
+        warmup_bars=WARMUP, dataset=market["prices"], mode="batch", data_columns=("adjOpen", "adjClose"), njobs=4,
+    ))
+
+
+def test_without_neutralisation_the_ranked_values_are_scored(market):
+    expected = _ic_of(market, _ranked_intraday(market).compute(*synthetic_market.TRAINING))
+
+    [metrics] = _evaluator(market, scoring=_scoring(market, neutralised=False)).evaluate(
+        [_graph("alpha = (close - open) / open")]
+    )
+
+    assert (metrics.ic_mean, metrics.ic_t) == pytest.approx(expected, rel=1e-9)
+
+
+def test_without_membership_every_symbol_is_scored(market):
+    # The planted intraday signal has the stated sign on the members and the reverse on the rest.
+    whole_market = market["market_label"]
+    expected = _ic_of(market, _ranked_intraday(market).compute(*synthetic_market.TRAINING), whole_market, masked=False)
+    on_members = _ic_of(market, _ranked_intraday(market).compute(*synthetic_market.TRAINING), whole_market)
+
+    [metrics] = _evaluator(
+        market, scoring=_scoring(market, neutralised=False, membership=False), label=whole_market,
+    ).evaluate([_graph("alpha = (close - open) / open")])
+
+    assert (metrics.ic_mean, metrics.ic_t) == pytest.approx(expected, rel=1e-9)
+    assert on_members[0] > 0.1 > abs(expected[0])
 
 
 def test_a_batch_with_a_graph_that_fails_to_compile_returns_metrics_for_every_other_graph(market):
@@ -224,3 +262,14 @@ def test_a_one_tail_signal_has_flat_inner_deciles(market):
     returns = metrics.decile_returns
     assert len(returns) == 10
     assert returns[-1] - max(returns[:-1]) > 0.5 * (returns[-1] - min(returns))
+
+
+def test_the_scoring_says_in_one_sentence_what_is_done(market):
+    assert _scoring(market).describe() == (
+        "A factor is ranked across the whole market each day, neutralised against the industry (industry) and "
+        "the logarithm of the market cap (marketcap) and z-scored, and scored on the members of the research "
+        "universe that day."
+    )
+    assert _scoring(market, neutralised=False, membership=False).describe() == (
+        "A factor is ranked across the whole market each day, not neutralised, and scored on every symbol."
+    )

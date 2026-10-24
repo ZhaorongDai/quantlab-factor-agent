@@ -6,12 +6,16 @@ the reference set and the baseline model's only feature; its store starts
 inside the training segment, as the shared intraday stores start after
 theirs. The segments put
 training on ``TRAINING``, validation on 2012 and the hold-out on 2013.
+
+A second campaign scores without neutralisation and without membership, on
+the label of every symbol.
 """
 
 import json
 
 import numpy as np
 import pytest
+import xarray as xr
 from KunQuant.Op import Output, Rank
 from KunQuant.Stage import Function
 from quantlab.core.component import rebuild
@@ -20,6 +24,7 @@ from quantlab.factor.config import FactorConfig, NeutralizedConfig, PolarsFactor
 from quantlab.factor.kunquant import FactorKunQuant
 from quantlab.factor.kunquant_compile import CACHE_ENV
 from quantlab.factor.predefined.neutralized import NeutralizedFactor
+from quantlab.runs.trained_run import TrainedRun
 
 from factor_agent.acceptance import COMPARED, Acceptance
 from factor_agent.config import CampaignConfig
@@ -44,9 +49,8 @@ PACKAGE = "exported_for_test"
 MOMENTUM_START = "2011-01-03"
 
 
-@pytest.fixture(scope="module")
-def campaign(tmp_path_factory):
-    root = tmp_path_factory.mktemp("acceptance")
+def _campaign(root, scoring: bool):
+    """A campaign of ``CANDIDATES``, scored as the default campaign or ranked only on every symbol."""
     components = synthetic_market.build(root / "data")
     momentum = synthetic_market.AdjustedMomentum(PolarsFactorConfig(
         warmup_bars=20, dataset=rebuild(components["prices"]),
@@ -55,12 +59,24 @@ def campaign(tmp_path_factory):
     momentum.build(MOMENTUM_START, synthetic_market.END)
     (root / "packages" / PACKAGE).mkdir(parents=True)
     (root / "packages" / PACKAGE / "__init__.py").write_text("")
+    unscored = {} if scoring else {
+        "data": {"prices": components["prices"], "label": components["market_label"]},
+        "scoring": {"neutralize": None},
+    }
     config_path = write_config(
         root, components, [momentum.get_config()], segments=SEGMENTS,
         round={"candidates": len(CANDIDATES), "min_per_type": 0, "max_rounds": 1},
         acceptance={"hyperparameters": TINY_XGB, "top_k": 20, "factor_root": str(root / "factors"), "package": PACKAGE},
+        **unscored,
     )
     result = run(config_path, FakeLLM(lambda number, directions: CANDIDATES), root / "kunquant_cache")
+    return config_path, result
+
+
+@pytest.fixture(scope="module")
+def campaign(tmp_path_factory):
+    root = tmp_path_factory.mktemp("acceptance")
+    config_path, result = _campaign(root, scoring=True)
     assert [r.candidate["description"] for r in result.accepted] == ["planted", "volume"]
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv(CACHE_ENV, str(root / "kunquant_cache"))
@@ -189,3 +205,44 @@ def test_an_export_refuses_an_existing_name_and_an_unknown_factor(campaign, expo
     assert not list((campaign["root"] / "factors").glob("twice"))
     with pytest.raises(KeyError, match="names 0 accepted"):
         campaign["acceptance"].export({"never accepted": "nothing"})
+
+
+@pytest.fixture(scope="module")
+def unscored(tmp_path_factory):
+    """The campaign ranked only, on every symbol; it exports into its own package directory."""
+    root = tmp_path_factory.mktemp("unscored")
+    config_path, result = _campaign(root, scoring=False)
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv(CACHE_ENV, str(root / "kunquant_cache"))
+        patch.syspath_prepend(str(root / "packages"))
+        acceptance = Acceptance(CampaignConfig.from_file(config_path))
+        yield {"root": root, "acceptance": acceptance, "result": result}
+
+
+def test_without_membership_the_signal_that_holds_on_members_only_is_not_accepted(unscored):
+    # The planted intraday signal reverses off the members, so on every symbol it says nothing.
+    assert [r.candidate["description"] for r in unscored["result"].accepted] == ["volume"]
+
+
+def test_without_membership_acceptance_predicts_every_symbol(unscored):
+    report = unscored["acceptance"].validate()
+    late = f"S{synthetic_market.MEMBERS:03d}"  # a member only from LATE_JOIN, after validation
+    for result in (*report.baseline, *report.with_accepted):
+        assert result.n_days > 200 and np.isfinite(result.rank_ic)
+        predictions = xr.open_zarr(TrainedRun.open(result.run).test_predictions)
+        assert np.isfinite(predictions.sel(symbol=late).to_array().values).mean() > 0.9
+
+
+def test_without_neutralisation_the_exported_store_holds_the_ranked_graph(unscored):
+    [folder] = unscored["acceptance"].export({"volume": "volume_ranked"})
+    store = load_component(folder)
+    record = unscored["result"].accepted[0]
+    _Evaluated.graph = record.graph
+    evaluated = _Evaluated(FactorConfig(
+        warmup_bars=60, dataset=store.config.dataset, mode="batch", data_columns=("adjVolume",), njobs=4,
+    ))
+    window = synthetic_market.TRAINING
+    stored = store.read(*window)["volume_ranked"].values
+    assert np.isfinite(stored).mean() > 0.9
+    assert np.array_equal(stored, evaluated.compute(*window)["evaluated"].values, equal_nan=True)
+    assert "not neutralised" in (folder / "README.md").read_text()

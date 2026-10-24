@@ -148,8 +148,8 @@ def _write_dataset(root: Path, name: str, values: dict[str, np.ndarray], timesta
 def build(root: Path) -> dict:
     """Write the stores under ``root`` and return the component configs a campaign config holds.
 
-    Returns ``{"prices": ..., "label": ..., "membership": ..., "exposures": ...}``,
-    each a ``get_config()`` dict.
+    Returns ``{"prices": ..., "label": ..., "membership": ..., "exposures": ..., "market_label": ...}``,
+    each a ``get_config()`` dict; ``market_label`` is the label on every symbol, not masked by membership.
     """
     root = Path(root)
     timestamps = pd.bdate_range(START, END)
@@ -174,4 +174,5 @@ def build(root: Path) -> dict:
     return {
         "prices": prices.get_config(), "label": label.get_config(),
         "membership": membership.get_config(), "exposures": exposures.get_config(),
+        "market_label": ret.get_config(),
     }

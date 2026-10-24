@@ -52,6 +52,7 @@ from factor_agent.ledger import Ledger, TrialRecord
 from factor_agent.llm.base import LLMBackend, make_backend
 from factor_agent.llm.log import LLMLog, RecordingBackend
 from factor_agent.researcher import BudgetExhausted, Proposal, Researcher
+from factor_agent.scoring import Scoring
 from factor_agent.zoo import Zoo
 
 
@@ -180,8 +181,7 @@ class Campaign:
             config.training,
             prices=config.data.load("prices"),
             label=config.data.load("label"),
-            membership=config.data.load("membership"),
-            exposures=config.data.load("exposures"),
+            scoring=Scoring.from_config(config.scoring, config.data, njobs=config.evaluator.njobs),
             reference=reference,
             warmup_bars=config.evaluator.warmup_bars,
             njobs=config.evaluator.njobs,

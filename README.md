@@ -16,9 +16,10 @@ parameter-only variants, large shared subtrees and hypotheses that name an input
 the graph never uses, sending the refused ones back to be fixed; the reviewer, in its own call
 (possibly another backend), judges each candidate's hypothesis, description and code for
 consistency and an inconsistent one is rejected unevaluated. The `Evaluator` compiles the rest as
-one KunQuant graph and scores them on the training segment: ranked over the whole market,
-neutralised against industry and log market cap, masked to the day-t members, against the 5-day
-label (rank IC, partial IC residualised on the reference and accepted factors, correlation with each,
+one KunQuant graph and scores them on the training segment, as the config's `scoring` says (ranked
+over the whole market; neutralised against `scoring.neutralize`'s exposures, size and industry columns, or
+not when it is null; masked to the day-t members of `data.membership`, or on every symbol without one),
+against the label (rank IC, partial IC residualised on the reference and accepted factors, correlation with each,
 deciles). Admission requires the stated sign, correlation at most 0.7, a partial-IC Newey-West t above
 a threshold that rises with the evaluated trials, and monotone deciles.
 
@@ -76,7 +77,7 @@ acceptance:
 ```
 
 - `validate()` trains the xgb per seed on the baseline features and on those plus every accepted
-  factor (ranked, neutralised and read on the day-t members, as the Evaluator scored it), up to the
+  factor (through the same `scoring` the Evaluator admitted with), up to the
   purged end of training, and predicts the purged validation segment. It reports, per seed and on
   average, rank IC, IC, decile monotonicity, D10−D1, and the fee-free plain TopK return and excess
   (`<run_dir>/acceptance/validation.{json,md}`).

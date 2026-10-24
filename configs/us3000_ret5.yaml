@@ -93,9 +93,15 @@ data:
       as_of: null
     name: quantlab.label.predefined.membership_mask.MembershipMaskedLabel
   membership: /data/quantlab/universe/us3000/membership_estu
-  exposures:
-  - /data/quantlab/market/sharadar/sharadar_daily_1d
-  - /data/quantlab/market/sharadar/sharadar_industry_1d
+# Ranked across the market, neutralised against industry and log market cap, as the shared
+# *_neutral stores are; masked to the members of day t (data.membership).
+scoring:
+  neutralize:
+    exposures:
+    - /data/quantlab/market/sharadar/sharadar_daily_1d
+    - /data/quantlab/market/sharadar/sharadar_industry_1d
+    size_column: marketcap
+    industry_column: industry
 reference:
   # alpha101_neutral: 70
   - store: /data/quantlab/factors/market/alpha101_neutral
