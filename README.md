@@ -16,8 +16,10 @@ refuses rewrites of the zoo (the KunQuant graphs of the `reference` factors plus
 parameter-only variants and large shared subtrees, sending the refused ones back to be fixed; the
 reviewer, in its own call (possibly another backend) and with the data section's field descriptions,
 judges each candidate's hypothesis, description and code for consistency, the inputs and
-transformations the hypothesis says the factor is built from included. An inconsistent candidate is
-sent back once to be rewritten, with the reviewer's reason; the rewrite passes the Gate once (a
+transformations the hypothesis says the factor is built from included; it is told each candidate's
+output unit as the Gate infers it, and a factor whose value carries a unit (a price, a dollar amount,
+a share count) needs a hypothesis about that level. An inconsistent candidate is
+sent back once to be rewritten, with the reviewer's reason and its output unit; the rewrite passes the Gate once (a
 refusal fails it) and is reviewed once more, and one still inconsistent is rejected unevaluated. The `Evaluator` compiles the rest as
 one KunQuant graph and scores them on the training segment, as the config's `scoring` says (ranked
 over the whole market; neutralised against `scoring.neutralize`'s exposures, size and industry columns, or

@@ -114,7 +114,7 @@ def test_the_fix_request_asks_for_each_corrected_candidate_itself(lunar):
     assert all("refused_version" in entry and "candidate" not in entry for entry in entries)
     ending = fix[fix.index("</refused_candidates>"):]
     assert "corrected candidate object itself" in ending
-    assert 'Leave out "number", "direction", "refused_because" and "how_to_write_it"' in ending
+    assert 'Leave out "number", "direction", "output_unit", "refused_because" and "how_to_write_it"' in ending
     [skeleton] = _JSON_FENCE.findall(fix)
     assert all(f'"{field}"' in skeleton for field in candidate("x", "y"))
     assert "refused_version" not in skeleton and '"direction"' not in skeleton
@@ -357,3 +357,23 @@ def test_with_the_defaults_the_proposer_prompt_carries_every_section_in_order(de
         "Operators:", "Parameter values", "Builtins:", "\n</vocabulary>\n", "\n<directions>\n", "\n</directions>\n",
         "Now write one candidate", '"horizon_rationale": why the effect plays out over about 5 bars', "```json",
     ]), propose.prompt
+
+
+def test_the_code_rules_ask_for_a_value_comparable_across_the_cross_section(lunar):
+    for request in (r for r in lunar.requests if _kind(r) in ("proposer", "fix")):
+        rules = request.prompt[request.prompt.index("How to write the code:"):request.prompt.index("\n<vocabulary>\n")]
+        rules = " ".join(rules.split())
+        assert "comparable across the cross-section" in rules and "pure number" in rules
+        assert all(word in rules for word in ("ratio", "return", "rank", "z-score"))
+        assert all(word in rules for word in ("a price", "a dollar amount", "a share count"))
+        assert "unless the mechanism is about that level" in rules
+
+
+def test_the_reviewer_asks_a_factor_with_a_unit_to_explain_ranking_by_that_level(lunar):
+    review = lunar.of_role("reviewer")[0].prompt
+    head = " ".join(review[:review.index("\n<candidates>\n")].split())
+    assert '"output_unit"' in head and "unknown" in head
+    criteria = " ".join(review[review.index("</candidates>"):review.index("Otherwise it is consistent")].split())
+    assert "6. " in criteria and "output_unit" in criteria
+    assert "Amihud" in criteria and "per dollar traded" in criteria
+    assert "vwap" in criteria and "trend" in criteria and "dividing by" in criteria

@@ -374,7 +374,7 @@ class Campaign:
         evaluated = sum(r.evaluated for r in earlier)
         records = [self._failed(number, p) if p.checked is None else None for p in proposals]
         gated = [i for i, p in enumerate(proposals) if p.checked is not None]
-        verdicts = researcher.review(number, [proposals[i].candidate for i in gated])
+        verdicts = researcher.review(number, [proposals[i] for i in gated])
         passed = [i for i, verdict in zip(gated, verdicts) if verdict.consistent]
         sent_back = [(i, verdict) for i, verdict in zip(gated, verdicts) if not verdict.consistent]
         proposals = list(proposals)
@@ -384,7 +384,7 @@ class Campaign:
             if rewrite.checked is None:
                 records[i] = self._failed(number, rewrite)
         rewritten = [i for i, _ in sent_back if proposals[i].checked is not None]
-        for i, verdict in zip(rewritten, researcher.review(number, [proposals[i].candidate for i in rewritten])):
+        for i, verdict in zip(rewritten, researcher.review(number, [proposals[i] for i in rewritten])):
             if verdict.consistent:
                 passed.append(i)
             else:

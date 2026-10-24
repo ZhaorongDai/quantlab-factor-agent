@@ -306,3 +306,29 @@ def test_an_interrupted_campaign_resumes_from_the_last_written_round(tmp_path_fa
     assert result.rounds == 4 and result.stop.by == "max_rounds"
     assert {round_of(r.prompt) for r in fresh.requests} == {3, 4}
     assert (resumed / "run" / "ledger.jsonl").read_text() == (straight / "run" / "ledger.jsonl").read_text()
+
+
+SLOPE = candidate("price slope", "alpha = WindowedLinearRegressionSlope(close, 20)")
+
+
+def slope_and_move(number, directions):
+    """A factor in price units, one that is a pure number, and noise in the other slots."""
+    return [SLOPE, SIGNALS[0], *(noise(number, slot) for slot in range(2, len(directions)))]
+
+
+def test_the_reviewer_is_told_each_candidates_output_unit(tmp_path, market):
+    fake = FakeLLM(slope_and_move)
+    _campaign(tmp_path, market, fake, max_rounds=1)
+    [review] = fake.of_role("reviewer")
+    units = {c["description"]: c["output_unit"] for c in tagged(review.prompt, "candidates")}
+    assert units["price slope"] == "price"
+    assert units["intraday move"] == "pure number"
+
+
+def test_a_candidate_sent_back_by_the_reviewer_is_listed_in_the_rewrite_request_with_its_output_unit(tmp_path, market):
+    fake = FakeLLM(slope_and_move, consistent=lambda c: c["description"] != "price slope")
+    _campaign(tmp_path, market, fake, max_rounds=1)
+    [fix_request] = _fix_requests(fake)
+    [entry] = tagged(fix_request.prompt, "refused_candidates")
+    assert entry["refused_version"]["description"] == "price slope"
+    assert entry["output_unit"] == "price"

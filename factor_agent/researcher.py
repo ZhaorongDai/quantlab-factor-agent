@@ -99,6 +99,14 @@ class Proposal:
     attempts: tuple[Attempt, ...]
 
 
+def output_unit(checked: Passed) -> str:
+    """The unit of a gated graph's output, as the Gate's dimension inference names it: "price", "pure number"...
+
+    "unknown" where the inference cannot say, as for the log of a price.
+    """
+    return checked.stats.get("dimension", "unknown")
+
+
 class BudgetExhausted(RuntimeError):
     """The calls have cost the budget; no further call is sent."""
 
@@ -200,15 +208,19 @@ class Researcher:
                 items[slot] = item
         return proposals
 
-    def review(self, number: int, candidates: list[Candidate]) -> list[Verdict]:
-        """Judge each candidate's consistency, in one call.
+    def review(self, number: int, proposals: list[Proposal]) -> list[Verdict]:
+        """Judge the consistency of each gated proposal's candidate, in one call.
 
-        A reply with no usable verdict at all is asked for once more; a
-        candidate still without a verdict is inconsistent.
+        Each candidate is listed with its output unit, as the Gate inferred
+        it (``output_unit``). A reply with no usable verdict at all is asked
+        for once more; a candidate still without a verdict is inconsistent.
         """
-        if not candidates:
+        if not proposals:
             return []
-        listed = [{"number": i + 1, **c.to_dict()} for i, c in enumerate(candidates)]
+        listed = [
+            {"number": i + 1, **p.candidate.to_dict(), "output_unit": output_unit(p.checked)}
+            for i, p in enumerate(proposals)
+        ]
         prompt = self.prompts.render("review", round=number, candidates=json.dumps(listed, indent=2))
         verdicts: dict[int, Verdict] = {}
         for _ in range(2):
@@ -222,14 +234,14 @@ class Researcher:
             if verdicts:
                 break
         missing = Verdict(False, "the reviewer gave no verdict on this candidate")
-        return [verdicts.get(i + 1, missing) for i in range(len(candidates))]
+        return [verdicts.get(i + 1, missing) for i in range(len(proposals))]
 
     def revise(
         self, number: int, inconsistent: list[tuple[Proposal, Verdict]], gate: Gate, zoo: Zoo,
     ) -> list[Proposal]:
         """Send each candidate the reviewer found inconsistent back to be rewritten once; return the rewrites, in order.
 
-        Every candidate goes, with the reviewer's reason, in one rewrite request,
+        Every candidate goes, with the reviewer's reason and its output unit, in one rewrite request,
         and its first review becomes an attempt of stage ``"review"``. Each
         rewrite is checked by the parser and ``gate`` once, with no further
         retries: a refused rewrite is a proposal without ``checked``. The
@@ -244,6 +256,7 @@ class Researcher:
             attempts.append([*proposal.attempts, Attempt(proposal.item, "review", (verdict.refusal,))])
         fixed = self._ask_to_fix(
             number, [(proposal.direction, proposal.item, tried[-1]) for (proposal, _), tried in zip(inconsistent, attempts)],
+            units=[output_unit(proposal.checked) for proposal, _ in inconsistent],
         )
         return [
             self._check(proposal.direction, item, gate, zoo, tried)
@@ -275,15 +288,23 @@ class Researcher:
             return Proposal(direction, item, candidate, checked, tuple(attempts))
         return refused("gate", checked.reasons, candidate, hints=checked.hints)
 
-    def _ask_to_fix(self, number: int, failures: list[tuple[Direction, object, Attempt]]) -> list:
-        """Send the refused items back; return one fixed item per failure, in order."""
+    def _ask_to_fix(
+        self, number: int, failures: list[tuple[Direction, object, Attempt]], units: list[str] | None = None,
+    ) -> list:
+        """Send the refused items back; return one fixed item per failure, in order.
+
+        ``units`` gives each refused version's output unit, for versions that
+        passed the Gate (those the reviewer sent back); without it no entry has one.
+        """
         items = [item.previous if isinstance(item, _Missing) else item for _, item, _ in failures]
+        units = units or [None] * len(failures)
         listed = [
             {
                 "number": i + 1, "direction": direction.to_dict(), "refused_version": item,
+                **({"output_unit": unit} if unit is not None else {}),
                 "refused_because": list(attempt.reasons), **({"how_to_write_it": list(attempt.hints)} if attempt.hints else {}),
             }
-            for i, ((direction, _, attempt), item) in enumerate(zip(failures, items))
+            for i, ((direction, _, attempt), item, unit) in enumerate(zip(failures, items, units))
         ]
         prompt = self.prompts.render("retry", round=number, failures=json.dumps(listed, indent=2), n=len(failures))
         return _items(self._ask("proposer", prompt), items)

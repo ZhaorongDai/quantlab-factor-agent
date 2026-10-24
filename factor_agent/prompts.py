@@ -50,7 +50,11 @@ it may assign variables, define functions, and use for/while/if and `with Builde
 window loops. The sandbox refuses import, class, attribute access and file or network access, because
 the graph is all that is evaluated. The code ends by assigning one operator to `alpha`, the factor's
 value. Arithmetic operators (+, -, *, /) and comparisons work on operators; a comparison serves only
-as the condition of a Select."""
+as the condition of a Select.
+A factor's value should be comparable across the cross-section, so write it as a pure number: a
+ratio, a return, a rank or a z-score. An output that carries a unit (a price, a dollar amount, a share
+count) ranks the cross-section partly by that level, and that ranking is what the scoring compares,
+unless the mechanism is about that level, as a price impact per dollar traded is."""
 
 FIELDS = """\
 - "hypothesis": the economic mechanism that makes the factor predict the return, in one or two sentences
@@ -167,7 +171,10 @@ RETRY = """\
 You are a quantitative researcher correcting candidate factors that were refused before evaluation.
 Each entry in <refused_candidates> holds the research direction a candidate was written for
 ("direction"), the refused version ("refused_version"), why it was refused ("refused_because") and,
-for some, how to write it instead ("how_to_write_it"). Your corrected candidates
+for some, how to write it instead ("how_to_write_it"). An entry the reviewer sent back also holds the
+unit of the refused version's value ("output_unit"), such as "pure number" or "price"; a unit other
+than a pure number is normalised, for example by dividing by a price, unless the mechanism is about
+that level. Your corrected candidates
 go through the same checks again, then to the reviewer and the evaluation on a training period.
 The factors are on {market}; each predicts the return over the next {horizon} bars.
 
@@ -191,9 +198,9 @@ the same mechanism type instead.
 
 Return each corrected candidate object itself, an object with these fields:
 {fields}
-Leave out "number", "direction", "refused_because" and "how_to_write_it", and write the fields at the
-top level of the object rather than nested inside another object, because element i of your array
-is read directly as the corrected candidate for entry i.
+Leave out "number", "direction", "output_unit", "refused_because" and "how_to_write_it", and write
+the fields at the top level of the object rather than nested inside another object, because element i
+of your array is read directly as the corrected candidate for entry i.
 
 Answer with a JSON array of corrected candidates, one per entry ({n} in all). Element i answers entry
 i of <refused_candidates>; give each one these fields and no others:
@@ -213,6 +220,11 @@ The data, with every field a candidate's code may read and what it holds:
 {data}
 </data>
 
+Each candidate is listed with its "output_unit": the unit of its value, as the static gate infers it
+from the units of the fields, such as "pure number" (a ratio, a return, a rank or a z-score), "price",
+"money", "volume" or "1/dollars". It is "unknown" when the gate cannot tell; then judge the unit from
+the code.
+
 <candidates>
 {candidates}
 </candidates>
@@ -228,6 +240,11 @@ A candidate is inconsistent when any of these holds:
    prices under-react to earnings surprises, with code that reads only price and volume, is
    inconsistent; a hypothesis that investors watch net income and overlook gross profitability,
    with code built from gross profit, is consistent, because net income is only the contrast.
+6. The output has a unit other than a pure number ("output_unit"), and the hypothesis does not
+   explain why the cross-section is ranked by that level, because such a value ranks it partly by
+   price level or size. For example, the Amihud illiquidity, the absolute return per dollar traded
+   (1/dollars), is consistent when its hypothesis is about the price impact per dollar traded; a
+   slope of vwap described as a trend, without dividing by a price (price), is inconsistent.
 Otherwise it is consistent. Which way a factor predicts (its factor direction) is read from the data
 afterwards, so a factor direction the text states, leaves out or gets the other way round is no reason
 to find a candidate inconsistent. The length of the code is no reason to find a candidate consistent
