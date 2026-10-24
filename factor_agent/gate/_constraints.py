@@ -79,7 +79,7 @@ def _candidate_part(graph: Graph, vocabulary: "Vocabulary") -> tuple[list[str], 
         params = vocabulary.spec(node.op).params
         constants += sum(
             1 for key, value in node.attrs
-            if params.get(key) == "constant" and value != "nan" and abs(float(value)) not in _STRUCTURAL
+            if params.get(key, "") == vocabulary.constant_set and value != "nan" and abs(float(value)) not in _STRUCTURAL
         )
         stack += list(node.inputs) + ([] if node.parent is None else [node.parent])
     return sorted(fields), nodes, operators, constants

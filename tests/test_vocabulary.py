@@ -41,7 +41,7 @@ FUNDAMENTALS = {
 }
 
 OPERATORS = {
-    "parameters": {"window": [5, 20], "constant": [0, 1, 2]},
+    "parameters": {"window": [5, 20], "constant": [0, 1, 2], "lag": [5, 20]},
     "phrases": {"volatility": r"\bvolatility\b"},
     "operators": [
         {"name": "Add", "class": "KunQuant.ops.Add", "signature": "Add(x, y)", "inputs": ["series", "series"],
@@ -61,6 +61,8 @@ OPERATORS = {
          "description": "rank across the market"},
         {"name": "Sub", "class": "KunQuant.ops.Sub", "signature": "Sub(x, y)", "inputs": ["series", "series"],
          "dimension": "match", "description": "difference"},
+        {"name": "BackRef", "class": "KunQuant.ops.BackRef", "signature": "BackRef(x, lag)",
+         "params": {"window": "lag"}, "dimension": "same", "description": "x lag bars ago"},
     ],
 }
 
@@ -226,6 +228,48 @@ def test_a_sum_of_different_dimensions_is_refused_across_families(tmp_path, code
     result = gate.check(_candidate(code), Zoo())
     assert isinstance(result, Rejected)
     assert any(reason in r for r in result.reasons), result.reasons
+
+
+def _renamed_sets(operators: dict) -> dict:
+    """``operators`` with its constant and lag sets under other names."""
+    renamed = {"constant": "numbers", "lag": "shifts"}
+    operators = copy.deepcopy(operators)
+    operators["parameters"] = {renamed.get(k, k): v for k, v in operators["parameters"].items()}
+    for entry in operators["operators"]:
+        entry["params"] = {a: renamed.get(k, k) for a, k in (entry.get("params") or {}).items()}
+    return operators
+
+
+@pytest.mark.parametrize("operators", [OPERATORS, _renamed_sets(OPERATORS)], ids=["named", "renamed"])
+@pytest.mark.parametrize(
+    ("code", "reason"),
+    [
+        ("alpha = close * 2", None),
+        ("alpha = close * -2", None),
+        ("alpha = close * 2 * 2", "the constants combine to MulConst scale 4"),
+        ("alpha = BackRef(close, 5) / close", None),
+        ("alpha = BackRef(BackRef(close, 5), 5) / close", "the constants combine to BackRef lag 10"),
+    ],
+)
+def test_constant_and_lag_values_are_checked_whatever_the_operator_file_names_their_sets(
+    tmp_path, operators, code, reason,
+):
+    config = GateConfig(timeout_seconds=10.0, max_free_parameter_ratio=10.0)
+    gate = Gate(config, Vocabulary.load(*_write(tmp_path, FIELDS, operators)))
+    result = gate.check(_candidate(code), Zoo())
+    if reason is None:
+        assert isinstance(result, Passed), getattr(result, "reasons", None)
+    else:
+        assert isinstance(result, Rejected)
+        assert any(reason in r for r in result.reasons), result.reasons
+
+
+@pytest.mark.parametrize("operators", [OPERATORS, _renamed_sets(OPERATORS)], ids=["named", "renamed"])
+def test_hand_set_constants_count_whatever_the_operator_file_names_their_set(tmp_path, operators):
+    gate = Gate(GateConfig(timeout_seconds=10.0), Vocabulary.load(*_write(tmp_path, FIELDS, operators)))
+    result = gate.check(_candidate("alpha = close * 2"), Zoo())
+    assert isinstance(result, Rejected)
+    assert any("1 hand-set constants over 1 operators" in r for r in result.reasons), result.reasons
 
 
 def test_field_synonyms_and_operator_phrases_bind_a_hypothesis(tmp_path):

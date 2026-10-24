@@ -345,13 +345,35 @@ class Vocabulary:
                 )
         return found
 
+    @cached_property
+    def constant_set(self) -> str | None:
+        """The parameter set of constants: the one ``ConstantOp``'s value is in (else ``AddConst``'s or ``MulConst``'s).
+
+        The operator file names its sets as it likes; the set an operator's
+        attribute is in says what kind of value it holds.
+        """
+        return self._set_of(("ConstantOp", "value"), ("AddConst", "value"), ("MulConst", "value"))
+
+    @cached_property
+    def lag_set(self) -> str | None:
+        """The parameter set of lags: the one ``BackRef``'s window is in."""
+        return self._set_of(("BackRef", "window"))
+
+    def _set_of(self, *attributes: tuple[str, str]) -> str | None:
+        for name, attribute in attributes:
+            kind = self._operators[name].params.get(attribute) if name in self._operators else None
+            if kind is not None and kind != FLAG:
+                return kind
+        return None
+
     def allowed(self, kind: str, value) -> bool:
         """Whether ``value`` is in the parameter set ``kind``; a constant may also be negative or ``"nan"``."""
-        if kind == "constant" and value == "nan":
+        constant = kind == self.constant_set
+        if constant and value == "nan":
             return True
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             return False
-        magnitude = abs(value) if kind == "constant" else value
+        magnitude = abs(value) if constant else value
         return any(
             math.isclose(magnitude, v, rel_tol=1e-9, abs_tol=0.0) or magnitude == v
             for v in self.parameters.get(kind, ())
@@ -506,18 +528,19 @@ class Vocabulary:
     def _effective_reasons(self, graph: Graph) -> list[str]:
         """Refuse values reached by chaining allowed ones, such as ``x * 0.25 * 1.5`` or a lag of 5 plus 10.
 
-        A merged lag is checked against the ``lag`` set and a merged offset
-        or scale against the ``constant`` set, when the operator file has them.
+        A merged lag is checked against the lag set and a merged offset or
+        scale against the constant set (``lag_set``, ``constant_set``), when
+        the operator file has them.
         """
         reasons = []
         for op, kind, value in effective_parameters(graph):
-            checked = "constant" if kind == "scale" else kind
-            if checked not in self.parameters:
+            checked = self.lag_set if kind == "lag" else self.constant_set
+            if checked is None:
                 continue
             if kind == "scale":
-                ok = value == 0 or self.allowed("constant", value) or self.allowed("constant", 1 / value)
+                ok = value == 0 or self.allowed(checked, value) or self.allowed(checked, 1 / value)
             else:
-                ok = self.allowed(kind, value) or (kind == "constant" and math.isnan(value))
+                ok = self.allowed(checked, value) or (kind == "constant" and math.isnan(value))
             if not ok:
                 reasons.append(
                     f"the constants combine to {op} {kind} {value:g}, which is not one of the allowed values; "
