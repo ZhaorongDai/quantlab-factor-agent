@@ -229,7 +229,7 @@ class Researcher:
     ) -> list[Proposal]:
         """Send each candidate the reviewer found inconsistent back to be rewritten once; return the rewrites, in order.
 
-        Every candidate goes, with the reviewer's reason, in one fix request,
+        Every candidate goes, with the reviewer's reason, in one rewrite request,
         and its first review becomes an attempt of stage ``"review"``. Each
         rewrite is checked by the parser and ``gate`` once, with no further
         retries: a refused rewrite is a proposal without ``checked``. The
@@ -332,7 +332,7 @@ _NESTED = ("candidate", "refused_version")
 def _unwrapped(item: object) -> object:
     """``item``, or the candidate it nests under "candidate" or "refused_version" when it lacks a candidate's fields.
 
-    A reply to a fix request sometimes echoes the refused entry with the
+    A reply to a rewrite request sometimes echoes the refused entry with the
     corrected candidate inside it; only that shape is unwrapped, so any other
     item reaches the parser as it came.
     """

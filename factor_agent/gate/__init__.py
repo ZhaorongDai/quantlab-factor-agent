@@ -70,7 +70,7 @@ class Rejected:
 
     ``hints`` are the vocabulary's fixes for a writing error (a static check
     or the graph build), how to write it instead; they go with the reasons
-    into the fix request only.
+    into the rewrite request only.
     """
 
     reasons: tuple[str, ...]
@@ -141,8 +141,9 @@ class Gate:
         """Forget that ``graph`` passed, so a rewrite of its candidate is not refused as its duplicate.
 
         A candidate the reviewer sends back is rewritten, and its rewrite
-        often keeps the graph; the refused version is never evaluated, so
-        its ranking no longer counts as taken.
+        often keeps the graph: the rewrite continues the same candidate, so
+        the version it replaces gives up its ranking. A candidate the
+        reviewer rejects for good keeps it, as a resume restores it.
         """
         self._seen.discard(graph.ranking())
 

@@ -239,6 +239,9 @@ def test_a_quota_the_configured_types_cannot_hold_fails_at_start(tmp_path, marke
 REVIEW = """Judge each candidate on {market} below, horizon {horizon} bars. Answer with a JSON array of
 objects with "number", "consistent" and "reason".
 Round: {round}
+<data>
+{data}
+</data>
 <candidates>
 {candidates}
 </candidates>

@@ -134,7 +134,8 @@ def test_vocabulary_paths_are_read_relative_to_the_config_file(tmp_path):
 
 
 @pytest.mark.parametrize("template, text, problem", [
-    ("review", "Judge {candidates} on {market} in round {round}.", None),
+    ("review", "Judge {candidates} on {market} in round {round}, given {data}.", None),
+    ("review", "Judge {candidates} on {market} in round {round}.", "{data}"),
     ("review", "Judge them on {market}.", "lacks the placeholder {candidates}"),
     ("data", "{market} {scoring} {horizon} {inputs} {round}", "unknown placeholder(s) ['{round}']"),
     ("judge", "Judge {candidates}.", "judge: not a template"),

@@ -2,7 +2,7 @@
 
 The estimate assumes the run goes the full number of rounds (``max_rounds``,
 or fewer if ``max_trials`` comes first) and that every round makes a plan,
-a proposal, ``retries`` fix requests, a review, and the rewrite of the
+a proposal, ``retries`` rewrite requests, a review, and the rewrite of the
 candidates the reviewer finds inconsistent and their second review (each
 sized here as a whole round's candidates), with a distillation every
 ``memory_every`` rounds. Prompt sizes come from the real templates
@@ -25,7 +25,7 @@ _CHARS_PER_TOKEN = 4
 _HISTORY_CHARS = 160
 #: Characters a candidate adds to the last round's feedback.
 _FEEDBACK_CHARS = 600
-#: Characters of one direction in a proposal request, and of one candidate in a review or fix request.
+#: Characters of one direction in a proposal request, and of one candidate in a review or rewrite request.
 _DIRECTION_CHARS = 300
 _CANDIDATE_CHARS = 900
 #: Reply tokens per candidate of each role, and per distillation; thinking tokens per call on top.

@@ -312,7 +312,7 @@ PLACEHOLDERS = {
     "retry": (
         frozenset({"code_rules", "vocabulary", "fields", "n", "failures"}), frozenset({"round", "data", "mechanisms"}),
     ),
-    "review": (frozenset({"candidates"}), frozenset({"round", "data", "mechanisms"})),
+    "review": (frozenset({"candidates", "data"}), frozenset({"round", "mechanisms"})),
     "distill": (frozenset({"history"}), frozenset({"round", "data", "mechanisms"})),
 }
 
