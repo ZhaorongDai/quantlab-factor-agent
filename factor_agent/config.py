@@ -17,7 +17,7 @@ besides KunQuant and ``quantlab.factor``, an operator may come from.
 ``market`` describes the data in the prompts, ``mechanisms`` lists the
 mechanism types candidates belong to (by default ``DEFAULT_MECHANISMS``),
 each with a one-line description, and ``prompts`` maps a template's name
-(see ``_prompts.TEMPLATES``) to the file that replaces it.
+(see ``factor_agent.prompts.TEMPLATES``) to the file that replaces it.
 """
 
 import dataclasses
@@ -30,8 +30,8 @@ import yaml
 from quantlab.core.component import rebuild
 from quantlab.core.store_folder import load_component
 
-from factor_agent._prompts import Templates
 from factor_agent.gate.vocabulary import Vocabulary
+from factor_agent.prompts import Templates
 from factor_agent.segments import PURGE_BARS, Segment, Segments
 from factor_agent.snapshot import SearchFiles
 

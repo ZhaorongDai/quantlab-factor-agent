@@ -82,7 +82,7 @@ prompts:                                                # optional: templates re
   `distill` and `data` (the data section), each a Python format string. At start each replaced template
   is checked for the placeholders its role needs (and for any it may not use), before anything is
   written; a replaced template is snapshotted like the field and operator files, so changing it needs a
-  new run directory. The placeholders are listed in `factor_agent/_prompts.py` (`PLACEHOLDERS`).
+  new run directory. The placeholders are listed in `factor_agent/prompts.py` (`PLACEHOLDERS`).
 
 ## LLM backends
 

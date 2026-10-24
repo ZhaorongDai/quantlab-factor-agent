@@ -18,11 +18,10 @@ import json
 import re
 from dataclasses import asdict, dataclass
 
-from factor_agent import _prompts
-from factor_agent._prompts import Prompts
 from factor_agent.candidate import Candidate
 from factor_agent.gate import Gate, Passed
 from factor_agent.llm.base import LLMBackend, Request
+from factor_agent.prompts import SECTIONS, Prompts
 from factor_agent.zoo import Zoo
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
@@ -30,7 +29,7 @@ _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 #: The planner's actions: a new mechanism, an orthogonal mutation of an accepted one, a refinement of one.
 ACTIONS = ("new", "mutation", "refinement")
 
-#: The context sections each role reads (see ``_prompts.SECTIONS``).
+#: The context sections each role reads (see ``factor_agent.prompts.SECTIONS``).
 _PLANNER_SECTIONS = ("seed", "families", "memory", "history", "last_round", "best")
 _PROPOSER_SECTIONS = ("families", "memory", "last_round", "best")
 
@@ -301,7 +300,7 @@ def _direction_problem(item: object, parents: list[str], types: tuple[str, ...])
 def _render(context: dict[str, str], keys: tuple[str, ...]) -> str:
     """The non-empty sections of ``context`` among ``keys``."""
     return "\n\n".join(
-        f"## {heading}\n{context[key]}" for key, heading in _prompts.SECTIONS if key in keys and context.get(key)
+        f"## {heading}\n{context[key]}" for key, heading in SECTIONS if key in keys and context.get(key)
     )
 
 

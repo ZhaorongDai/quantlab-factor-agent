@@ -13,8 +13,8 @@ bound: the budget is what stops a run.
 
 from dataclasses import dataclass
 
-from factor_agent._prompts import Prompts
 from factor_agent.config import ROLES, RoundConfig
+from factor_agent.prompts import Prompts
 from factor_agent.researcher import _PLANNER_SECTIONS, _PROPOSER_SECTIONS, _render
 
 #: Characters per token of English prose and code.

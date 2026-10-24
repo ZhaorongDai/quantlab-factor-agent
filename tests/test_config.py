@@ -14,9 +14,9 @@ from quantlab.dataset.stock import StockDataset
 from quantlab.factor.config import FactorConfig
 from quantlab.factor.predefined.alpha158 import Alpha158Stock
 
-from factor_agent._prompts import PromptError
 from factor_agent.config import DEFAULT_MECHANISMS, ROLES, CampaignConfig, NeutralizeConfig, load
 from factor_agent.gate.vocabulary import VocabularyError
+from factor_agent.prompts import PromptError
 from tests.vocabulary_files import EXAMPLE_OPERATORS, PRICE_VOLUME
 
 

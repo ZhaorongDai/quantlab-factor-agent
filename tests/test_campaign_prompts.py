@@ -11,8 +11,8 @@ from pathlib import Path
 import pytest
 from quantlab.core.component import rebuild
 
-from factor_agent._prompts import PromptError
 from factor_agent.config import CampaignConfig
+from factor_agent.prompts import PromptError
 from factor_agent.snapshot import SnapshotMismatch
 from tests import synthetic_market
 from tests.campaign_runner import SYNTHETIC_MARKET, candidate, run, write_config

@@ -29,7 +29,7 @@ since and warns if the commits did; every commit is listed in
 snapshot of the run whose LLM log it replays, whatever the config's files
 say now.
 
-The prompts (``_prompts.Prompts``) describe the config's market, the
+The prompts (``factor_agent.prompts.Prompts``) describe the config's market, the
 label's horizon (its ``span_bars()``), the scoring, the vocabulary and the
 config's mechanism types, through the snapshot's templates.
 
@@ -62,7 +62,6 @@ import xarray as xr
 
 from factor_agent import _admission, _cost, _feedback, _scheduler
 from factor_agent._cost import CostEstimate
-from factor_agent._prompts import Prompts, Templates
 from factor_agent.config import ROLES, CampaignConfig, load
 from factor_agent.evaluator import CompileFailure, Evaluator, Metrics
 from factor_agent.gate import Gate
@@ -71,6 +70,7 @@ from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.ledger import Ledger, TrialRecord
 from factor_agent.llm.base import LLMBackend, make_backend
 from factor_agent.llm.log import LLMLog, RecordingBackend
+from factor_agent.prompts import Prompts, Templates
 from factor_agent.researcher import BudgetExhausted, Proposal, Researcher
 from factor_agent.scoring import Scoring
 from factor_agent.segments import code_version

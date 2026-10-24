@@ -20,8 +20,8 @@ from pathlib import Path
 
 import pytest
 
-from factor_agent._prompts import Prompts
 from factor_agent.config import CampaignConfig
+from factor_agent.prompts import Prompts
 from factor_agent.researcher import Direction, Researcher
 from factor_agent.scoring import Neutralization, Scoring
 from tests.test_config import REAL
