@@ -224,3 +224,13 @@ def test_a_one_tail_signal_has_flat_inner_deciles(market):
     returns = metrics.decile_returns
     assert len(returns) == 10
     assert returns[-1] - max(returns[:-1]) > 0.5 * (returns[-1] - min(returns))
+
+
+def test_coverage_is_the_mean_daily_share_of_the_members_with_a_value(market):
+    # close / open = exp(0.01 z): Log(100 Log(close / open) - 1) = Log(z - 1) has a value only
+    # where z > 1, on about one member in six.
+    full, sparse = _evaluator(market).evaluate([
+        _graph("alpha = close / open"), _graph("alpha = Log(Log(close / open) * 100 - 1)"),
+    ])
+    assert full.coverage == pytest.approx(1.0)
+    assert 0.1 < sparse.coverage < 0.25

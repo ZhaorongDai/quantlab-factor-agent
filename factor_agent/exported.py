@@ -11,20 +11,30 @@ factor, a subclass of ``GraphFactor`` that fixes ``GRAPHS``;
 from collections.abc import Mapping
 
 from KunQuant.Op import OpBase, Output, Rank
+from KunQuant.ops import MulConst
 from KunQuant.Stage import Function
 from quantlab.factor.kunquant import FactorKunQuant
 
 from factor_agent.gate.graph import Graph
 
 
-def ranked_function(graphs: Mapping[str, Graph]) -> Function:
-    """One KunQuant function with an output per graph, named after it, ranked across the market."""
+def ranked_function(graphs: Mapping[str, Graph], presence: Mapping[str, str] | None = None) -> Function:
+    """One KunQuant function with an output per graph, named after it, ranked across the market.
+
+    KunQuant's ``Rank`` ranks a missing value too, so the ranked output has a
+    value wherever the symbol has a bar. ``presence`` maps a graph's name to
+    the name of a second output, 0 where the graph itself has a value and NaN
+    where it has none.
+    """
     inputs: dict[str, OpBase] = {}
     ops: list[OpBase] = []
     for name, graph in graphs.items():
         output, new = graph.build(inputs)
         ranked = Rank(output)
         ops += [*new, ranked, Output(ranked, name)]
+        if presence and name in presence:
+            zero = MulConst(output, 0.0)
+            ops += [zero, Output(zero, presence[name])]
     return Function(ops)
 
 
