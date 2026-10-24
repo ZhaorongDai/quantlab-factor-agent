@@ -14,6 +14,7 @@ import re
 
 from factor_agent.evaluator import Contribution
 from factor_agent.ledger import TrialRecord
+from factor_agent.zoo import owner
 
 _DECIMAL = re.compile(r"[-+]?\d+\.\d+")
 
@@ -29,13 +30,17 @@ def accepted_label(record: TrialRecord) -> str:
 
 
 def families(reference) -> str:
-    """One line per reference factor: its class, what its docstring says it is, and its outputs."""
+    """One line per reference factor: its owner's class, what its docstring says it is, and its outputs.
+
+    The owner (``zoo.owner``) is the factor a wrapper such as ``NeutralizedFactor`` shows.
+    """
     lines = []
     for factor in reference:
-        doc = (type(factor).__doc__ or "").strip().splitlines()
         names = factor.get_factor_names()
+        kind = type(owner(factor))
+        doc = (kind.__doc__ or "").strip().splitlines()
         shown = ", ".join(names[:12]) + (", ..." if len(names) > 12 else "")
-        lines.append(f"- {type(factor).__name__}: {doc[0] if doc else 'no description'} ({len(names)} outputs: {shown})")
+        lines.append(f"- {kind.__name__}: {doc[0] if doc else 'no description'} ({len(names)} outputs: {shown})")
     return "\n".join(lines)
 
 

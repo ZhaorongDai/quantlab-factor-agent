@@ -49,10 +49,13 @@ import numpy as np
 import xarray as xr
 from quantlab.config import get_data_root
 from quantlab.core.store_folder import save_component
-from quantlab.factor.config import FactorConfig, MembershipMaskedFactorConfig, NeutralizedConfig, RosterConfig
+from quantlab.factor.config import (
+    FactorConfig, MembershipMaskedFactorConfig, NeutralizedConfig, RosterConfig, StartClippedConfig,
+)
 from quantlab.factor.predefined.membership_mask import MembershipMaskedFactor
 from quantlab.factor.predefined.neutralized import NeutralizedFactor
 from quantlab.factor.predefined.roster import RosterFactor
+from quantlab.factor.predefined.start_clipped import StartClippedFactor
 from quantlab.model.config import ModelConfig
 from quantlab.model.evaluation import cross_sectional_ic_series, cross_sectional_rank_ic_series
 from quantlab.model.predefined.xgb import XGBoostRegressor
@@ -374,9 +377,10 @@ class Acceptance:
         return self._on_members(neutral)
 
     def _on_members(self, factor) -> MembershipMaskedFactor:
-        """``factor`` read on the membership's roster and masked to the members of day t."""
+        """``factor`` read from its store's first bar on, on the membership's roster, masked to the members of day t."""
         membership = self._data("membership")
-        viewed = RosterFactor(RosterConfig(factor=factor, roster=membership))
+        clipped = StartClippedFactor(StartClippedConfig(factor=factor))
+        viewed = RosterFactor(RosterConfig(factor=clipped, roster=membership))
         return MembershipMaskedFactor(MembershipMaskedFactorConfig(factor=viewed, membership=membership))
 
     # Shared.

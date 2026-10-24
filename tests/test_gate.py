@@ -21,9 +21,10 @@ from factor_agent.gate import vocabulary
 from factor_agent.zoo import Zoo
 from quantlab.dataset.config import DatasetConfig
 from quantlab.dataset.stock import StockDataset
-from quantlab.factor.config import FactorConfig, PolarsFactorConfig
+from quantlab.factor.config import FactorConfig, NeutralizedConfig, PolarsFactorConfig
 from quantlab.factor.predefined.alpha158 import Alpha158Stock
 from quantlab.factor.predefined.momentum import Momentum
+from quantlab.factor.predefined.neutralized import NeutralizedFactor
 
 
 def _candidate(code: str, hypothesis: str = "Intraday strength carries into the next week.") -> Candidate:
@@ -285,6 +286,28 @@ def test_the_parameter_values_of_an_alpha158_feature_are_not_a_new_factor(alpha1
 def test_reference_factors_without_a_kunquant_graph_are_listed_as_not_covered(alpha158):
     assert alpha158.not_covered == ("momentum_20 (Momentum)",)
     assert "KMID (Alpha158Stock)" in alpha158.covered
+
+
+def test_a_neutralised_store_is_compared_by_the_graph_of_the_factor_it_neutralises(tmp_path):
+    xr.Dataset(
+        {"Close": (["timestamp", "symbol"], np.ones((3, 2)))},
+        coords={"timestamp": pd.bdate_range("2024-01-01", periods=3), "symbol": ["A", "B"]},
+    ).to_zarr(tmp_path / "prices.zarr")
+    dataset = StockDataset(DatasetConfig(
+        zarr_file_path=str(tmp_path / "prices.zarr"), raw_data_dir_path=str(tmp_path), market="us_equity", frequency="1d",
+    ))
+    ranked = Alpha158Stock(FactorConfig(
+        warmup_bars=60, dataset=dataset, mode="batch",
+        data_columns=("adjOpen", "adjHigh", "adjLow", "adjClose", "adjVolume"),
+    ))
+    neutral = NeutralizedFactor(NeutralizedConfig(factor=ranked, dataset=dataset, factor_names=("KMID", "STD20")))
+
+    zoo = Zoo.from_reference([neutral])
+
+    assert zoo.covered == ("KMID (Alpha158Stock)", "STD20 (Alpha158Stock)")
+    result = Gate(GateConfig()).check(_candidate("alpha = (close - open) / open"), zoo)
+    assert isinstance(result, Rejected)
+    assert any("KMID (Alpha158Stock)" in r for r in result.reasons), result.reasons
 
 
 def _accepted(code: str) -> Zoo:

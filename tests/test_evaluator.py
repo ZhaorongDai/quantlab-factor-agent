@@ -165,6 +165,34 @@ def test_information_the_reference_lacks_keeps_its_partial_ic(against_kmid):
     assert volume.partial_ic_t == pytest.approx(volume.ic_t, rel=0.2)
 
 
+def test_a_reference_store_that_starts_inside_the_segment_is_read_from_its_first_bar(market, tmp_path):
+    kmid = Alpha158Stock(FactorConfig(
+        warmup_bars=WARMUP, dataset=market["prices"], mode="batch", data_columns=INPUTS,
+        factor_names=("KMID",), njobs=4, file_path=str(tmp_path / "kmid.zarr"),
+    ))
+    kmid.build("2011-01-03", synthetic_market.END)
+
+    [noisy] = _evaluator(market, [kmid]).evaluate([_graph("alpha = (close - open) / (high - low)")])
+
+    assert noisy.nearest == "KMID (Alpha158Stock)"
+    assert noisy.nearest_correlation > 0.4
+
+
+def test_a_reference_store_that_starts_after_the_segment_adds_nothing(market, tmp_path):
+    kmid = Alpha158Stock(FactorConfig(
+        warmup_bars=WARMUP, dataset=market["prices"], mode="batch", data_columns=INPUTS,
+        factor_names=("KMID",), njobs=4, file_path=str(tmp_path / "kmid.zarr"),
+    ))
+    kmid.build("2012-06-01", synthetic_market.END)
+    graph = _graph("alpha = (close - open) / (high - low)")
+
+    [alone] = _evaluator(market).evaluate([graph])
+    [against_late] = _evaluator(market, [kmid]).evaluate([graph])
+
+    assert against_late.nearest == ""
+    assert against_late.partial_ic_t == pytest.approx(alone.partial_ic_t)
+
+
 def test_without_a_pool_there_is_no_nearest_factor_and_the_partial_ic_is_the_ic(market):
     [metrics] = _evaluator(market).evaluate([_graph("alpha = volume / WindowedAvg(volume, 20)")])
     assert metrics.nearest == ""

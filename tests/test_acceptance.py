@@ -2,7 +2,9 @@
 
 A campaign on the synthetic store of ``tests/synthetic_market.py`` accepts
 the planted intraday and volume signals against a stored Polars momentum,
-the reference set and the baseline model's only feature. The segments put
+the reference set and the baseline model's only feature; its store starts
+inside the training segment, as the shared intraday stores start after
+theirs. The segments put
 training on ``TRAINING``, validation on 2012 and the hold-out on 2013.
 """
 
@@ -38,6 +40,8 @@ CANDIDATES = [
     candidate("volume", "alpha = volume / WindowedAvg(volume, 20)"),
 ]
 PACKAGE = "exported_for_test"
+#: The first bar of the momentum store, inside the training segment.
+MOMENTUM_START = "2011-01-03"
 
 
 @pytest.fixture(scope="module")
@@ -48,7 +52,7 @@ def campaign(tmp_path_factory):
         warmup_bars=20, dataset=rebuild(components["prices"]),
         file_path=str(root / "data" / "factors" / "momentum" / "momentum.zarr"),
     ))
-    momentum.build(synthetic_market.START, synthetic_market.END)
+    momentum.build(MOMENTUM_START, synthetic_market.END)
     (root / "packages" / PACKAGE).mkdir(parents=True)
     (root / "packages" / PACKAGE / "__init__.py").write_text("")
     config_path = write_config(

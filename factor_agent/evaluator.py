@@ -48,15 +48,17 @@ import pandas as pd
 import xarray as xr
 from KunQuant.Stage import Function
 from quantlab.analysis.factor_report import newey_west_lags, newey_west_t_stat
-from quantlab.factor.config import FactorConfig, NeutralizedConfig
+from quantlab.factor.config import FactorConfig, NeutralizedConfig, StartClippedConfig
 from quantlab.factor.kunquant import FactorKunQuant
 from quantlab.factor.predefined.neutralized import NeutralizedFactor
+from quantlab.factor.predefined.start_clipped import StartClippedFactor
 from quantlab.model.evaluation import cross_sectional_rank_ic_series
 from scipy import stats
 
 from factor_agent.exported import ranked_function
 from factor_agent.gate.graph import Graph
 from factor_agent.segments import PURGE_BARS, Segment, purge
+from factor_agent.zoo import owner
 
 #: Groups the daily cross section is cut into for the decile returns.
 DECILES = 10
@@ -291,11 +293,13 @@ class Evaluator:
     def _reference_scores(self, factor) -> Iterator[tuple[str, list[np.ndarray]]]:
         """Yield ``(name, daily normal scores)`` of every output of a reference factor, masked to day-t members.
 
-        The outputs are read one at a time, so only one of them is in memory as a full panel.
+        The outputs are read one at a time, so only one of them is in memory as a full panel. A
+        stored factor is read from its store's first bar on: it has no value, so no score, before.
         """
         start, end = self._segment.start, self._segment.end
-        panel = factor.read(start, end) if factor.store_range() is not None else factor.compute(start, end)
-        source = type(factor).__name__
+        clipped = StartClippedFactor(StartClippedConfig(factor=factor))
+        panel = clipped.read(start, end) if factor.store_range() is not None else factor.compute(start, end)
+        source = type(owner(factor)).__name__
         for name in factor.get_factor_names():
             masked = self._membership.mask(panel[[name]])[name]
             yield f"{name} ({source})", self._frame.daily_scores(self._frame.on_axes(masked))

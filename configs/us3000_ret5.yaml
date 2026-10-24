@@ -1,0 +1,199 @@
+# The first real campaign (#8): us3000, the 5-day open-to-open label, against SEL0.
+#
+# Whole-market Sharadar SEP (domestic common stock) with bad prints masked; IC on the members of day t
+# of us3000 membership_estu; label labels/market/ret_5; reference = SEL0's 191 factors
+# (quantlab-experiment 2026-10-18-us3000-factor-selection-xgb results/selection.json, as the
+# us3000_sel0_mvo10 paper trading reads them: ear_252 is factors/market/alternative_alpha_ear252_neutral).
+# Run on the server bound to NUMA Node 1 (see README "First campaign").
+run_dir: /data/quantlab/runs/factor_agent_us3000_ret5
+
+segments:
+  training:   {start: 2000-02-02, end: 2014-12-31}
+  validation: {start: 2015-01-02, end: 2019-12-31}
+  # labels/market/ret_5 ends 2026-10-15 and is not in the daily update.
+  holdout:    {start: 2020-01-02, end: 2026-10-15}
+  purge_bars: 5
+
+data:
+  prices:
+    datasets:
+    - zarr_file_path: /data/quantlab/market/sharadar/sharadar_sep_1d/sharadar_sep_1d.zarr
+      start_date: '1900-01-01'
+      end_date: '2100-01-01'
+      symbols: null
+      kwargs: null
+      resample_freq: null
+      resample_how: null
+      name: quantlab.dataset.sharadar.stock.SharadarStockDataset
+      raw_data_dir_path: /data/quantlab/downloads/sharadar
+      market: us_equity
+      frequency: 1d
+      vendor: sharadar
+      table: sep
+      permatickers: null
+      roster_universe: null
+      category_filter: [Domestic Common Stock, Domestic Common Stock Primary Class, Domestic Common Stock Secondary
+          Class]
+    name: quantlab.dataset.bad_prints.BadPrintMaskedDataset
+    jump: 5.0
+    volume_ratio: 20.0
+    lookback: 20
+    price_variable: adjClose
+    volume_variable: adjVolume
+    masked_variables: [open, high, low, close, adjOpen, adjHigh, adjLow, adjClose, marketcap]
+    intrabar_variables: [adjOpen]
+  label:
+    label:
+      warmup_bars: 15
+      dataset:
+        datasets:
+        - zarr_file_path: /data/quantlab/market/sharadar/sharadar_sep_1d/sharadar_sep_1d.zarr
+          start_date: '1900-01-01'
+          end_date: '2100-01-01'
+          symbols: null
+          kwargs: null
+          resample_freq: null
+          resample_how: null
+          name: quantlab.dataset.sharadar.stock.SharadarStockDataset
+          raw_data_dir_path: /data/quantlab/downloads/sharadar
+          market: us_equity
+          frequency: 1d
+          vendor: sharadar
+          table: sep
+          permatickers: null
+          roster_universe: null
+          category_filter: [Domestic Common Stock, Domestic Common Stock Primary Class, Domestic Common Stock Secondary
+              Class]
+        name: quantlab.dataset.bad_prints.BadPrintMaskedDataset
+        jump: 5.0
+        volume_ratio: 20.0
+        lookback: 20
+        price_variable: adjClose
+        volume_variable: adjVolume
+        masked_variables: [open, high, low, close, adjOpen, adjHigh, adjLow, adjClose, marketcap]
+        intrabar_variables: [adjOpen]
+      file_path: /data/quantlab/labels/market/ret_5/ret_5.zarr
+      factor_names: [ret_5]
+      kwargs: {n_forward_periods: 5}
+      resample_freq: null
+      resample_how: null
+      name: quantlab.label.predefined.fret.Return
+      mode: batch
+      data_columns: [adjOpen]
+      njobs: 48
+    membership:
+      zarr_file_path: /data/quantlab/universe/us3000/membership_estu/membership_estu.zarr
+      start_date: '2000-02-02'
+      end_date: '2100-01-01'
+      symbols: null
+      kwargs: {barra_store: /data/quantlab/factors/market/barra_style/barra_style.zarr}
+      resample_freq: null
+      resample_how: null
+      name: quantlab.dataset.estu.EstuConstituentDataset
+      as_of: null
+    name: quantlab.label.predefined.membership_mask.MembershipMaskedLabel
+  membership: /data/quantlab/universe/us3000/membership_estu
+  exposures:
+  - /data/quantlab/market/sharadar/sharadar_daily_1d
+  - /data/quantlab/market/sharadar/sharadar_industry_1d
+reference:
+  # alpha101_neutral: 70
+  - store: /data/quantlab/factors/market/alpha101_neutral
+    factor_names: [alpha016, alpha015, alpha044, alpha013, alpha050, alpha055, alpha043, alpha040, alpha012, alpha003, alpha009,
+        alpha026, alpha011, alpha007, alpha021, alpha041, alpha049, alpha005, alpha045, alpha023, alpha024,
+        alpha006, alpha020, alpha002, alpha036, alpha078, alpha019, alpha081, alpha022, alpha030, alpha088,
+        alpha099, alpha061, alpha034, alpha064, alpha027, alpha017, alpha028, alpha025, alpha039, alpha042,
+        alpha008, alpha052, alpha075, alpha071, alpha004, alpha046, alpha074, alpha001, alpha037, alpha018,
+        alpha065, alpha054, alpha085, alpha035, alpha066, alpha031, alpha094, alpha062, alpha047, alpha095,
+        alpha096, alpha072, alpha073, alpha053, alpha077, alpha029, alpha068, alpha083, alpha086]
+  # fundamental_alpha_neutral: 16
+  - store: /data/quantlab/factors/market/fundamental_alpha_neutral
+    factor_names: [cash_profitability, fcf_yield, operating_profitability, f_score, ebit_to_ev, earnings_sue, roe, composite_issuance,
+        net_payout_yield, revenue_sue, insider_buyers, roa_change, investment_to_assets, io_change, insider_breadth,
+        insider_purchase]
+  # alpha158_neutral: 62
+  - store: /data/quantlab/factors/market/alpha158_neutral
+    factor_names: [CORR5, CORD5, LOW1, MIN10, VSUMN20, LOW2, CORD10, VSUMN60, VSUMN30, QTLD10, VSUMN10, VSUMN5, CORD20,
+        MIN30, CORD30, QTLU5, VWAP4, QTLD20, VWAP0, CLOSE1, CORR20, CORR30, CORD60, HIGH1, RSV5, LOW0, ROC10,
+        VOLUME1, MA30, CNTP5, RANK10, VOLUME3, KLOW, VOLUME2, KUP2, VOLUME4, KLOW2, VMA60, QTLU60, IMAX5, KMID2,
+        MAX10, RSV20, KLEN, CORR60, IMAX10, IMAX20, IMIN5, CNTN60, HIGH0, CNTP10, STD10, VOLUME0, IMIN10, STD5,
+        STD20, KUP, IMAX30, CNTP20, IMIN20, IMIN30, CLOSE0]
+  # barra_style: 14
+  - store: /data/quantlab/factors/market/barra_style
+    factor_names: [style_residual_volatility, style_nonlinear_size, desc_etop, desc_lncap, desc_dastd, desc_cetop, desc_yild,
+        desc_dtoa, desc_rstr, desc_cmra, desc_sgro, desc_egro, style_beta, desc_stoa]
+  # ear_252: 1
+  - store: /data/quantlab/factors/market/alternative_alpha_ear252_neutral
+    factor_names: [earnings_announcement_return]
+  # intraday_low_corr: 9
+  - store: /data/quantlab/factors/market/intraday_low_corr
+    factor_names: [hf_liquid_pv, hf_steady_close_small_trades, hf_close_pv_overnight, hf_auction_vwap, hf_lit_intraday,
+        hf_liquid_vwap, hf_lit_steady_overnight, hf_liquid_reversal, hf_auction_rv]
+  # alternative_alpha_neutral: 6
+  - store: /data/quantlab/factors/market/alternative_alpha_neutral
+    factor_names: [lazy_prices_business, distress_events, lazy_prices_risk_jaccard, news_attention, news_sentiment, short_volume_ratio]
+  # intraday_signals: 3
+  - store: /data/quantlab/factors/market/intraday_signals
+    factor_names: [hf_efficiency, hf_small_lit_trades, hf_close_liquidity]
+  # intraday_stats_20d_neutral: 4
+  - store: /data/quantlab/factors/market/intraday_stats_20d_neutral
+    factor_names: [corr_pv_20d, amihud_20d, trade_size_20d, ret_open30_20d]
+  # intraday_vol_liquidity: 2
+  - store: /data/quantlab/factors/market/intraday_vol_liquidity
+    factor_names: [liquid_60d, lowvol_10d]
+  # beta_spy_neutral: 1
+  - store: /data/quantlab/factors/market/beta_spy_neutral
+    factor_names: [beta]
+  # short_horizon_neutral: 3
+  - store: /data/quantlab/factors/market/short_horizon_neutral
+    factor_names: [intraday_20, reversal_3, intraday_5]
+
+# Seed directions (Q37): two per mechanism type, aimed at what the reference families lack on daily
+# price and volume. DRAFT, pending the user's review. Papers are cited without their year, so no
+# prompt names a date after the training segment.
+directions:
+  - "behavioural_bias: lottery demand. Investors overpay for stocks with extreme recent daily up-moves, so a high maximum daily return over the past month predicts lower returns; the extreme single-day return, not the high price level (Alpha158 MAX/HIGH) or volatility. Bali, Cakici and Whitelaw, Maxing out: stocks as lotteries, Journal of Financial Economics."
+  - "behavioural_bias: disposition effect and capital gains overhang. Holders sell winners too early and keep losers, so the gap between the price and a volume-weighted reference price of past purchases predicts continuation; the reference price is a long volume-weighted average, not one day's vwap. Grinblatt and Han, Prospect theory, mental accounting, and momentum, Journal of Financial Economics."
+  - "risk_compensation: skewness preference. Investors pay for positive skewness, so stocks whose recent daily returns are right-skewed earn less; the third moment of returns, distinct from volatility and residual volatility. Boyer, Mitton and Vorkink, Expected idiosyncratic skewness, Review of Financial Studies; Amaya, Christoffersen, Jacobs and Vasquez, Does realized skewness predict the cross-section of equity returns, Journal of Financial Economics."
+  - "risk_compensation: downside versus upside risk. Investors demand compensation for losses more than they value gains, so the share of a stock's variance that comes from down days (signed semivariance) is priced, not total variance. Ang, Chen and Xing, Downside risk, Review of Financial Studies; Bollerslev, Li and Zhao, Good volatility, bad volatility, and the cross section of stock returns, Journal of Financial and Quantitative Analysis."
+  - "liquidity: volume-conditioned reversal. Price moves on heavy volume driven by liquidity demand reverse, those driven by information continue; the interaction of the past return with abnormal volume on the same days, not either alone, not short-term reversal (ShortHorizonAlpha reversal_3) and not the correlation of price or return with volume (Alpha158 CORR/CORD). Campbell, Grossman and Wang, Trading volume and serial correlation in stock returns, Quarterly Journal of Economics; Llorente, Michaely, Saar and Wang, Dynamic volume-return relation of individual stocks, Review of Financial Studies."
+  - "liquidity: variability of liquidity. Stocks whose trading activity is erratic are, against a liquidity-risk intuition, followed by lower returns; the variability over time of daily price impact per dollar traded (absolute return over close times volume), not the level of volume or its dispersion (Alpha158 VMA/VSTD) and not the level of illiquidity (the minute-based amihud_20d and liquid_60d, which also start after training). Chordia, Subrahmanyam and Anshuman, Trading activity and expected stock returns, Journal of Financial Economics."
+  - "microstructure: effective spread estimated from daily highs, lows and closes. A wider implied bid-ask spread marks costlier, less liquid stocks that earn a premium; the spread the daily range implies across two days or around the close, not the one-day candle shape (Alpha158 KLEN/KUP/KLOW). Corwin and Schultz, A simple way to estimate bid-ask spreads from daily high and low prices, Journal of Finance; Abdi and Ranaldo, A simple estimation of bid-ask spreads from daily close, high, and low prices, Review of Financial Studies."
+  - "microstructure: transient pricing errors. Negative serial covariance of daily price changes (bid-ask bounce, temporary price pressure) and variance ratios below one mark prices that overshoot and correct; serial dependence of returns, not their level. Roll, A simple implicit measure of the effective bid-ask spread in an efficient market, Journal of Finance; Lo and MacKinlay, Stock market prices do not follow random walks, Review of Financial Studies."
+  - "information_diffusion: frog in the pan. Information that arrives in many small moves is under-reacted to more than the same news in a few large jumps, so past returns earned continuously persist longer; the path (how the past return was distributed over days), not its size. Da, Gurun and Warachka, Frog in the pan: continuous information and momentum, Review of Financial Studies."
+  - "information_diffusion: overnight versus intraday returns. Different investor clienteles trade at the open and during the day, so the overnight and the intraday parts of past returns carry different information and persist separately; the persistence of the overnight (close-to-open) part of past returns over weeks to months, not the recent open-to-close return (ShortHorizonAlpha intraday_5/intraday_20) or the minute-based overnight measures. Lou, Polk and Skouras, A tug of war: overnight versus intraday expected returns, Journal of Financial Economics."
+
+evaluator:
+  warmup_bars: 260
+  njobs: 51            # KunQuant threads: at most 51 of Node 1's 64 cores
+
+admission:
+  t_threshold: 3.0
+  max_correlation: 0.7
+  min_monotonicity: 0.6
+
+round:
+  candidates: 20
+  min_per_type: 3
+  retries: 2
+  max_rounds: 30
+  max_trials: 600
+  patience: 5
+  memory_every: 5
+  budget_usd: 30.0     # pending the user's approval of the estimate
+  seed: 0
+
+acceptance:
+  features: []         # the reference set: SEL0's 191 factors
+  seeds: [0, 1, 2]
+  top_k: 100           # xgb_deep; quantlab puts xgboost on CUDA when there is one
+
+# All four roles: DeepSeek V4 Pro through OpenRouter (prices checked 2026-10-24, USD per million tokens).
+llm:
+  planner:   &deepseek {backend: openai_compatible, model: deepseek/deepseek-v4-pro-0813,
+                        base_url: "https://openrouter.ai/api/v1", api_key_env: OPENROUTER_API_KEY,
+                        max_tokens: 32000, timeout_seconds: 900,
+                        input_usd_per_mtok: 0.66, output_usd_per_mtok: 1.98}
+  proposer:  *deepseek
+  reviewer:  *deepseek
+  distiller: *deepseek

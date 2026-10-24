@@ -1,12 +1,16 @@
 """The campaign config: one YAML file holds every setting of a run.
 
-``data`` and ``reference`` hold quantlab components: each is either a
-``get_config()`` dict inline or the path of a store folder whose
-``component.json`` describes it (``quantlab.core.store_folder.save_component``).
-``reference`` lists the reference set: the factors candidates must be
-original against (the ``Zoo``) and, in admission, uncorrelated with and
-incremental to; a factor's ``factor_names`` selects its columns.
+``data`` and ``reference`` hold quantlab components: each is a
+``get_config()`` dict inline, the path of a store folder whose
+``component.json`` describes it (``quantlab.core.store_folder.save_component``),
+or ``{store: <folder>, factor_names: [...]}``, that store's factor pinned to
+some of its outputs. ``reference`` lists the reference set: the factors
+candidates must be original against (the ``Zoo``) and, in admission,
+uncorrelated with and incremental to; a factor's ``factor_names`` selects
+its columns.
 """
+
+import dataclasses
 
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -43,8 +47,31 @@ class DataConfig:
 
 
 def load(component: dict | str) -> Any:
-    """Rebuild a component given as a ``get_config()`` dict or a store folder path."""
-    return load_component(component) if isinstance(component, str) else rebuild(component)
+    """Rebuild a component given as a ``get_config()`` dict, a store folder path or a store entry.
+
+    Raises
+    ------
+    ValueError
+        If a store entry names an output its store does not have.
+    TypeError
+        If a store entry holds a key other than ``store`` and ``factor_names``, or names
+        outputs of a store whose component has no ``factor_names`` (a dataset).
+    """
+    if isinstance(component, str):
+        return load_component(component)
+    if "store" not in component:
+        return rebuild(component)
+    unknown = set(component) - {"store", "factor_names"}
+    if unknown:
+        raise TypeError(f"store entry {component['store']}: unknown key(s) {sorted(unknown)}")
+    stored = load_component(component["store"])
+    names = component.get("factor_names")
+    if names is None:
+        return stored
+    missing = [name for name in names if name not in stored.get_factor_names()]
+    if missing:
+        raise ValueError(f"store entry {component['store']}: no output(s) {missing}")
+    return type(stored)(dataclasses.replace(stored.config, factor_names=tuple(names)))
 
 
 @dataclass(frozen=True)

@@ -96,3 +96,27 @@ uv run pytest
 
 Credentials come from environment variables only (`ANTHROPIC_API_KEY`, or the variable named in the
 config for an OpenAI-compatible provider); the `claude_code` backend uses the local Claude Code login.
+
+## First campaign
+
+[`configs/us3000_ret5.yaml`](configs/us3000_ret5.yaml): whole-market Sharadar SEP with bad prints masked, IC on
+the members of day t of us3000 `membership_estu`, the label `labels/market/ret_5`, and SEL0's 191 factors as
+the reference set. A reference entry is a component (`get_config()` dict or store folder) or
+`{store: <folder>, factor_names: [...]}`, the store's factor pinned to those outputs. The Gate compares a
+candidate with the graph of the factor a `*_neutral` store neutralises; every stored reference or baseline
+factor is read from its store's first bar (the intraday stores start in 2016, so they are empty on training).
+
+On the server (`~/projects/quantlab-factor-agent`, next to `~/projects/quantlab`), on NUMA Node 1 (Node 0's
+memory bandwidth is degraded); KunQuant runs `evaluator.njobs` = 51 threads; set no thread variables:
+
+```
+uv sync
+numactl --cpunodebind=1 --membind=1 uv run pytest -n 16 -q              # includes the offline replay smoke test
+nohup numactl --cpunodebind=1 --preferred=1 uv run python -c \
+  "from factor_agent.campaign import Campaign; from factor_agent.config import CampaignConfig; \
+   Campaign(CampaignConfig.from_file('configs/us3000_ret5.yaml')).run()" > campaign.log 2>&1 &
+```
+
+After the campaign, the same way: `Acceptance(CampaignConfig.from_file('configs/us3000_ret5.yaml')).validate()`.
+The campaign uses no GPU. `Acceptance` trains xgb on the GPU (quantlab picks CUDA); start it only when it
+ends before 06:00 US Eastern on a weekday, when the GPU must be free.

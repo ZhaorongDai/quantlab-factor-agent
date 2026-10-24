@@ -4,7 +4,10 @@ It holds one graph per output of every KunQuant factor of the reference set
 and every factor the campaign has accepted so far. A reference factor
 without a KunQuant graph (a Polars factor, a view over a store) cannot be
 compared by graph; its names are kept in ``not_covered`` so the gap is
-visible, and only the correlation check of admission covers them.
+visible, and only the correlation check of admission covers them. A view
+or wrapper that keeps its factor's output names (``NeutralizedFactor``,
+``StartClippedFactor``, ...) is compared by the graph of the factor it
+wraps (``owner``).
 """
 
 from collections.abc import Iterable
@@ -14,6 +17,22 @@ from KunQuant.Op import Output
 from quantlab.factor.kunquant import FactorKunQuant
 
 from factor_agent.gate.graph import Graph
+
+
+def owner(factor):
+    """The factor whose outputs ``factor`` shows: through every wrapper (``config.factor``) that keeps the names.
+
+    The walk stops at a ``FactorKunQuant``, at a factor that wraps none, or
+    before a wrapped factor lacking one of the outer names (a composite
+    that derives new outputs); that factor is returned.
+    """
+    names = set(factor.get_factor_names())
+    while not isinstance(factor, FactorKunQuant):
+        inner = getattr(factor.config, "factor", None)
+        if inner is None or not names <= set(inner.get_factor_names()):
+            break
+        factor = inner
+    return factor
 
 
 @dataclass(frozen=True)
@@ -55,8 +74,9 @@ class Zoo:
         """
         entries, not_covered = [], []
         for factor in factors:
-            source = type(factor).__name__
             names = factor.get_factor_names()
+            factor = owner(factor)
+            source = type(factor).__name__
             if not isinstance(factor, FactorKunQuant):
                 not_covered += [f"{name} ({source})" for name in names]
                 continue

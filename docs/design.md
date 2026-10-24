@@ -108,7 +108,7 @@
 （2026-10-23 to-spec 时收紧：取消 `Evaluator` 的 fake，`Campaign` 测试用真 `Gate`、真 `Evaluator` 加小型合成 Zarr store）。
 bandit、反馈拼装、记忆节奏、准入策略、停止条件都是 `Campaign` 的内部细节。
 
-测试面：`Campaign.run()`（主测试面，脚本化 fake `LLMBackend`）、`Gate.check()`（表驱动拒绝规则）、
+测试面：`CampaignConfig.from_file()`（配置文件即运行的入口）、`Campaign.run()`（主测试面，脚本化 fake `LLMBackend`）、`Gate.check()`（表驱动拒绝规则）、
 `Acceptance`（验证对比、保留期锁、导出逐位一致）、`LLMBackend` adapter（replay/fake 离线；真实提供商仅带凭证冒烟）。
 
 ```
@@ -120,7 +120,8 @@ factor_agent/
   evaluator.py     （内部 _batch.py）
   segments.py · ledger.py · zoo.py · acceptance.py · config.py
   exported.py      GraphFactor（FactorKunQuant 子类，Evaluator 与导出共用的建图）；accepted/ 放 export 生成的模块
-tests/  只测对外与深 module 的 interface：test_gate、test_evaluator、test_campaign、test_acceptance、test_llm_backends
+tests/  只测对外与深 module 的 interface：test_gate、test_evaluator、test_campaign、test_acceptance、test_llm_backends，
+        以及运行的入口配置文件 test_config（参考集写法、真实配置 configs/us3000_ret5.yaml 可解析）
 ```
 
 ## 5. 运行约束

@@ -17,8 +17,9 @@ from pathlib import Path
 import pytest
 
 from quantlab.core.component import rebuild
-from quantlab.factor.config import FactorConfig, PolarsFactorConfig
+from quantlab.factor.config import FactorConfig, NeutralizedConfig, PolarsFactorConfig
 from quantlab.factor.predefined.alpha158 import Alpha158Stock
+from quantlab.factor.predefined.neutralized import NeutralizedFactor
 from tests import synthetic_market
 from tests.campaign_runner import candidate as _candidate
 from tests.campaign_runner import run, write_config
@@ -154,11 +155,15 @@ def test_the_round_is_compiled_once_with_its_neutralisation(outcome):
 
 
 def _run(root: Path, rounds: list[list[dict]], reference=(), **sections) -> dict:
-    """Run a campaign on a fresh synthetic store; ``rounds`` holds the proposer's candidates of each round."""
+    """Run a campaign on a fresh synthetic store; ``rounds`` holds the proposer's candidates of each round.
+
+    Each item of ``reference`` makes a reference factor from the prices and the exposures.
+    """
     components = synthetic_market.build(root / "data")
-    prices = rebuild(components["prices"])
+    prices, exposures = rebuild(components["prices"]), rebuild(components["exposures"])
     sections["round"] = {"min_per_type": 0, "max_rounds": len(rounds), **sections.get("round", {})}
-    config_path = write_config(root, components, [factor(prices).get_config() for factor in reference], **sections)
+    made = [factor(prices, exposures).get_config() for factor in reference]
+    config_path = write_config(root, components, made, **sections)
     result = run(config_path, FakeLLM(lambda number, directions: rounds[number - 1]), root / "kunquant_cache")
     return {"result": result, "run_dir": root / "run"}
 
@@ -192,8 +197,8 @@ ROUND_TWO = [
 def two_rounds(tmp_path_factory):
     return _run(
         tmp_path_factory.mktemp("two_rounds"), [ROUND_ONE, ROUND_TWO],
-        reference=[lambda prices: _alpha158(prices, KBAR),
-                   lambda prices: synthetic_market.AdjustedMomentum(PolarsFactorConfig(warmup_bars=20, dataset=prices))],
+        reference=[lambda prices, _: _alpha158(prices, KBAR),
+                   lambda prices, _: synthetic_market.AdjustedMomentum(PolarsFactorConfig(warmup_bars=20, dataset=prices))],
         round={"candidates": 2, "retries": 0},
     )
 
@@ -219,6 +224,35 @@ def test_reference_factors_without_a_graph_are_reported_as_not_covered(two_round
     assert "KMID (Alpha158Stock)" in zoo["covered"]
 
 
+# One round against KMID neutralised, as the shared ``*_neutral`` stores hold
+# their factors: the planner, the Gate and the Evaluator know it as the
+# Alpha158 factor it neutralises.
+NEUTRAL_ROUND = [
+    _candidate("kmid", "alpha = (close - open) / open"),
+    _candidate("noisy copy", "alpha = (close - open) / (high - low)"),
+]
+
+
+@pytest.fixture(scope="module")
+def against_neutral_kmid(tmp_path_factory):
+    def neutral_kmid(prices, exposures):
+        return NeutralizedFactor(NeutralizedConfig(factor=_alpha158(prices, ("KMID",)), dataset=exposures, njobs=4))
+
+    return _run(
+        tmp_path_factory.mktemp("neutral_kmid"), [NEUTRAL_ROUND], reference=[neutral_kmid],
+        round={"candidates": len(NEUTRAL_ROUND), "retries": 0},
+    )
+
+
+def test_a_neutralised_reference_factor_is_known_by_the_factor_it_neutralises(against_neutral_kmid):
+    result, run_dir = against_neutral_kmid["result"], against_neutral_kmid["run_dir"]
+    planner = json.loads(sorted((run_dir / "llm_log").glob("*-planner.json"))[0].read_text())["request"]["prompt"]
+    assert "- Alpha158Stock: " in planner and "(1 outputs: KMID)" in planner
+    records = _by_description(result.records)
+    assert any("KMID (Alpha158Stock)" in r for r in records["kmid"].reasons), records["kmid"].reasons
+    assert records["noisy copy"].metrics["nearest"] == "KMID (Alpha158Stock)"
+
+
 # One round against KMID, the planted intraday signal up to a constant. Each
 # candidate meets one admission check; the volume signal passes them all.
 ADMISSION = [
@@ -235,7 +269,7 @@ ADMISSION = [
 def admission(tmp_path_factory):
     outcome = _run(
         tmp_path_factory.mktemp("admission"), [ADMISSION],
-        reference=[lambda prices: _alpha158(prices, ("KMID",))],
+        reference=[lambda prices, _: _alpha158(prices, ("KMID",))],
         round={"candidates": len(ADMISSION), "retries": 0},
     )
     result = outcome["result"]
