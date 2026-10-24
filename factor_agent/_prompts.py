@@ -8,8 +8,9 @@ The templates are built in (``TEMPLATES``) and any of them may be replaced
 from a file (``Templates.load``). A template names what it is filled with
 as ``{placeholder}``; ``PLACEHOLDERS`` lists, per template, the ones it must
 use and the ones it may. Every template may use ``market`` (the config's
-description of the data), ``horizon`` (the bars the label spans) and
-``round``. ``Prompts`` fills a template with those and with the data
+description of the data) and ``horizon`` (the bars the label spans), and
+every one but ``data``, which is the same in every round, ``round``.
+``Prompts`` fills a template with those and with the data
 section, itself the ``data`` template filled with the market, the
 described inputs of the vocabulary, the scoring's sentence and the horizon.
 """
@@ -186,19 +187,21 @@ TEMPLATES = {
 }
 
 #: What every template may use.
-_COMMON = frozenset({"market", "horizon", "round"})
+_COMMON = frozenset({"market", "horizon"})
 
 #: Per template, the placeholders it must use and the ones it may use besides ``_COMMON``.
 PLACEHOLDERS = {
     "data": (frozenset({"market", "inputs", "scoring", "horizon"}), frozenset()),
-    "plan": (frozenset({"data", "context", "quota"}), frozenset({"mechanisms"})),
+    "plan": (frozenset({"data", "context", "quota"}), frozenset({"round", "mechanisms"})),
     "propose": (
         frozenset({"data", "context", "code_rules", "vocabulary", "fields", "n", "directions"}),
-        frozenset({"mechanisms"}),
+        frozenset({"round", "mechanisms"}),
     ),
-    "retry": (frozenset({"code_rules", "vocabulary", "fields", "n", "failures"}), frozenset({"data", "mechanisms"})),
-    "review": (frozenset({"candidates"}), frozenset({"data", "mechanisms"})),
-    "distill": (frozenset({"history"}), frozenset({"data", "mechanisms"})),
+    "retry": (
+        frozenset({"code_rules", "vocabulary", "fields", "n", "failures"}), frozenset({"round", "data", "mechanisms"}),
+    ),
+    "review": (frozenset({"candidates"}), frozenset({"round", "data", "mechanisms"})),
+    "distill": (frozenset({"history"}), frozenset({"round", "data", "mechanisms"})),
 }
 
 

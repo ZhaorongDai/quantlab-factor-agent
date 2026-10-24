@@ -193,6 +193,12 @@ def test_a_replaced_template_using_an_unknown_placeholder_fails_at_start_naming_
         run(_replaced(tmp_path, market, review=REVIEW + "{reviewer_mood}"), FakeLLM(_propose), market["cache"])
 
 
+def test_a_replaced_data_template_may_not_use_the_round(tmp_path, market):
+    # The data section is the same in every round's prompts, so it is not filled with the round.
+    with pytest.raises(PromptError, match=re.escape("data (") + ".*" + re.escape("unknown placeholder(s) ['{round}']")):
+        run(_replaced(tmp_path, market, data=DATA + "\nRound {round}"), FakeLLM(_propose), market["cache"])
+
+
 def test_an_unknown_template_name_fails_at_start(tmp_path, market):
     with pytest.raises(PromptError, match="judge: not a template"):
         run(_replaced(tmp_path, market, judge=REVIEW), FakeLLM(_propose), market["cache"])
