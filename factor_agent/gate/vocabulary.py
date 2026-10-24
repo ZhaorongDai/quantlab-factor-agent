@@ -37,8 +37,9 @@ signature, argument and parameter kinds, dimension rule, prompt description
 and binding phrases, plus the parameter value sets and, in the
 repository's example file, every other operator class with why it is
 excluded. A class or a callable must come from KunQuant,
-``quantlab.factor`` or a module the config lists in ``operator_modules``;
-the module is checked before it is imported.
+``quantlab.factor`` or a module the config lists in ``operator_modules``:
+the path is checked before it is imported, no attribute hop may go through
+another module, and the object must be defined under one of them.
 
 ``load`` reports every problem of the files at once (``VocabularyError``).
 The sandbox rebuilds the same vocabulary from ``sources``, the files' text.
@@ -51,6 +52,7 @@ import keyword
 import math
 import re
 import string
+import types
 from collections.abc import Iterable, Iterator, Mapping
 from dataclasses import dataclass
 from fractions import Fraction
@@ -558,13 +560,15 @@ class Vocabulary:
         if not isinstance(path, str) or not path:
             self._problem(where, f"{what} must be a dotted path, got {path!r}")
             return None
-        if not any(path.startswith(module + ".") for module in self._modules):
-            self._problem(
-                where, f"{what} {path} is not from KunQuant, quantlab.factor or a module listed in operator_modules"
-            )
+        allowed = "KunQuant, quantlab.factor or a module listed in operator_modules"
+        if not _under(path, self._modules):
+            self._problem(where, f"{what} {path} is not from {allowed}")
             return None
         try:
-            return resolve(path)
+            return resolve(path, self._modules)
+        except _OutsideModules as exc:
+            self._problem(where, f"{what} {path} {exc}, which is not {allowed}")
+            return None
         except (ImportError, AttributeError) as exc:
             self._problem(where, f"{what} {path} cannot be imported: {exc}")
             return None
@@ -786,14 +790,26 @@ class Vocabulary:
                 return
 
 
-def resolve(path: str) -> object:
+class _OutsideModules(ImportError):
+    """A path left the allowed modules: an attribute hop through another module, or an object defined in one."""
+
+
+def resolve(path: str, roots: Iterable[str] | None = None) -> object:
     """Import the object at ``path``: the longest importable module prefix, then attributes.
+
+    With ``roots``, the path may not leave the modules under them: no
+    attribute hop may go through a module outside them (``KunQuant.jit.cfake
+    .subprocess.run`` is refused, though its prefix is KunQuant's), and the
+    object must be defined in one of them (its ``__module__``), so a name an
+    allowed module imported from elsewhere is refused too.
 
     Raises
     ------
     ImportError, AttributeError
-        If no prefix imports or an attribute is missing.
+        If no prefix imports or an attribute is missing; the ``ImportError``
+        subclass ``_OutsideModules`` if the path leaves ``roots``.
     """
+    roots = None if roots is None else tuple(roots)
     parts = path.split(".")
     for cut in range(len(parts) - 1, 0, -1):
         try:
@@ -802,8 +818,19 @@ def resolve(path: str) -> object:
             continue
         for attribute in parts[cut:]:
             value = getattr(value, attribute)
+            if roots is not None and isinstance(value, types.ModuleType) and not _under(value.__name__, roots):
+                raise _OutsideModules(f"goes through module {value.__name__}")
+        if roots is not None:
+            module = getattr(value, "__module__", None)
+            if not isinstance(module, str) or not _under(module, roots):
+                raise _OutsideModules(f"is defined in {module}")
         return value
     raise ImportError(f"no module of {path} can be imported")
+
+
+def _under(name: str, roots: Iterable[str]) -> bool:
+    """Whether the dotted ``name`` is one of ``roots`` or inside one."""
+    return any(name == root or name.startswith(root + ".") for root in roots)
 
 
 def resolve_classes(paths: Mapping[str, str]) -> dict[str, type]:
