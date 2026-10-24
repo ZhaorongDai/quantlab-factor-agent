@@ -83,25 +83,25 @@ def estimate(settings: RoundConfig, backends: dict, context: dict[str, str], pro
     review_base = len(prompts.render("review", round=1, candidates=""))
     distill_base = len(prompts.render("distill", round=1, history=""))
 
-    prompts: dict[str, list[tuple[int, int]]] = {role: [] for role in ROLES}  # (input chars, reply tokens)
+    calls: dict[str, list[tuple[int, int]]] = {role: [] for role in ROLES}  # (input chars, reply tokens)
     distilled = 0
     for number in range(1, rounds + 1):
         trials = (number - 1) * n
         feedback = n * _FEEDBACK_CHARS if number > 1 else 0
         if number - 1 - distilled >= settings.memory_every:
-            prompts["distiller"].append((distill_base + trials * _HISTORY_CHARS, _MEMORY_TOKENS))
+            calls["distiller"].append((distill_base + trials * _HISTORY_CHARS, _MEMORY_TOKENS))
             distilled = number - 1
-        prompts["planner"].append((planner_base + trials * _HISTORY_CHARS + feedback, n * _REPLY_TOKENS["planner"]))
-        prompts["proposer"].append((proposer_base + n * _DIRECTION_CHARS + feedback, n * _REPLY_TOKENS["proposer"]))
-        prompts["proposer"] += [(retry_base + n * _CANDIDATE_CHARS, n * _REPLY_TOKENS["proposer"])] * settings.retries
-        prompts["reviewer"].append((review_base + n * _CANDIDATE_CHARS, n * _REPLY_TOKENS["reviewer"]))
+        calls["planner"].append((planner_base + trials * _HISTORY_CHARS + feedback, n * _REPLY_TOKENS["planner"]))
+        calls["proposer"].append((proposer_base + n * _DIRECTION_CHARS + feedback, n * _REPLY_TOKENS["proposer"]))
+        calls["proposer"] += [(retry_base + n * _CANDIDATE_CHARS, n * _REPLY_TOKENS["proposer"])] * settings.retries
+        calls["reviewer"].append((review_base + n * _CANDIDATE_CHARS, n * _REPLY_TOKENS["reviewer"]))
 
     usd = {}
     for role in ROLES:
         price = getattr(backends[role], "estimate", None)
         costs = [
             price(chars // _CHARS_PER_TOKEN, tokens + _THINKING_TOKENS) if price else None
-            for chars, tokens in prompts[role]
+            for chars, tokens in calls[role]
         ]
         usd[role] = None if None in costs else sum(costs)
-    return CostEstimate(calls={role: len(prompts[role]) for role in ROLES}, usd=usd)
+    return CostEstimate(calls={role: len(calls[role]) for role in ROLES}, usd=usd)
