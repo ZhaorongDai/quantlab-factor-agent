@@ -1,8 +1,8 @@
 """The RunSnapshot: the files a run searched with and the code it ran, kept in its run directory.
 
-A run's search space is what its files say: the field files and the
-operator file and the replaced prompt templates. On a first start
-``open`` copies each file into ``<run_dir>/snapshot/<name>`` and records
+A run's search space is what its files say (``SearchFiles``): the field
+files and the operator file and the replaced prompt templates. On a first
+start ``open`` copies each file into ``<run_dir>/snapshot/<name>`` and records
 its hash and the code versions (the commits of this package and of
 quantlab) in ``<run_dir>/snapshot.json``. On a resume a file whose name or
 content differs from the snapshot is an error, since a new search space
@@ -10,7 +10,7 @@ needs a new run directory; a code version that differs only warns, so a
 bug-fix resume is allowed but visible, and every code version a run was
 opened with is kept in order.
 
-The run reads the snapshot's copies (``path``), not the files it was given,
+The run reads the snapshot's copies (``search_files``), not the files it was given,
 and ``read`` opens a run's snapshot without recording anything, for
 Acceptance and for a replay of the run.
 """
@@ -20,6 +20,7 @@ import json
 import shutil
 import warnings
 from collections.abc import Mapping
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -35,6 +36,48 @@ class CodeVersionChanged(UserWarning):
     """A resume runs other code than the run was last opened with."""
 
 
+@dataclass(frozen=True)
+class SearchFiles:
+    """The files a run searches with: the field files, the operator file and the replaced templates.
+
+    ``prompts`` maps a template's name to the file that replaces it. In a
+    snapshot a field file is named ``fields/<file name>``, the operator file
+    ``operators/<file name>`` and a replaced template
+    ``prompts/<template>/<file name>`` (``names``, ``from_names``).
+    """
+
+    fields: tuple
+    operators: str | Path
+    prompts: Mapping[str, str | Path] = field(default_factory=dict)
+
+    def __post_init__(self):
+        object.__setattr__(self, "fields", tuple(self.fields))
+
+    def names(self) -> dict[str, str | Path]:
+        """Every file by its name in a snapshot, field files first, then the operator file and the templates.
+
+        Raises
+        ------
+        ValueError
+            If two field files have the same file name.
+        """
+        files = {f"fields/{Path(path).name}": path for path in self.fields}
+        if len(files) != len(self.fields):
+            raise ValueError(f"run snapshot: the field files {[str(f) for f in self.fields]} repeat a file name")
+        templates = {f"prompts/{name}/{Path(path).name}": path for name, path in self.prompts.items()}
+        return {**files, f"operators/{Path(self.operators).name}": self.operators, **templates}
+
+    @classmethod
+    def from_names(cls, files: Mapping[str, str | Path]) -> "SearchFiles":
+        """The files of a snapshot's ``files`` (name to path), as ``names`` names them."""
+        [operators] = [path for name, path in files.items() if name.startswith("operators/")]
+        return cls(
+            fields=tuple(path for name, path in files.items() if name.startswith("fields/")),
+            operators=operators,
+            prompts={name.split("/")[1]: path for name, path in files.items() if name.startswith("prompts/")},
+        )
+
+
 class RunSnapshot:
     """The snapshot of a run directory; build it with ``open`` or ``read``.
 
@@ -48,11 +91,10 @@ class RunSnapshot:
         self.versions: list[dict] = manifest["versions"]
 
     @classmethod
-    def open(cls, run_dir: str | Path, files: Mapping[str, str | Path], versions: Mapping[str, str]) -> "RunSnapshot":
-        """Open ``run_dir`` with ``files`` (name to path) and the code ``versions`` it runs on.
+    def open(cls, run_dir: str | Path, search: SearchFiles, versions: Mapping[str, str]) -> "RunSnapshot":
+        """Open ``run_dir`` with the files of ``search`` and the code ``versions`` it runs on.
 
-        A name is a relative path inside the snapshot, such as
-        ``fields/price_volume.yaml``. A first start copies the files; a
+        A first start copies the files, under their ``SearchFiles.names``; a
         resume checks them against the copies. Either way ``versions`` is
         appended to the recorded versions.
 
@@ -60,6 +102,8 @@ class RunSnapshot:
         ------
         SnapshotMismatch
             On a resume, naming every file added, removed or changed since the first start.
+        ValueError
+            If two field files have the same file name.
 
         Warns
         -----
@@ -67,6 +111,7 @@ class RunSnapshot:
             On a resume whose ``versions`` differ from the last recorded ones.
         """
         run_dir = Path(run_dir)
+        files = search.names()
         manifest_path = run_dir / "snapshot.json"
         hashes = {name: _hash(Path(path)) for name, path in files.items()}
         if manifest_path.exists():
@@ -117,9 +162,10 @@ class RunSnapshot:
             raise KeyError(f"run snapshot of {self.run_dir}: no file {name!r}; it holds {list(self.files)}")
         return self.files[name]
 
-    def names(self, prefix: str = "") -> list[str]:
-        """The names of the snapshot's files that start with ``prefix``, in their recorded order."""
-        return [name for name in self.files if name.startswith(prefix)]
+    @property
+    def search_files(self) -> SearchFiles:
+        """The snapshot's copies, as the files the run searches with."""
+        return SearchFiles.from_names(self.files)
 
 
 def _hash(path: Path) -> str:

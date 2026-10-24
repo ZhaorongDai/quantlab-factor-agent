@@ -13,6 +13,7 @@ import pytest
 import yaml
 
 from factor_agent.config import ROLES
+from factor_agent.gate.vocabulary import VocabularyError
 from factor_agent.snapshot import CodeVersionChanged, SnapshotMismatch
 from tests import synthetic_market
 from tests.campaign_runner import candidate, run, write_config
@@ -78,7 +79,7 @@ def test_a_resume_after_a_field_or_operator_file_changed_fails_naming_the_file(t
 def test_a_resume_with_another_field_file_fails_naming_it(tmp_path, market):
     path, files = _campaign(tmp_path, market)
     extra = tmp_path / "vocabulary" / "extra.yaml"
-    extra.write_text(Path(files["fields"][0]).read_text())
+    extra.write_text(yaml.safe_dump({"family": "extra", "description": "no fields", "fields": []}))
     config = yaml.safe_load(path.read_text())
     config["fields"].append(str(extra))
     path.write_text(yaml.safe_dump(config))
@@ -133,3 +134,17 @@ def test_a_replay_reproduces_the_ledger_after_the_repository_files_changed(tmp_p
     snapshot = recorded / "run" / "snapshot"
     for copy in snapshot.rglob("*.yaml"):
         assert (replayed / "run" / "snapshot" / copy.relative_to(snapshot)).read_text() == copy.read_text()
+
+
+def test_a_run_refused_for_a_typo_starts_cleanly_in_the_same_run_directory_once_fixed(tmp_path, market):
+    files = _files(tmp_path)
+    fields = Path(files["fields"][0])
+    good = fields.read_text()
+    fields.write_text(good.replace("column: adjVolume", "column: adjVolumeTypo"))
+    path = write_config(tmp_path, market["components"], round=SETTINGS, **files)
+    with pytest.raises(VocabularyError, match="adjVolumeTypo"):
+        run(path, FakeLLM(_propose), market["cache"])
+    fields.write_text(good)
+    result = run(path, FakeLLM(_propose), market["cache"])
+    assert result.rounds == 1
+    assert (tmp_path / "run" / "snapshot" / "fields" / fields.name).read_text() == good

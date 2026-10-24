@@ -22,10 +22,9 @@ each with a one-line description, and ``prompts`` maps a template's name
 
 import dataclasses
 
-from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import yaml
 from quantlab.core.component import rebuild
@@ -34,9 +33,8 @@ from quantlab.core.store_folder import load_component
 from factor_agent._prompts import Templates
 from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.segments import PURGE_BARS, Segment, Segments
+from factor_agent.snapshot import SearchFiles
 
-if TYPE_CHECKING:
-    from factor_agent.snapshot import RunSnapshot
 
 
 @dataclass(frozen=True)
@@ -336,52 +334,34 @@ class CampaignConfig:
         """The segment the campaign evaluates."""
         return self.segments.training
 
-    def snapshot_files(self) -> dict[str, str]:
-        """Every file the run searches with, by its name in the run's snapshot (see ``RunSnapshot``).
+    def search_files(self) -> SearchFiles:
+        """The files the run searches with: the field files, the operator file and the replaced templates."""
+        return SearchFiles(self.fields, self.operators, self.prompts)
 
-        A field file is ``fields/<file name>``, the operator file
-        ``operators/<file name>`` and a replaced template
-        ``prompts/<template>/<file name>``.
+    def templates(self, files: SearchFiles | None = None) -> Templates:
+        """The prompt templates: the built-in ones, those ``files`` replace read from their files.
 
-        Raises
-        ------
-        ValueError
-            If two field files have the same file name.
-        """
-        files = {f"fields/{Path(path).name}": path for path in self.fields}
-        if len(files) != len(self.fields):
-            raise ValueError(f"campaign config: the field files {list(self.fields)} repeat a file name")
-        templates = {f"prompts/{name}/{Path(path).name}": path for name, path in self.prompts.items()}
-        return {**files, f"operators/{Path(self.operators).name}": self.operators, **templates}
-
-    def templates(self, snapshot: "RunSnapshot | None" = None) -> Templates:
-        """The prompt templates: the built-in ones, those the config replaces read from their files.
-
-        With ``snapshot`` the replacing files are the snapshot's copies.
+        ``files`` are the config's own by default, or a run snapshot's copies.
 
         Raises
         ------
         PromptError
             With every problem of the replacing files.
         """
-        return Templates.load(self.prompts) if snapshot is None else snapshot_templates(snapshot.files)
+        return Templates.load((files or self.search_files()).prompts)
 
-    def vocabulary(self, columns=None, snapshot: "RunSnapshot | None" = None) -> Vocabulary:
+    def vocabulary(self, columns=None, files: SearchFiles | None = None) -> Vocabulary:
         """The Vocabulary of the field and operator files; ``columns``, given, are the price dataset's.
 
-        With ``snapshot`` the files are the snapshot's copies (every field
-        file and the operator file it holds), not the config's.
+        ``files`` are the config's own by default, or a run snapshot's copies.
 
         Raises
         ------
         VocabularyError
             With every problem of the files, a field column missing from ``columns`` included.
         """
-        if snapshot is None:
-            return Vocabulary.load(self.fields, self.operators, self.operator_modules, columns)
-        fields = [snapshot.path(name) for name in snapshot.names("fields/")]
-        [operators] = [snapshot.path(name) for name in snapshot.names("operators/")]
-        return Vocabulary.load(fields, operators, self.operator_modules, columns)
+        files = files or self.search_files()
+        return Vocabulary.load(files.fields, files.operators, self.operator_modules, columns)
 
     @classmethod
     def from_file(cls, path: str | Path) -> "CampaignConfig":
@@ -432,17 +412,6 @@ class CampaignConfig:
             **{name: klass(**raw[name]) for name, klass in sections.items() if name in raw},
             **optional,
         )
-
-
-def snapshot_templates(files: Mapping[str, str | Path]) -> Templates:
-    """The templates the ``prompts/<template>/<file name>`` entries of a run's ``files`` replace.
-
-    Raises
-    ------
-    PromptError
-        With every problem of those files.
-    """
-    return Templates.load({name.split("/")[1]: path for name, path in files.items() if name.startswith("prompts/")})
 
 
 def _segments(raw: dict) -> Segments:

@@ -176,7 +176,7 @@ class Acceptance:
         self.config = config
         self.run_dir = Path(run_dir if run_dir is not None else config.run_dir)
         #: The campaign's vocabulary, from its run's snapshot: the operator classes the accepted graphs are built from.
-        self.vocabulary = config.vocabulary(snapshot=RunSnapshot.read(self.run_dir))
+        self.vocabulary = config.vocabulary(files=RunSnapshot.read(self.run_dir).search_files)
         self._loaded: dict = {}
 
     @property

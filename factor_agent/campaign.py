@@ -18,13 +18,14 @@ One round:
 6. the round's records go to the ledger and the state to ``state.json``.
 
 Before anything else ``run`` checks the replaced prompt templates for
-their placeholders and opens the run's ``RunSnapshot``: a first start
-copies the config's field, operator and template files into the run
-directory, a resume fails if they changed since and warns if the commits
-did; every commit is listed in ``state.json``. It then builds the
-``Vocabulary`` from the snapshot's copies and checks every field's column
-against the price dataset; every problem is reported at once, before any
-LLM call. A replay (roles on the ``replay`` backend) searches with the
+their placeholders and builds the ``Vocabulary``, checking every field's
+column against the price dataset; every problem is reported at once,
+before any LLM call and before anything is written, so a run refused for
+its files starts cleanly once they are fixed. It then opens the run's
+``RunSnapshot``: a first start copies the config's field, operator and
+template files into the run directory, a resume fails if they changed
+since and warns if the commits did; every commit is listed in
+``state.json``. The run searches with the snapshot's copies. A replay (roles on the ``replay`` backend) searches with the
 snapshot of the run whose LLM log it replays, whatever the config's files
 say now.
 
@@ -62,7 +63,7 @@ import xarray as xr
 from factor_agent import _admission, _cost, _feedback, _scheduler
 from factor_agent._cost import CostEstimate
 from factor_agent._prompts import Prompts, Templates
-from factor_agent.config import ROLES, CampaignConfig, load, snapshot_templates
+from factor_agent.config import ROLES, CampaignConfig, load
 from factor_agent.evaluator import CompileFailure, Evaluator, Metrics
 from factor_agent.gate import Gate
 from factor_agent.gate.graph import Graph
@@ -209,12 +210,12 @@ class Campaign:
         """
         config, run_dir = self.config, Path(self.config.run_dir)
         state_path = run_dir / "state.json"
-        snapshot = self._snapshot(run_dir, state_path)
         prices = config.data.load("prices")
-        vocabulary = config.vocabulary(columns=_columns(prices), snapshot=snapshot)
+        snapshot = self._snapshot(run_dir, state_path, _columns(prices))
+        vocabulary = config.vocabulary(_columns(prices), snapshot.search_files)
         label = config.data.load("label")
         scoring = Scoring.from_config(config.scoring, config.data, njobs=config.evaluator.njobs)
-        prompts = self._prompts(config.templates(snapshot), vocabulary, label, scoring)
+        prompts = self._prompts(config.templates(snapshot.search_files), vocabulary, label, scoring)
         state = _State.read(state_path)
         state.versions = snapshot.versions
         ledger = Ledger(run_dir / "ledger.jsonl")
@@ -284,15 +285,19 @@ class Campaign:
             memory=state.memory, not_covered=zoo.not_covered,
         )
 
-    def _snapshot(self, run_dir: Path, state_path: Path) -> RunSnapshot:
+    def _snapshot(self, run_dir: Path, state_path: Path, columns: list[str]) -> RunSnapshot:
         """Open the run's snapshot: of the config's files, or, in a replay, of the replayed run's snapshot.
 
-        The replaced templates are checked first, so a broken one is never snapshotted.
+        The replaced templates and the vocabulary (against the price
+        dataset's ``columns``) are checked first, so broken files are never
+        snapshotted and a run refused for them starts cleanly once they are fixed.
 
         Raises
         ------
         PromptError
             If a replaced template lacks a placeholder its role needs or uses one it may not.
+        VocabularyError
+            With every problem of the field and operator files.
         SnapshotMismatch
             If the run directory holds a state but no snapshot (a run started before snapshots).
         ValueError
@@ -310,8 +315,9 @@ class Campaign:
         replayed = {path for path in replayed if RunSnapshot.exists(path)}
         if len(replayed) > 1:
             raise ValueError(f"campaign: the roles replay several runs {sorted(map(str, replayed))}; replay one")
-        files = RunSnapshot.read(replayed.pop()).files if replayed else self.config.snapshot_files()
-        snapshot_templates(files)
+        files = RunSnapshot.read(replayed.pop()).search_files if replayed else self.config.search_files()
+        self.config.templates(files)
+        self.config.vocabulary(columns, files)
         return RunSnapshot.open(run_dir, files, code_version())
 
     def _stop(self, state: _State, records: list[TrialRecord]) -> Stop | None:
