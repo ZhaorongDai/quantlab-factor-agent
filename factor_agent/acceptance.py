@@ -63,6 +63,7 @@ from factor_agent.exported import GraphFactor
 from factor_agent.ledger import Ledger, TrialRecord
 from factor_agent.scoring import Scoring
 from factor_agent.segments import HoldoutLock, Segment, code_version
+from factor_agent.snapshot import RunSnapshot
 
 #: Bars a year, for ``top_k_annualised``.
 BARS_PER_YEAR = 252
@@ -162,13 +163,21 @@ class Acceptance:
         ``holdout`` for ``open_holdout``).
     run_dir : str or Path, optional
         The campaign's run directory; ``config.run_dir`` by default.
+
+    The accepted graphs are read with the vocabulary of the run's snapshot
+    (``RunSnapshot``), not of the config's field and operator files.
+
+    Raises
+    ------
+    FileNotFoundError
+        If the run directory has no snapshot.
     """
 
     def __init__(self, config: CampaignConfig, run_dir: str | Path | None = None):
         self.config = config
         self.run_dir = Path(run_dir if run_dir is not None else config.run_dir)
-        #: The campaign's vocabulary, whose operator classes the accepted graphs are built from.
-        self.vocabulary = config.vocabulary()
+        #: The campaign's vocabulary, from its run's snapshot: the operator classes the accepted graphs are built from.
+        self.vocabulary = config.vocabulary(snapshot=RunSnapshot.read(self.run_dir))
         self._loaded: dict = {}
 
     @property

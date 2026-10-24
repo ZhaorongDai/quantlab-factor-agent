@@ -29,7 +29,11 @@ accepted factors with their marginal weight and residual IC in the accepted pool
 date or a held-out metric. Every `memory_every` rounds the distiller writes `memory.md`. The run
 stops at `max_rounds`, `max_trials`, `patience` rounds without an acceptance, or `budget_usd` (checked before every call), and
 records why in `state.json`; `ledger.jsonl` holds every candidate, and `run()` on the same run
-directory resumes from the last written round. See [docs/design.md](docs/design.md).
+directory resumes from the last written round. A first start copies the field and operator files into
+`<run_dir>/snapshot/` with their hashes (`snapshot.json`); the run, its Acceptance and its replays read
+those copies. A resume whose files differ from the snapshot fails (a new search space needs a new run
+directory); a resume on other commits of factor_agent or quantlab only warns, and `state.json` lists the
+commits of every start and resume. See [docs/design.md](docs/design.md).
 
 ## Vocabulary
 
@@ -81,6 +85,7 @@ llm:
 - Every call is written in full to `<run_dir>/llm_log/` (prompt, model, parameters, reply, usage, cost,
   the raw reply). `replay` (every role `{backend: replay, model: ..., log: <run_dir>/llm_log}`) serves such a log back, matched on role and prompt, so the campaign
   reproduces byte for byte without calling a provider; a request the log has no reply for fails.
+  A replay searches with the snapshot of the run whose log it replays, not the config's files.
 - Before the first round `run()` prints the estimated cost per role against `budget_usd`
   (`Campaign(config).estimate()`); the run stops once the calls have cost the budget.
 

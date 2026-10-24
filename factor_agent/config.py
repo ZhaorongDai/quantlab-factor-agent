@@ -19,7 +19,7 @@ import dataclasses
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import yaml
 from quantlab.core.component import rebuild
@@ -28,6 +28,9 @@ from quantlab.core.store_folder import load_component
 from factor_agent.candidate import MECHANISM_TYPES
 from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.segments import PURGE_BARS, Segment, Segments
+
+if TYPE_CHECKING:
+    from factor_agent.snapshot import RunSnapshot
 
 
 @dataclass(frozen=True)
@@ -297,15 +300,38 @@ class CampaignConfig:
         """The segment the campaign evaluates."""
         return self.segments.training
 
-    def vocabulary(self, columns=None) -> Vocabulary:
+    def snapshot_files(self) -> dict[str, str]:
+        """Every file the run searches with, by its name in the run's snapshot (see ``RunSnapshot``).
+
+        A field file is ``fields/<file name>``, the operator file
+        ``operators/<file name>``.
+
+        Raises
+        ------
+        ValueError
+            If two field files have the same file name.
+        """
+        files = {f"fields/{Path(path).name}": path for path in self.fields}
+        if len(files) != len(self.fields):
+            raise ValueError(f"campaign config: the field files {list(self.fields)} repeat a file name")
+        return {**files, f"operators/{Path(self.operators).name}": self.operators}
+
+    def vocabulary(self, columns=None, snapshot: "RunSnapshot | None" = None) -> Vocabulary:
         """The Vocabulary of the field and operator files; ``columns``, given, are the price dataset's.
+
+        With ``snapshot`` the files are the snapshot's copies (every field
+        file and the operator file it holds), not the config's.
 
         Raises
         ------
         VocabularyError
             With every problem of the files, a field column missing from ``columns`` included.
         """
-        return Vocabulary.load(self.fields, self.operators, self.operator_modules, columns)
+        if snapshot is None:
+            return Vocabulary.load(self.fields, self.operators, self.operator_modules, columns)
+        fields = [snapshot.path(name) for name in snapshot.names("fields/")]
+        [operators] = [snapshot.path(name) for name in snapshot.names("operators/")]
+        return Vocabulary.load(fields, operators, self.operator_modules, columns)
 
     @classmethod
     def from_file(cls, path: str | Path) -> "CampaignConfig":
