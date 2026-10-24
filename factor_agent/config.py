@@ -3,8 +3,9 @@
 ``data`` and ``reference`` hold quantlab components: each is either a
 ``get_config()`` dict inline or the path of a store folder whose
 ``component.json`` describes it (``quantlab.core.store_folder.save_component``).
-``reference`` lists the factors candidates must be original against (the
-``Zoo``); a factor's ``factor_names`` selects its columns.
+``reference`` lists the reference set: the factors candidates must be
+original against (the ``Zoo``) and, in admission, uncorrelated with and
+incremental to; a factor's ``factor_names`` selects its columns.
 """
 
 from dataclasses import dataclass
@@ -20,14 +21,24 @@ from factor_agent.segments import Segment
 
 @dataclass(frozen=True)
 class DataConfig:
-    """The whole-market price dataset and the forward label masked by day-t membership."""
+    """The data the Evaluator reads.
+
+    ``prices`` is the whole-market price dataset, ``label`` the forward
+    label masked by day-t membership, ``membership`` the members of each
+    day (an ``IndexConstituentDataset``) and ``exposures`` the market cap
+    and industry dataset, or a list of datasets, that neutralisation
+    regresses on (``NeutralizedConfig.dataset``).
+    """
 
     prices: dict | str
     label: dict | str
+    membership: dict | str
+    exposures: dict | str | list
 
     def load(self, name: str) -> Any:
-        """Rebuild the component ``name`` (``"prices"`` or ``"label"``)."""
-        return load(getattr(self, name))
+        """Rebuild the component ``name``; a list of components is rebuilt item by item."""
+        value = getattr(self, name)
+        return [load(item) for item in value] if isinstance(value, list) else load(value)
 
 
 def load(component: dict | str) -> Any:
@@ -67,8 +78,13 @@ class GateConfig:
 class AdmissionConfig:
     """What an evaluated candidate needs to be accepted."""
 
-    #: Newey-West t of the mean daily rank IC a candidate needs.
+    #: Newey-West t of the partial IC the first evaluated trial needs; the
+    #: threshold rises with the trial count (Bonferroni, see ``_admission``).
     t_threshold: float = 3.0
+    #: Largest absolute cross-sectional correlation with a reference or accepted factor.
+    max_correlation: float = 0.7
+    #: Smallest Spearman correlation of the decile returns with the decile number.
+    min_monotonicity: float = 0.6
 
 
 @dataclass(frozen=True)

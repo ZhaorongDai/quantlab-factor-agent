@@ -65,9 +65,11 @@ class Zoo:
                 entries.append(ZooEntry(name, source, Graph.record(outputs[name].inputs[0], strict=False)))
         return cls(entries, not_covered)
 
-    def add(self, name: str, source: str, graph: Graph) -> None:
-        """Add a factor, such as one the campaign has just accepted."""
-        self._entries.append(ZooEntry(name, source, graph))
+    def add(self, name: str, source: str, graph: Graph) -> ZooEntry:
+        """Add a factor, such as one the campaign has just accepted, and return its entry."""
+        entry = ZooEntry(name, source, graph)
+        self._entries.append(entry)
+        return entry
 
     @property
     def entries(self) -> tuple[ZooEntry, ...]:

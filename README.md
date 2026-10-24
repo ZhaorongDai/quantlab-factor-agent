@@ -8,9 +8,14 @@ segment is ever shown to the model.
 
 Status: tracer bullet (#9). `Campaign(CampaignConfig.from_file(path)).run()` runs one round: the
 proposer's candidates are parsed, built in a sandboxed subprocess by the `Gate`, compiled as one
-KunQuant graph and scored by the `Evaluator` on the training segment (daily rank IC and Newey-West t
-against the 5-day label on the day-t members), admitted at t >= 3 and written to `ledger.jsonl` in
-the run directory. The Gate also rejects a candidate that rewrites a factor of the zoo (the KunQuant
+KunQuant graph (a batch that fails is bisected to the failing graphs) and scored by the `Evaluator` on
+the training segment: each candidate is ranked over the whole market, neutralised against industry and
+log market cap like the shared `*_neutral` stores and masked to the day-t members, then measured
+against the 5-day label (rank IC, partial IC residualised on the reference set and the accepted
+factors, correlation with each of them, decile returns). Admission requires, in order, the stated
+sign, correlation at most 0.7, a partial-IC Newey-West t above a threshold that starts at 3 and rises
+with the number of evaluated trials, and monotone deciles; every candidate is written to
+`ledger.jsonl` in the run directory. The Gate also rejects a candidate that rewrites a factor of the zoo (the KunQuant
 graphs of the `reference` factors in the config plus the factors accepted in earlier rounds), changes
 only its windows or parameters, or shares a subtree of more than 5 nodes with one, and a hypothesis
 that names an input or transformation the graph never uses; `zoo.json` lists the reference factors

@@ -1,17 +1,28 @@
-"""A small synthetic whole-market store with a planted signal, built through quantlab's public API.
+"""A small synthetic whole-market store with planted signals, built through quantlab's public API.
 
 Two hundred symbols of adjusted OHLCV from 2009-06-01 to 2013-12-31, a
-membership panel and the 5-day open-to-open label (quantlab's ``Return``
-read on the members of day t through ``MembershipMaskedLabel``), as the
-shared ``labels/market/ret_5`` store is built.
+membership panel, the 5-day open-to-open label (quantlab's ``Return`` read
+on the members of day t through ``MembershipMaskedLabel``), as the shared
+``labels/market/ret_5`` store is built, and the exposures (market cap and
+industry) that neutralisation regresses on.
 
-The planted signal is the intraday move ``close / open``: its shock ``z`` on
-day t moves the next open-to-open return, so it predicts the label at t. It
-has the stated (positive) sign only on the members of day t and only inside
-``TRAINING``; for non-members and on every other date the effect is
-reversed. A candidate on ``close / open`` is therefore accepted only by an
-evaluator that masks by membership on day t and reads the training segment
-alone.
+Each signal is a daily shock on bar t that moves the open-to-open step into
+bar t + 2, the first step of the label at t. Every other shock of a field
+moves nothing, so a field read with a lag of five bars or more is noise.
+
+- The intraday move ``close / open`` (shock ``z``) has the stated
+  (positive) sign only on the members of day t and only inside
+  ``TRAINING``; for non-members and on every other date the effect is
+  reversed. It is accepted only by an evaluator that masks by membership on
+  day t and reads the training segment alone.
+- The volume shock ``volume / WindowedAvg(volume, 20)`` predicts the label
+  with a smaller, positive effect on every symbol and date: information
+  that no price factor carries.
+- The upper wick ``high / Max(open, close)`` predicts it weakly, with a
+  Newey-West t a little above 3 on the training segment.
+- The lower wick ``Min(open, close) / low`` predicts it only in its top
+  decile: a shock above the 90th percentile moves the return, the rest do
+  not.
 """
 
 from pathlib import Path
@@ -38,6 +49,13 @@ LATE_JOIN = "2013-07-01"
 COVERAGE_START = "2009-01-02"
 HORIZON = 5
 SEED = 7
+#: Open-to-open step, as a log return, per unit of each shock.
+INTRADAY_EFFECT = 0.01
+VOLUME_EFFECT = 0.0025
+UPPER_WICK_EFFECT = 0.00062
+TAIL_EFFECT = 0.012
+#: Industries the exposures assign.
+N_INDUSTRIES = 5
 
 
 class IntervalMembership(IndexConstituentDataset):
@@ -71,43 +89,72 @@ def symbols() -> list[str]:
 def _prices(timestamps: pd.DatetimeIndex) -> dict[str, np.ndarray]:
     rng = np.random.default_rng(SEED)
     n_bars = len(timestamps)
-    z = rng.normal(size=(n_bars, N_SYMBOLS))
+    shape = (n_bars, N_SYMBOLS)
+    z = rng.normal(size=shape)
     in_training = (timestamps >= TRAINING[0]) & (timestamps <= TRAINING[1])
     sign = np.where(in_training, 1.0, -1.0)[:, None] * np.where(np.arange(N_SYMBOLS) < MEMBERS, 1.0, -1.0)
+    volume_shock = rng.normal(size=shape)
+    upper_wick = rng.normal(size=shape)
+    lower_wick = rng.exponential(size=shape)
+    effect = (
+        INTRADAY_EFFECT * sign * z
+        + VOLUME_EFFECT * volume_shock
+        + UPPER_WICK_EFFECT * upper_wick
+        + TAIL_EFFECT * (lower_wick > np.log(10.0))  # the exponential's top decile
+    )
     # step[k] is the open-to-open log return into bar k. The label at t spans
     # the opens of t + 1 to t + 6, that is steps t + 2 to t + 6; step t + 2
-    # carries bar t's shock.
-    step = 0.01 * rng.normal(size=(n_bars, N_SYMBOLS))
-    step[2:] += 0.01 * sign[:-2] * z[:-2]
+    # carries bar t's shocks.
+    step = 0.01 * rng.normal(size=shape)
+    step[2:] += effect[:-2]
     open_ = 40.0 * np.exp(np.cumsum(step, axis=0) - step[:1])
     close = open_ * np.exp(0.01 * z)
     return {
         "adjOpen": open_,
-        "adjHigh": np.maximum(open_, close) * 1.01,
-        "adjLow": np.minimum(open_, close) * 0.99,
+        "adjHigh": np.maximum(open_, close) * np.exp(0.002 * (2.0 + np.tanh(upper_wick))),
+        "adjLow": np.minimum(open_, close) * np.exp(-0.002 * (1.0 + lower_wick)),
         "adjClose": close,
-        "adjVolume": rng.uniform(1e5, 1e6, size=(n_bars, N_SYMBOLS)),
+        "adjVolume": 5e5 * np.exp(0.5 * volume_shock),
     }
+
+
+def _exposures(timestamps: pd.DatetimeIndex) -> dict[str, np.ndarray]:
+    """A market cap drifting around a fixed size per symbol and a fixed industry code."""
+    rng = np.random.default_rng(SEED + 1)
+    size = rng.normal(21.0, 1.5, size=N_SYMBOLS)
+    drift = np.cumsum(0.01 * rng.normal(size=(len(timestamps), N_SYMBOLS)), axis=0)
+    industry = rng.integers(0, N_INDUSTRIES, size=N_SYMBOLS).astype(float)
+    return {
+        "marketcap": np.exp(size + drift),
+        "industry": np.tile(industry, (len(timestamps), 1)),
+    }
+
+
+def _write_dataset(root: Path, name: str, values: dict[str, np.ndarray], timestamps) -> StockDataset:
+    """Write ``values`` as the store ``market/<name>`` and return a dataset over it."""
+    panel = xr.Dataset(
+        {column: (["timestamp", "symbol"], array) for column, array in values.items()},
+        coords={"timestamp": timestamps, "symbol": symbols()},
+    )
+    zarr_path = root / "market" / name / f"{name}.zarr"
+    zarr_path.parent.mkdir(parents=True)
+    panel.to_zarr(zarr_path, mode="w")
+    return StockDataset(DatasetConfig(
+        zarr_file_path=str(zarr_path), raw_data_dir_path=str(root / "downloads"),
+        market="us_equity", frequency="1d",
+    ))
 
 
 def build(root: Path) -> dict:
     """Write the stores under ``root`` and return the component configs a campaign config holds.
 
-    Returns ``{"prices": ..., "label": ...}``, each a ``get_config()`` dict.
+    Returns ``{"prices": ..., "label": ..., "membership": ..., "exposures": ...}``,
+    each a ``get_config()`` dict.
     """
     root = Path(root)
     timestamps = pd.bdate_range(START, END)
-    panel = xr.Dataset(
-        {name: (["timestamp", "symbol"], values) for name, values in _prices(timestamps).items()},
-        coords={"timestamp": timestamps, "symbol": symbols()},
-    )
-    zarr_path = root / "market" / "synthetic_1d" / "synthetic_1d.zarr"
-    zarr_path.parent.mkdir(parents=True)
-    panel.to_zarr(zarr_path, mode="w")
-    prices = StockDataset(DatasetConfig(
-        zarr_file_path=str(zarr_path), raw_data_dir_path=str(root / "downloads"),
-        market="us_equity", frequency="1d",
-    ))
+    prices = _write_dataset(root, "synthetic_1d", _prices(timestamps), timestamps)
+    exposures = _write_dataset(root, "synthetic_exposures", _exposures(timestamps), timestamps)
 
     IntervalMembership.intervals = [
         (symbol, COVERAGE_START if i < MEMBERS else LATE_JOIN, None) for i, symbol in enumerate(symbols())
@@ -124,4 +171,7 @@ def build(root: Path) -> dict:
     ))
     label = MembershipMaskedLabel(ret, membership)
     label.build(START, END)
-    return {"prices": prices.get_config(), "label": label.get_config()}
+    return {
+        "prices": prices.get_config(), "label": label.get_config(),
+        "membership": membership.get_config(), "exposures": exposures.get_config(),
+    }

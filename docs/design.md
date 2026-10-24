@@ -98,7 +98,7 @@
 | Module | Interface | 藏在里面 | 不变量 / 依赖类别 |
 |---|---|---|---|
 | `Gate` | `check(candidate, zoo) -> Passed(graph, fingerprint, stats) \| Rejected(reasons)` | 隔离子进程、AST 白名单、算子注册表、规范化、各项图约束、量纲、机制绑定、公共子树、检查顺序 | 不读数据、确定性、坏候选返回 `Rejected` 不抛异常；local-substitutable（测试真起子进程） |
-| `Evaluator` | `for_segment(segment, reference)`；`.evaluate(graphs) -> list[Metrics \| CompileFailure]` | 批量编译与二分定位、全市场读取与坏报价屏蔽、rank、中性化、成员屏蔽、标签对齐、IC/NW t/偏 IC/10 分组 | 唯一碰数据；segment 构造时固定、无换日期方法；测试用小型合成 Zarr store |
+| `Evaluator` | `for_segment(segment, reference)`；`.evaluate(graphs, admit) -> list[Metrics \| CompileFailure]`（`admit` 是 `Campaign` 的准入回调，按提案顺序调用，收下的候选当轮即进参考池） | 批量编译与二分定位、全市场读取与坏报价屏蔽、rank、中性化、成员屏蔽、标签对齐、IC/NW t/偏 IC/10 分组 | 唯一碰数据；segment 构造时固定、无换日期方法；测试用小型合成 Zarr store |
 | `Segments` | 日期、清洗、保留期锁 | Q35、Q36 | `Evaluator` 与 `Acceptance` 共用 |
 | `Researcher` | `plan`、`propose(plan, gate)`、`review`、`distill` | prompt 模板、三段历史、JSON 解析与重试、Gate 失败重试、调用落盘 | 各角色后端由配置注入 |
 | `LLMBackend` | `complete(request) -> Reply(text, usage, cost, model_id)` | — | 真实 seam：claude_code / anthropic / openai_compatible / replay + 测试 fake |
