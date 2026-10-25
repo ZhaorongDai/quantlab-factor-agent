@@ -369,6 +369,28 @@ def test_the_code_rules_ask_for_a_value_comparable_across_the_cross_section(luna
         assert "unless the mechanism is about that level" in rules
 
 
+def test_the_code_rules_leave_missing_values_missing_and_say_why(lunar):
+    asked = [r for r in lunar.requests if _kind(r) in ("proposer", "fix")]
+    assert {_kind(r) for r in asked} == {"proposer", "fix"}
+    for request in asked:
+        rules = request.prompt[request.prompt.index("How to write the code:"):request.prompt.index("\n<vocabulary>\n")]
+        rules = " ".join(rules.split())
+        assert "SetInfOrNanToValue" in rules
+        assert "skips a symbol without a value that day" in rules
+        assert "ranked as real data" in rules
+        assert "coverage is measured before any fill" in rules
+        assert "unreported R&D expense is zero" in rules and "description" in rules
+
+
+def test_the_reviewer_finds_a_fill_without_a_stated_reason_inconsistent(lunar):
+    review = lunar.of_role("reviewer")[0].prompt
+    criteria = " ".join(review[review.index("</candidates>"):review.index("Otherwise it is consistent")].split())
+    seventh = criteria[criteria.index("7. "):]
+    assert "SetInfOrNanToValue" in seventh and "reason" in seventh
+    assert "R&D" in seventh and "consistent" in seventh
+    assert "ratio" in seventh and "inconsistent" in seventh
+
+
 def test_the_reviewer_asks_a_factor_with_a_unit_to_explain_ranking_by_that_level(lunar):
     review = lunar.of_role("reviewer")[0].prompt
     head = " ".join(review[:review.index("\n<candidates>\n")].split())

@@ -28,7 +28,12 @@ against the label (rank IC, partial IC residualised on the reference and accepte
 deciles). A candidate states no direction: its direction is the sign of its training IC, and the
 statistics are read in it. Admission requires a direction, correlation at most 0.7, a partial-IC
 Newey-West t above a threshold that rises with the evaluated trials (each counted in both directions),
-and monotone deciles. An exported factor is turned to its direction: a higher value, a higher return.
+monotone deciles, and coverage (the mean daily share of the members with a value) of at least
+`admission.min_coverage` (default 0.5). Coverage is measured before any fill: on the candidate's graph with
+every `SetInfOrNanToValue` replaced by its input, so filling a sparse field with 0 leaves the coverage of
+the field; the scored values still come from the graph as written. The proposer is told to leave a missing
+value missing (the scoring skips it) and to fill only when the mechanism says what a missing value means,
+stated in the description; the reviewer finds a fill without that reason inconsistent. An exported factor is turned to its direction: a higher value, a higher return.
 
 The planner and the proposer see the data, the seed `directions`, the reference factor families, the
 memory, the last round's training statistics and rejection reasons, and the accepted factors with

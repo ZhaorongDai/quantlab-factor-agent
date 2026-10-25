@@ -54,7 +54,13 @@ as the condition of a Select.
 A factor's value should be comparable across the cross-section, so write it as a pure number: a
 ratio, a return, a rank or a z-score. An output that carries a unit (a price, a dollar amount, a share
 count) ranks the cross-section partly by that level, and that ranking is what the scoring compares,
-unless the mechanism is about that level, as a price impact per dollar traded is."""
+unless the mechanism is about that level, as a price impact per dollar traded is.
+Leave a missing value missing: do not wrap the value in SetInfOrNanToValue to fill it. The scoring
+skips a symbol without a value that day, so a missing value needs no fill; a filled value is ranked as
+real data, so a symbol without the data is sorted as if its value were the fill and the factor partly
+sorts the cross-section by whether the item is reported; and coverage is measured before any fill, so a fill does
+not help a factor pass the coverage rule. Fill only when the mechanism says what a missing value means,
+as an unreported R&D expense is zero, and state that reason in the description."""
 
 FIELDS = """\
 - "hypothesis": the economic mechanism that makes the factor predict the return, in one or two sentences
@@ -245,6 +251,10 @@ A candidate is inconsistent when any of these holds:
    price level or size. For example, the Amihud illiquidity, the absolute return per dollar traded
    (1/dollars), is consistent when its hypothesis is about the price impact per dollar traded; a
    slope of vwap described as a trend, without dividing by a price (price), is inconsistent.
+7. The code fills missing values (SetInfOrNanToValue) and the description does not state the reason,
+   what a missing value means in the mechanism, because a filled value is ranked as real data. For
+   example, R&D expense filled with 0 is consistent when the description says an unreported R&D
+   expense is zero; a ratio filled with 0 for no stated reason is inconsistent.
 Otherwise it is consistent. Which way a factor predicts (its factor direction) is read from the data
 afterwards, so a factor direction the text states, leaves out or gets the other way round is no reason
 to find a candidate inconsistent. The length of the code is no reason to find a candidate consistent
