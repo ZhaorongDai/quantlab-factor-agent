@@ -65,6 +65,17 @@ _Avoid_: full history, log
 The trials before the recent history, counted by mechanism type and outcome rather than listed.
 _Avoid_: old history, archive
 
+**Reference set**:
+The existing factors a candidate must add to: its correlation with each and its partial IC are measured
+against them (and against the factors accepted so far), and the acceptance model's baseline is them by default.
+_Avoid_: baseline (for this set), factor pool, SEL0
+
+**Known factors**:
+Every existing factor a candidate is checked against for novelty: a rewrite of one, or a factor ranking
+the stocks nearly as one does, is not new. The reference set is the part of them used to measure what a
+candidate adds.
+_Avoid_: zoo, factor library, literature factors
+
 **Acceptance model**:
 The model Acceptance trains, given as a template that carries its own baseline factors; Acceptance
 fills in the accepted factors, the label, the windows and the seed.
