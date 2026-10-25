@@ -11,10 +11,17 @@ as the Evaluator scored it: its graph ranked across the whole market and
 neutralised when the scoring neutralises (a store written under the run
 directory), read as the scoring reads.
 
+With ``acceptance.contribution``, ``validate`` also measures each accepted
+factor's contribution, with the same seeds: drop-one trains the model on the
+baseline plus every accepted factor but it (the whole set against that),
+add-one on the baseline plus only it (against the baseline). A feature set
+equal to another (a one-factor selection's drop-one is the baseline) is
+trained once.
+
 ``open_holdout`` makes the same comparison on the hold-out, trained on the
 training and validation segments. It first records the open in the lock
 (``Segments.open_holdout``): a second open is refused unless forced, and a
-forced one is stated in its report.
+forced one is stated in its report. It never measures contribution.
 
 The comparison, on the members of each day of the predicted segment (every
 symbol without a membership) and
@@ -87,6 +94,45 @@ class ModelResult:
     run: str
 
 
+def _mean(results: tuple[ModelResult, ...]) -> dict[str, float]:
+    """Each compared statistic averaged over the seeds."""
+    return {name: float(np.mean([getattr(r, name) for r in results])) for name in COMPARED}
+
+
+@dataclass(frozen=True)
+class Contribution:
+    """One accepted factor's contribution in one mode: the models with it against the same models without it.
+
+    ``mode`` is ``drop_one`` (``without``: the selection without the factor,
+    ``with_factor``: the whole selection) or ``add_one`` (``without``: the
+    baseline, ``with_factor``: the baseline with only the factor); both
+    sides hold the same seeds in the same order.
+    """
+
+    factor: str
+    mode: str
+    without: tuple[ModelResult, ...]
+    with_factor: tuple[ModelResult, ...]
+
+    @property
+    def difference(self) -> dict[str, float]:
+        """With the factor minus without it, of each seed-averaged statistic."""
+        base, new = _mean(self.without), _mean(self.with_factor)
+        return {name: new[name] - base[name] for name in COMPARED}
+
+    @property
+    def agreeing(self) -> dict[str, int]:
+        """Per statistic, the seeds whose difference has the sign of the seed-averaged difference."""
+        mean = self.difference
+        return {
+            name: sum(
+                int(np.sign(getattr(w, name) - getattr(o, name)) == np.sign(mean[name]))
+                for o, w in zip(self.without, self.with_factor)
+            )
+            for name in COMPARED
+        }
+
+
 @dataclass(frozen=True)
 class AcceptanceReport:
     """The baseline against the baseline plus the accepted factors, seed by seed and on average.
@@ -94,7 +140,9 @@ class AcceptanceReport:
     ``accepted`` maps each accepted factor's label to its output name in the
     model. ``forced`` is true when the hold-out was opened past its lock;
     ``holdout_opens`` lists every open of the hold-out so far (empty for a
-    validation report).
+    validation report). ``contributions`` holds each accepted factor's
+    contribution per mode (``acceptance.contribution``), empty when none was
+    asked for; there is no threshold.
     """
 
     segment: str
@@ -108,10 +156,11 @@ class AcceptanceReport:
     forced: bool = False
     holdout_opens: tuple[dict, ...] = ()
     code_version: dict = field(default_factory=dict)
+    contributions: tuple[Contribution, ...] = ()
 
     def mean(self, results: tuple[ModelResult, ...]) -> dict[str, float]:
         """Each compared statistic averaged over the seeds."""
-        return {name: float(np.mean([getattr(r, name) for r in results])) for name in COMPARED}
+        return _mean(results)
 
     @property
     def difference(self) -> dict[str, float]:
@@ -119,11 +168,23 @@ class AcceptanceReport:
         base, new = self.mean(self.baseline), self.mean(self.with_accepted)
         return {name: new[name] - base[name] for name in COMPARED}
 
+    def contribution_table(self) -> list[dict]:
+        """One row per factor and mode: ``factor``, ``mode``, ``difference`` and ``agreeing`` of every statistic.
+
+        Sorted by the rank IC difference, the largest first; a NaN difference sorts last.
+        """
+        rows = [
+            {"factor": c.factor, "mode": c.mode, "difference": c.difference, "agreeing": c.agreeing}
+            for c in self.contributions
+        ]
+        return sorted(rows, key=lambda row: -row["difference"]["rank_ic"] if np.isfinite(row["difference"]["rank_ic"]) else np.inf)
+
     def to_dict(self) -> dict:
-        """The report as ``<segment>.json`` holds it, with the seed means and the difference."""
+        """The report as ``<segment>.json`` holds it, with the seed means, the difference and the contribution table."""
         out = dataclasses.asdict(self)
         out["mean"] = {"baseline": self.mean(self.baseline), "with_accepted": self.mean(self.with_accepted)}
         out["difference"] = self.difference
+        out["contribution"] = self.contribution_table()
         return out
 
     def markdown(self) -> str:
@@ -149,6 +210,19 @@ class AcceptanceReport:
                 for b, a in zip(self.baseline, self.with_accepted)
             ),
         ]
+        if self.contributions:
+            lines += [
+                "", "## Contribution", "",
+                "Per accepted factor: drop_one is the whole selection against the selection without it, add_one the "
+                "baseline with only it against the baseline; seed-averaged differences, and the seeds whose rank IC "
+                "difference has the mean's sign. No threshold.", "",
+                "| factor | mode | rank IC difference | seeds agreeing | TopK excess difference |", "|---|---|---|---|---|",
+                *(
+                    f"| {row['factor']} | {row['mode']} | {row['difference']['rank_ic']:+.4f} | "
+                    f"{row['agreeing']['rank_ic']}/{len(self.seeds)} | {row['difference']['top_k_excess']:+.4f} |"
+                    for row in self.contribution_table()
+                ),
+            ]
         return "\n".join(lines) + "\n"
 
 
@@ -202,7 +276,7 @@ class Acceptance:
         segments = self.config.segments
         if segments.validation is None:
             raise ValueError("acceptance: the config has no validation segment")
-        return self._compare(segments.validation, trained_to=segments.training)
+        return self._compare(segments.validation, trained_to=segments.training, contribution=self.config.acceptance.contribution)
 
     def open_holdout(self, force: bool = False) -> AcceptanceReport:
         """Open the hold-out, once, and compare on it, trained on the training and validation segments.
@@ -228,7 +302,7 @@ class Acceptance:
         if not (self.run_dir / "acceptance" / "validation.json").exists():
             raise ValueError("acceptance: run validate() before opening the hold-out")
         lock = segments.open_holdout(self.lock_path, force=force)
-        return self._compare(segments.holdout, trained_to=segments.validation, lock=lock)
+        return self._compare(segments.holdout, trained_to=segments.validation, contribution="none", lock=lock)
 
     def export(self, names: dict[str, str]) -> list[Path]:
         """Export accepted factors as ``GraphFactor`` subclasses and whole-market stores.
@@ -294,7 +368,9 @@ class Acceptance:
 
     # The comparison.
 
-    def _compare(self, segment: Segment, trained_to: Segment, lock: HoldoutLock | None = None) -> AcceptanceReport:
+    def _compare(
+        self, segment: Segment, trained_to: Segment, contribution: str, lock: HoldoutLock | None = None,
+    ) -> AcceptanceReport:
         records = self.accepted()
         if not records:
             raise ValueError(f"acceptance: {self.run_dir} has no accepted factor")
@@ -307,11 +383,14 @@ class Acceptance:
         outputs = {_feedback.accepted_label(r): f"accepted_{k}" for k, r in enumerate(records)}
         if len(outputs) != len(records):
             raise ValueError("acceptance: two accepted factors share a label (description and round)")
+        labels = list(outputs)
         accepted = self._accepted_feature(records, list(outputs.values()), test_window[1])
         name = label.get_factor_names()[0]
         truth = label.read(*test_window)[name]
+        feature_sets, contributions = _plan(list(outputs.values()), contribution)
         results = {}
-        for kind, added in (("baseline", []), ("with_accepted", [accepted])):
+        for kind, members in feature_sets.items():
+            added = [scoring.on_members(type(accepted)(dataclasses.replace(accepted.config, factor_names=members)))] if members else []
             panels, results[kind] = None, []
             for seed in settings.seeds:
                 model = acceptance_model.build(settings.model, self._baseline, added, {
@@ -331,6 +410,10 @@ class Acceptance:
             segment=segment.name, train_window=train_window, test_window=test_window, seeds=settings.seeds,
             top_k=settings.top_k, accepted=outputs,
             baseline=tuple(results["baseline"]), with_accepted=tuple(results["with_accepted"]),
+            contributions=tuple(
+                Contribution(labels[k], mode, tuple(results[without]), tuple(results[with_factor]))
+                for k, mode, without, with_factor in contributions
+            ),
             forced=lock.last.forced if lock else False,
             holdout_opens=tuple(dataclasses.asdict(o) for o in lock.opens) if lock else (),
             code_version=code_version(),
@@ -380,7 +463,7 @@ class Acceptance:
             )
 
     def _accepted_feature(self, records: list[TrialRecord], outputs: list[str], end: str):
-        """The accepted factors, scored, from a store under the run directory, read as the scoring reads."""
+        """The accepted factors, scored, from a store under the run directory, its outputs named ``outputs``."""
         graphs = dict(zip(outputs, (r.graph for r in records)))
         classes = self.vocabulary.class_paths(graphs.values())
         lags = GraphFactor.period_lags(graphs, self.vocabulary.lag_columns)
@@ -397,7 +480,7 @@ class Acceptance:
             shutil.rmtree(folder, ignore_errors=True)
             scored.build(start, end)
             record.write_text(json.dumps(built) + "\n")
-        return self._scoring().on_members(scored)
+        return scored
 
     # Shared.
 
@@ -480,6 +563,27 @@ class Acceptance:
             "- Read it on a universe with `MembershipMaskedFactor(RosterFactor(load_component(<this folder>)))`.",
         ]
         return "\n".join(lines) + "\n"
+
+
+def _plan(outputs: list[str], contribution: str) -> tuple[dict[str, tuple[str, ...]], list[tuple]]:
+    """The feature sets to train and the contributions they make; the comparison plan.
+
+    The feature sets map a name to the accepted ``outputs`` added to the
+    baseline: ``baseline`` (none), ``with_accepted`` (all), and per output
+    ``drop_<output>`` (all but it) for drop-one and ``add_<output>`` (only
+    it) for add-one; a set equal to an earlier one is that one, so a
+    one-factor selection trains nothing more. The contributions are
+    ``(index of the output, mode, set without it, set with it)``.
+    """
+    named = {(): "baseline", tuple(outputs): "with_accepted"}
+    contributions = []
+    for k, output in enumerate(outputs):
+        if contribution in ("drop_one", "both"):
+            without = named.setdefault(tuple(o for o in outputs if o != output), f"drop_{output}")
+            contributions.append((k, "drop_one", without, "with_accepted"))
+        if contribution in ("add_one", "both"):
+            contributions.append((k, "add_one", "baseline", named.setdefault((output,), f"add_{output}")))
+    return {name: members for members, name in named.items()}, contributions
 
 
 def _collect(model, panels: list | None) -> list:

@@ -216,6 +216,10 @@ class ContextConfig:
             raise ValueError(f"context: recent_rounds is {self.recent_rounds}; at least the last round is listed")
 
 
+#: The values of ``acceptance.contribution``.
+CONTRIBUTIONS = ("none", "drop_one", "add_one", "both")
+
+
 @dataclass(frozen=True)
 class AcceptanceConfig:
     """How ``Acceptance`` validates, opens the hold-out and exports.
@@ -229,7 +233,7 @@ class AcceptanceConfig:
     Raises
     ------
     ValueError
-        If there is no seed, or ``model`` is a ``SeedEnsemble``.
+        If there is no seed, ``model`` is a ``SeedEnsemble``, or ``contribution`` is not one of ``CONTRIBUTIONS``.
     TypeError
         If ``model`` is not a model's component config.
     """
@@ -242,6 +246,8 @@ class AcceptanceConfig:
     val_size: float = 0.2
     #: Members held by the plain TopK book.
     top_k: int = 100
+    #: Each accepted factor's contribution in validation: none, drop_one, add_one or both; never on the hold-out.
+    contribution: str = "none"
     #: Where exported stores go, ``<factor_root>/<name>/``; an export needs it.
     factor_root: str | None = None
     #: The package the exported ``FactorKunQuant`` subclasses are written into, one module each.
@@ -255,6 +261,8 @@ class AcceptanceConfig:
         object.__setattr__(self, "seeds", tuple(self.seeds))
         if not self.seeds:
             raise ValueError("acceptance: at least one seed is needed")
+        if self.contribution not in CONTRIBUTIONS:
+            raise ValueError(f"acceptance.contribution {self.contribution!r} is not one of {list(CONTRIBUTIONS)}")
         acceptance_model.check(self.model)
 
     @classmethod

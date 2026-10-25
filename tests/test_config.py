@@ -235,6 +235,18 @@ def test_an_acceptance_model_that_is_no_model_is_refused(tmp_path):
         CampaignConfig.from_file(_minimal(tmp_path, acceptance={"model": {"name": "quantlab.factor.kunquant.FactorKunQuant"}}))
 
 
+def test_contribution_is_off_by_default_and_takes_its_modes(tmp_path):
+    assert CampaignConfig.from_file(_minimal(tmp_path)).acceptance.contribution == "none"
+    for mode in ("drop_one", "add_one", "both"):
+        config = CampaignConfig.from_file(_minimal(tmp_path, acceptance={"model": {"name": XGB}, "contribution": mode}))
+        assert config.acceptance.contribution == mode
+
+
+def test_an_unknown_contribution_mode_is_refused(tmp_path):
+    with pytest.raises(ValueError, match="acceptance.contribution .*drop_one"):
+        CampaignConfig.from_file(_minimal(tmp_path, acceptance={"model": {"name": XGB}, "contribution": "drop-one"}))
+
+
 def test_the_planner_reads_the_last_five_rounds_trial_by_trial_by_default(tmp_path):
     assert CampaignConfig.from_file(_minimal(tmp_path)).context.recent_rounds == 5
 

@@ -141,7 +141,10 @@
   任一 quantlab `BaseModel` 或 `ModelEnsemble`（`members`）的 `get_config()` 作模板，模型/成员的 `factors` 即基线（留空用参考集）、
   超参数写在模板里；验收填入标签、训练/预测窗口、读取方式、`val_size` 与种子（覆盖每个成员的 `random_seed`），接受的因子追加到每个成员；
   `SeedEnsemble` 模板报错（种子用 `acceptance.seeds`）；`acceptance.hyperparameters`、`acceptance.features` 已删，旧配置读取即报错。
-  模板填充在 `acceptance_model.py`（`check`、`build`）。
+  模板填充在 `acceptance_model.py`（`check`、`build`）。`acceptance.contribution`（`none` 默认 / `drop_one` / `add_one` / `both`，读取时校验）
+  只作用于 `validate`：对比计划（纯函数）由选中一组与贡献方式列出要训练的特征集合（`baseline`、`with_accepted`、每因子 `drop_<输出>` / `add_<输出>`，
+  相同集合只训一次），`AcceptanceReport.contributions` 为 `Contribution(factor, mode, without, with_factor)`，`contribution_table()` 给每因子每方式
+  7 项指标的种子均值差与同向种子数，按 rank IC 差排序；`open_holdout` 不做贡献。
 
 内部深 module：
 

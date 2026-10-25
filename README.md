@@ -142,6 +142,7 @@ acceptance:
     factors: []          # the baseline, as reference entries; empty: the reference set
     hyperparameters: {...}   # us3000_ret5.yaml names SEL0's xgb_deep
   seeds: [0, 1, 2]       # each replaces every model's (every member's) random_seed
+  contribution: none     # per-factor contribution in validate(): none, drop_one, add_one or both
   top_k: 100
   factor_root: /data/quantlab/factors/market   # where export() writes the stores; an export needs it
 ```
@@ -157,8 +158,14 @@ acceptance:
   purged end of training, and predicts the purged validation segment. It reports, per seed and on
   average, rank IC, IC, decile monotonicity, D10−D1, and the fee-free plain TopK return and excess
   (`<run_dir>/acceptance/validation.{json,md}`).
+- With `contribution`, `validate()` also measures each accepted factor, with the same seeds: drop-one
+  trains the model without it (the whole set against the set without it), add-one on the baseline plus
+  only it (against the baseline); a feature set equal to another is trained once. The reports gain a
+  contribution table, one row per factor and mode, sorted by the rank IC difference: the seed-averaged
+  difference of every statistic and, per statistic, how many seeds have the mean's sign (the Markdown
+  shows rank IC difference, seeds agreeing and TopK excess difference). No threshold.
 - `open_holdout(force=False)` writes `<run_dir>/holdout.lock` (when, with which commits), then makes the
-  same comparison on the hold-out, trained through validation. A second open raises `HoldoutLocked`;
+  same comparison on the hold-out, trained through validation, never with contribution. A second open raises `HoldoutLocked`;
   `force=True` runs it, appends to the lock, and the report says the hold-out was opened again.
 - `export({"<description>": "<name>"})` writes `factor_agent/accepted/<name>.py` (a `GraphFactor`, i.e.
   `FactorKunQuant`, subclass fixing the scored graph) and the whole-market store
