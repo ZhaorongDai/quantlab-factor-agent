@@ -146,7 +146,7 @@
   `SeedEnsemble` 模板报错（种子用 `acceptance.seeds`）；`acceptance.hyperparameters`、`acceptance.features` 已删，旧配置读取即报错。
   模板填充在 `_acceptance_model.py`（`check`、`build`）。
   每个训练过的模型的结果按填好的组件 config（模板、特征、标签、窗口、种子，去掉保存目录，运行目录下的路径写成相对路径，搬动运行目录不失效）、代码版本（`segments.code_version()` 的两个提交号，改了代码即不命中）与 TopK 数、scoring 的摘要（纯 JSON，非 JSON 值报错）缓存在
-  `acceptance/<段>/cache/<摘要>.json`（含耗时），重跑读缓存；训练前打印要训练数、已缓存数与按已缓存耗时均值的估计（`_model_cache.py`；`Acceptance._train` 是唯一入口）。
+  `acceptance/<段>/cache/<摘要>.json`（含耗时），重跑读缓存；训练前打印要训练数、已缓存数与按同一模板已完成模型耗时均值的估计（`_model_cache.py`；`Acceptance._train` 是唯一入口）。
   选中一组不另建 store：每组都按 `factor_names` 读全部接受因子的同一个 store（`acceptance/accepted_<预测段末日>/`，验证与保留期各一个，验证从不计算保留期的日期），
   相同特征集合（如收窄后一组的 add-one 与全部的 add-one）命中同一缓存；输出名 `accepted_<k>` 取全部接受因子中的位置；全部命中缓存时不建 store，建过且记录一致时不重建。
   `acceptance.contribution`（`none` 默认 / `drop_one` / `add_one` / `both`，读取时校验）只作用于 `validate`：对比计划（纯函数）由选中一组与贡献方式列出要训练的特征集合（`baseline`、`with_accepted`、每因子 `drop_<输出>` / `add_<输出>`，

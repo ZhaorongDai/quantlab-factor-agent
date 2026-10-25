@@ -57,19 +57,26 @@ class ModelCache:
         path = self.directory / f"{key}.json"
         return json.loads(path.read_text())["result"] if path.exists() else None
 
-    def put(self, key: str, result: dict, elapsed: float) -> None:
-        """Cache ``result``, trained and scored in ``elapsed`` seconds; written whole or not at all."""
+    def put(self, key: str, result: dict, elapsed: float, template: str) -> None:
+        """Cache ``result`` of a model of the template digested ``template``, trained and scored in ``elapsed`` seconds.
+
+        Written whole or not at all.
+        """
         self.directory.mkdir(parents=True, exist_ok=True)
         path = self.directory / f"{key}.json"
         partial = path.with_suffix(".partial")
-        partial.write_text(json.dumps({"result": result, "elapsed": elapsed}) + "\n")
+        partial.write_text(json.dumps({"result": result, "elapsed": elapsed, "template": template}) + "\n")
         partial.replace(path)
 
-    def summary(self, keys: list[str]) -> str:
-        """How many of ``keys`` are to train and cached, and the time to train them from the cached elapsed times."""
+    def summary(self, keys: list[str], template: str) -> str:
+        """How many of ``keys`` are to train and cached, and the time to train them.
+
+        The estimate averages the elapsed times of the finished models of the template digested ``template``.
+        """
         missing = sum(not (self.directory / f"{k}.json").exists() for k in keys)
         line = f"{missing} models to train, {len(keys) - missing} cached"
-        elapsed = [json.loads(p.read_text())["elapsed"] for p in sorted(self.directory.glob("*.json"))]
+        records = [json.loads(p.read_text()) for p in sorted(self.directory.glob("*.json"))]
+        elapsed = [r["elapsed"] for r in records if r["template"] == template]
         if missing and elapsed:
             mean = sum(elapsed) / len(elapsed)
             line += f", about {_duration(missing * mean)} ({_duration(mean)} a model over {len(elapsed)} finished)"

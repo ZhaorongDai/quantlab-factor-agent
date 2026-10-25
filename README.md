@@ -175,8 +175,8 @@ acceptance:
   after an interruption say, reads what is cached and trains the rest. Every selection reads its factors
   from one store of all accepted factors (one per predicted segment), so equal feature sets, a narrowed
   selection's add-one and the whole set's say, share their models. Before training, `validate()` and
-  `open_holdout()` print how many models they will train, how many are cached and, once some have
-  finished, an estimated duration. The print never waits for an answer.
+  `open_holdout()` print how many models they will train, how many are cached and, once some models of the same template have
+  finished, an estimated duration from their times. The print never waits for an answer.
 - `open_holdout(selection, force=False)` needs `validate`'s report of exactly that selection, then writes
   `<run_dir>/holdout.lock` (when, with which commits) and makes the same comparison on the hold-out for the
   selection only, trained through validation (`holdout[_<digest>].{json,md}`). A second open, of any

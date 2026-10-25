@@ -639,3 +639,16 @@ def test_a_moved_run_directory_keeps_its_cache_and_a_code_change_misses_it(campa
     monkeypatch.setattr(factor_agent.acceptance, "code_version", lambda: {**commits, "factor_agent": "another"})
     Acceptance(acceptance.config, moved).validate()
     assert "acceptance (validation): 4 models to train, 0 cached" in capsys.readouterr().out
+
+
+def test_the_duration_estimate_reads_only_finished_models_of_the_same_template(campaign, tmp_path, capsys):
+    acceptance = _in_model(campaign, tmp_path, {"name": LINEAR})
+    acceptance.validate()
+    capsys.readouterr()
+
+    ridge = {"name": LINEAR, "hyperparameters": {"estimator": "ridge", "alpha": 1.0}}
+    _changed(acceptance, model=ridge).validate()  # the linear models say nothing of how long a ridge takes
+    assert "acceptance (validation): 4 models to train, 0 cached\n" in capsys.readouterr().out
+    _changed(acceptance, model=ridge, seeds=(0, 1, 2)).validate()
+    out = capsys.readouterr().out
+    assert "acceptance (validation): 2 models to train, 4 cached, about " in out and " a model over 4 finished)" in out

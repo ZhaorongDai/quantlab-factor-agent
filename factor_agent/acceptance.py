@@ -473,7 +473,7 @@ class Acceptance:
         accepted factors' store, called before the first model is trained; ``filled`` is every
         ``_acceptance_model.FILLED`` value but the seed and the save directory. Before any training it prints how many
         models it will train, how many are cached and, from the elapsed times
-        cached with finished models, an estimate of the time it will take.
+        cached with the template's finished models, an estimate of the time it will take.
         """
         settings, scoring, label = self.config.acceptance, self._scoring(), filled["labels"][0]
         directory = self.run_dir / "acceptance" / f"{segment.name}{suffix}"
@@ -488,7 +488,8 @@ class Acceptance:
                     model.get_config(), self.run_dir, code=code, top_k=settings.top_k,
                     scoring=dataclasses.asdict(self.config.scoring),
                 )
-        print(f"acceptance ({segment.name}): " + cache.summary([k for _, k in models.values()]), flush=True)
+        template = _model_cache.digest(settings.model)
+        print(f"acceptance ({segment.name}): " + cache.summary([k for _, k in models.values()], template), flush=True)
         name = label.get_factor_names()[0]
         truth = None
         results = {kind: [] for kind in feature_sets}
@@ -506,7 +507,7 @@ class Acceptance:
                     run = TrainedRun.open(model.train())
                     predictions = scoring.mask(xr.open_zarr(run.test_predictions)[[name]].load())[name]
                     result = self._result(seed, predictions, truth, label.span_bars(), str(run.path))
-                    cache.put(key, dataclasses.asdict(result), time.monotonic() - started)
+                    cache.put(key, dataclasses.asdict(result), time.monotonic() - started, template)
                 else:
                     result = ModelResult(**{**cached, "decile_returns": tuple(cached["decile_returns"])})
                 results[kind].append(result)
