@@ -116,7 +116,7 @@ def test_validate_compares_the_baseline_with_the_accepted_factors_for_three_seed
     assert "| rank_ic |" in (campaign["root"] / "run" / "acceptance" / "validation.md").read_text()
     # contribution: none (the default) trains the two feature sets only and reports no contribution.
     assert validation.contributions == () and written["contribution"] == []
-    assert _trained(campaign["acceptance"], "validation") == [
+    assert _model_dirs(campaign["acceptance"], "validation") == [
         "baseline_s0", "baseline_s1", "baseline_s2", "with_accepted_s0", "with_accepted_s1", "with_accepted_s2",
     ]
 
@@ -200,9 +200,9 @@ def _in_model(campaign, tmp_path, model: dict, contribution: str = "none") -> Ac
     return Acceptance(dataclasses.replace(config, acceptance=acceptance), run_dir)
 
 
-def _trained(acceptance: Acceptance, segment: str) -> list[str]:
-    """The model directories Acceptance trained into on ``segment``."""
-    return sorted(p.name for p in (acceptance.run_dir / "acceptance" / segment).iterdir())
+def _model_dirs(acceptance: Acceptance, segment: str) -> list[str]:
+    """The model directories Acceptance trained into on ``segment`` (its model cache aside)."""
+    return sorted(p.name for p in (acceptance.run_dir / "acceptance" / segment).iterdir() if p.name != "cache")
 
 
 def _factor_names(results) -> list[list[str]]:
@@ -266,7 +266,7 @@ def test_contribution_trains_one_feature_set_per_factor_and_mode_and_reports_a_r
             assert _factor_names(c.without) == [["momentum_20"]] * 2
             assert _factor_names(c.with_factor) == [["momentum_20", output[c.factor]]] * 2
     # Two factors: dropping one is adding the other, so baseline, the selection and two more sets, every seed.
-    assert len(_trained(acceptance, "validation")) == 4 * 2
+    assert len(_model_dirs(acceptance, "validation")) == 4 * 2
     assert "## Contribution" in (acceptance.run_dir / "acceptance" / "validation.md").read_text()
     assert len(json.loads((acceptance.run_dir / "acceptance" / "validation.json").read_text())["contribution"]) == 4
 
@@ -275,7 +275,7 @@ def test_the_hold_out_runs_no_contribution_whatever_the_config_says(contributed)
     acceptance = contributed["acceptance"]
     report = acceptance.open_holdout(["planted", "volume"])
     assert report.contributions == ()
-    assert _trained(acceptance, "holdout") == ["baseline_s0", "baseline_s1", "with_accepted_s0", "with_accepted_s1"]
+    assert _model_dirs(acceptance, "holdout") == ["baseline_s0", "baseline_s1", "with_accepted_s0", "with_accepted_s1"]
     assert "Contribution" not in (acceptance.run_dir / "acceptance" / "holdout.md").read_text()
 
 
@@ -290,7 +290,7 @@ def test_contribution_runs_over_the_selection_and_a_one_factor_selection_reuses_
     assert drop.with_factor == add.with_factor == report.with_accepted
     assert _factor_names(report.with_accepted) == [["momentum_20", "accepted_0"]] * 2
     [folder] = (acceptance.run_dir / "acceptance").glob("validation_*/")
-    assert _trained(acceptance, folder.name) == ["baseline_s0", "baseline_s1", "with_accepted_s0", "with_accepted_s1"]
+    assert _model_dirs(acceptance, folder.name) == ["baseline_s0", "baseline_s1", "with_accepted_s0", "with_accepted_s1"]
 
 
 def test_the_hold_out_opens_only_on_a_validated_selection_and_compares_it_alone(campaign, tmp_path):
@@ -518,3 +518,81 @@ def test_a_report_without_contribution_has_no_contribution_section():
     report = _report(())
     assert report.contribution_table() == [] and report.to_dict()["contribution"] == []
     assert "Contribution" not in report.markdown()
+
+
+def _trained(acceptance: Acceptance, segment: str = "validation") -> set:
+    """The models trained so far on ``segment``: the run directories under its acceptance directory."""
+    return set((acceptance.run_dir / "acceptance" / segment).glob("*/*_trial_*"))
+
+
+def test_a_second_validate_with_nothing_changed_trains_no_model_and_gives_the_same_report(campaign, tmp_path, capsys):
+    acceptance = _in_model(campaign, tmp_path, {"name": LINEAR})
+    first = acceptance.validate()
+    trained = _trained(acceptance)
+    assert len(trained) == 4
+    out = capsys.readouterr().out
+    assert "acceptance (validation): 4 models to train, 0 cached\n" in out  # no finished model, no estimate
+
+    again = acceptance.validate()
+    assert _trained(acceptance) == trained
+    assert again == dataclasses.replace(first, code_version=again.code_version)
+    assert "acceptance (validation): 0 models to train, 4 cached\n" in capsys.readouterr().out
+
+
+def test_a_validate_interrupted_partway_trains_only_the_unfinished_models_when_run_again(
+    campaign, tmp_path, capsys, monkeypatch,
+):
+    from quantlab.model.predefined.linear import LinearRegressor
+
+    acceptance, train = _in_model(campaign, tmp_path, {"name": LINEAR}), LinearRegressor.train
+    calls = []
+
+    def interrupted(self, *args, **kwargs):
+        calls.append(1)
+        if len(calls) == 3:
+            raise KeyboardInterrupt
+        return train(self, *args, **kwargs)
+
+    monkeypatch.setattr(LinearRegressor, "train", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        acceptance.validate()
+    finished = _trained(acceptance)
+    assert len(finished) == 2
+    capsys.readouterr()
+
+    monkeypatch.setattr(LinearRegressor, "train", train)
+    report = acceptance.validate()
+    assert len(_trained(acceptance)) == 4 and finished < _trained(acceptance)
+    assert "2 models to train, 2 cached, about " in capsys.readouterr().out
+    assert {r.run for r in (*report.baseline, *report.with_accepted)} >= {str(p) for p in finished}
+
+
+def _changed(acceptance: Acceptance, **settings) -> Acceptance:
+    """``acceptance`` on the same run directory, with ``settings`` replacing the config's (``segments`` or acceptance fields)."""
+    config = acceptance.config
+    segments = settings.pop("segments", config.segments)
+    changed = dataclasses.replace(config, segments=segments, acceptance=dataclasses.replace(config.acceptance, **settings))
+    return Acceptance(changed, acceptance.run_dir)
+
+
+def test_a_changed_template_seed_or_segment_misses_the_cache_for_the_models_it_changes(campaign, tmp_path):
+    acceptance = _in_model(campaign, tmp_path, {"name": LINEAR})
+    acceptance.validate()
+    trained = _trained(acceptance)
+
+    _changed(acceptance, seeds=(0, 1, 2)).validate()  # one more seed: its baseline and its model with the factors
+    assert len(_trained(acceptance) - trained) == 2
+    trained = _trained(acceptance)
+
+    _changed(acceptance, model={"name": LINEAR, "hyperparameters": {"estimator": "ridge", "alpha": 1.0}}).validate()
+    assert len(_trained(acceptance) - trained) == 4
+    trained = _trained(acceptance)
+
+    segments = acceptance.config.segments
+    shorter = dataclasses.replace(segments, validation=dataclasses.replace(segments.validation, end="2012-11-30"))
+    _changed(acceptance, segments=shorter).validate()
+    assert len(_trained(acceptance) - trained) == 4
+    trained = _trained(acceptance)
+
+    acceptance.validate()  # back to the first settings: every model is cached
+    assert _trained(acceptance) == trained

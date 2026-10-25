@@ -168,6 +168,11 @@ acceptance:
   seed-averaged difference of every statistic and, per statistic, how many seeds have the mean's sign (the
   Markdown shows rank IC difference, seeds agreeing and TopK excess difference). No threshold. The
   hold-out never measures contribution.
+- Every trained model's result is cached under `<run_dir>/acceptance/<segment>/cache/`, keyed by its
+  filled-in config (template, features, label, windows, seed) and the TopK size and scoring; a re-run,
+  after an interruption say, reads what is cached and trains the rest. Before training, `validate()` and
+  `open_holdout()` print how many models they will train, how many are cached and, once some have
+  finished, an estimated duration. The print never waits for an answer.
 - `open_holdout(selection, force=False)` needs `validate`'s report of exactly that selection, then writes
   `<run_dir>/holdout.lock` (when, with which commits) and makes the same comparison on the hold-out for the
   selection only, trained through validation (`holdout[_<digest>].{json,md}`). A second open, of any
