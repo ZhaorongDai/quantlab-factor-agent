@@ -406,6 +406,15 @@ def test_a_candidate_with_full_coverage_is_not_rejected_for_it(admission):
     assert not any("coverage" in reason for reason in record.reasons)
 
 
+def test_a_candidate_filling_a_sparse_value_is_rejected_for_the_coverage_of_its_data(tmp_path):
+    filled = _candidate("filled", "alpha = SetInfOrNanToValue(Log(Log(close / open) * 100 - 1), 0)")
+    outcome = _run(tmp_path, [[filled]], round={"candidates": 1, "retries": 0})
+    [record] = outcome["result"].accepted + outcome["result"].rejected
+    assert record.status == "rejected"
+    assert 0.1 < record.metrics["coverage"] < 0.25
+    assert any(reason.startswith("coverage ") and reason.endswith("is below 0.5") for reason in record.reasons)
+
+
 def test_the_coverage_threshold_is_read_from_the_config(tmp_path):
     sparse = [c for c in ADMISSION if c["description"] == "sparse"]
     outcome = _run(tmp_path, [sparse], admission={"min_coverage": 0.1}, round={"candidates": 1, "retries": 0})

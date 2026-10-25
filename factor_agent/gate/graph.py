@@ -15,6 +15,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 from KunQuant.Op import Input, OpBase
+from KunQuant.ops import SetInfOrNanToValue
 
 from factor_agent.gate._canonical import canonical_hashes, canonical_terms, ranked_root, term_key
 
@@ -126,6 +127,34 @@ class Graph:
             new.append(op)
         return made[-1], new
 
+    def without_fills(self) -> "Graph":
+        """Return the graph with every ``SetInfOrNanToValue`` replaced by its input.
+
+        The nodes the factor still depends on are kept in their order; a
+        graph without a fill is returned as it is. Its missing values are
+        the missing values of the data the fills read (the Evaluator's
+        coverage).
+        """
+        if not any(_is_fill(node, self.classes) for node in self.nodes):
+            return self
+        index: dict[int, int] = {}
+        nodes: list[Node] = []
+
+        def visit(i: int) -> int:
+            if i not in index:
+                node = self.nodes[i]
+                if _is_fill(node, self.classes):
+                    index[i] = visit(node.inputs[0])
+                else:
+                    parent = visit(node.parent) if node.parent is not None else None
+                    inputs = tuple(visit(j) for j in node.inputs)
+                    nodes.append(Node(node.op, node.attrs, inputs, parent))
+                    index[i] = len(nodes) - 1
+            return index[i]
+
+        visit(len(self.nodes) - 1)
+        return type(self)(tuple(nodes), self.classes)
+
     def to_json(self) -> list:
         """Return the nodes as JSON-ready lists."""
         return [[n.op, [list(kv) for kv in n.attrs], list(n.inputs), n.parent] for n in self.nodes]
@@ -167,6 +196,12 @@ class Graph:
         ``x``, ``-x`` and ``Rank(x) * 3 + 1`` share it.
         """
         return hashlib.sha256(term_key(ranked_root(canonical_terms(self)[-1])).encode()).hexdigest()
+
+
+def _is_fill(node: Node, classes: Mapping[str, type] | None) -> bool:
+    """Whether ``node`` is KunQuant's ``SetInfOrNanToValue``, under its own name or a vocabulary's."""
+    cls = (classes or {}).get(node.op)
+    return node.op == "SetInfOrNanToValue" or (isinstance(cls, type) and issubclass(cls, SetInfOrNanToValue))
 
 
 def _operator_in_a_number_slot(name: str, key: str) -> str:
