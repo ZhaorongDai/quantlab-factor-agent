@@ -137,7 +137,11 @@
 对外 interface 只有两个：
 
 - `Campaign(config).run() -> CampaignResult`：可从台账断点续跑，每轮落盘后才推进。
-- `Acceptance(config, run_dir)`：`.validate()`、`.open_holdout()`、`.export(names)`。
+- `Acceptance(config, run_dir)`：`.validate()`、`.open_holdout()`、`.export(names)`。验收模型由必填的 `acceptance.model` 给出（Q84）：
+  任一 quantlab `BaseModel` 或 `ModelEnsemble`（`members`）的 `get_config()` 作模板，模型/成员的 `factors` 即基线（留空用参考集）、
+  超参数写在模板里；验收填入标签、训练/预测窗口、读取方式、`val_size` 与种子（覆盖每个成员的 `random_seed`），接受的因子追加到每个成员；
+  `SeedEnsemble` 模板报错（种子用 `acceptance.seeds`）；`acceptance.hyperparameters`、`acceptance.features` 已删，旧配置读取即报错。
+  模板填充在 `acceptance_model.py`（`check`、`build`）。
 
 内部深 module：
 
@@ -167,7 +171,7 @@ factor_agent/
   llm/             base.py、claude_code.py、anthropic.py、openai_compatible.py、replay.py
   gate/            Gate；与 Evaluator / 提示词共用的 graph.py（图的纯数据形式）、vocabulary.py（算子白名单）；内部 _sandbox.py、_checks.py
   evaluator.py     （内部 _batch.py）
-  segments.py · ledger.py · zoo.py · acceptance.py · config.py
+  segments.py · ledger.py · zoo.py · acceptance.py（内部 acceptance_model.py）· config.py
   exported.py      GraphFactor（FactorKunQuant 子类，Evaluator 与导出共用的建图）；accepted/ 放 export 生成的模块
 tests/  只测对外与深 module 的 interface：test_gate、test_evaluator、test_campaign、test_acceptance、test_llm_backends，
         以及运行的入口配置文件 test_config（参考集写法、真实配置 configs/us3000_ret5.yaml 可解析）

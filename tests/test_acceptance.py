@@ -1,5 +1,9 @@
 """Acceptance: the validation comparison with a tiny xgb, the purge, the hold-out lock and the export.
 
+The acceptance model is a template: a tiny xgb on the reference set for the
+campaigns, and on a copy of the first campaign's run directory a linear model
+and an ensemble of two.
+
 A campaign on the synthetic store of ``tests/synthetic_market.py`` accepts
 the planted intraday and volume signals against a stored Polars momentum,
 the reference set and the baseline model's only feature; its store starts
@@ -13,6 +17,7 @@ the label of every symbol.
 
 import dataclasses
 import json
+import shutil
 
 import numpy as np
 import pytest
@@ -33,7 +38,7 @@ from factor_agent.config import CampaignConfig
 from factor_agent.gate.graph import Graph
 from factor_agent.segments import HoldoutLocked
 from tests import synthetic_market
-from tests.campaign_runner import candidate, run, write_config
+from tests.campaign_runner import XGB, candidate, run, write_config
 from tests.vocabulary_files import price_volume
 from tests.fake_llm import FakeLLM
 
@@ -42,7 +47,10 @@ SEGMENTS = {
     "validation": {"start": "2012-01-02", "end": "2012-12-31"},
     "holdout": {"start": "2013-01-02", "end": "2013-12-31"},
 }
-TINY_XGB = {"training_target": "cs_rank", "num_boost_round": 20, "max_depth": 3, "eta": 0.3, "nthread": 4, "device": "cpu"}
+#: A tiny xgb on the reference set, the acceptance model.
+TINY_XGB = {"name": XGB, "hyperparameters": {
+    "training_target": "cs_rank", "num_boost_round": 20, "max_depth": 3, "eta": 0.3, "nthread": 4, "device": "cpu",
+}}
 CANDIDATES = [
     candidate("planted", "alpha = close / open"),
     # A volume shock written backwards: a higher value goes with a lower return, so its direction is -1.
@@ -53,8 +61,8 @@ PACKAGE = "exported_for_test"
 MOMENTUM_START = "2011-01-03"
 
 
-def _campaign(root, scoring: bool):
-    """A campaign of ``CANDIDATES``, scored as the default campaign or ranked only on every symbol."""
+def _campaign(root, scoring: bool, model: dict = TINY_XGB):
+    """A campaign of ``CANDIDATES``, scored as the default campaign or ranked only on every symbol, accepted in ``model``."""
     components = synthetic_market.build(root / "data")
     momentum = synthetic_market.AdjustedMomentum(PolarsFactorConfig(
         warmup_bars=20, dataset=rebuild(components["prices"]),
@@ -70,7 +78,7 @@ def _campaign(root, scoring: bool):
     config_path = write_config(
         root, components, [momentum.get_config()], segments=SEGMENTS,
         round={"candidates": len(CANDIDATES), "min_per_type": 0, "max_rounds": 1},
-        acceptance={"hyperparameters": TINY_XGB, "top_k": 20, "factor_root": str(root / "factors"), "package": PACKAGE},
+        acceptance={"model": model, "top_k": 20, "factor_root": str(root / "factors"), "package": PACKAGE},
         **unscored,
     )
     result = run(config_path, FakeLLM(lambda number, directions: CANDIDATES), root / "kunquant_cache")
@@ -149,6 +157,46 @@ def test_the_hold_out_opens_once_and_a_forced_reopen_is_stated(campaign, validat
     assert [o["forced"] for o in forced.holdout_opens] == [False, True]
     assert "opened again with force" in (campaign["root"] / "run" / "acceptance" / "holdout.md").read_text()
     assert json.loads((campaign["root"] / "run" / "acceptance" / "holdout.json").read_text())["forced"] is True
+
+
+LINEAR = "quantlab.model.predefined.linear.LinearRegressor"
+
+
+def _in_model(campaign, tmp_path, model: dict) -> Acceptance:
+    """The campaign's Acceptance with ``model`` as the acceptance model, on a copy of its run directory."""
+    run_dir = tmp_path / "run"
+    shutil.copytree(campaign["root"] / "run", run_dir, ignore=shutil.ignore_patterns("acceptance", "holdout.lock"))
+    config = campaign["acceptance"].config
+    acceptance = dataclasses.replace(config.acceptance, model=model, seeds=(0, 1))
+    return Acceptance(dataclasses.replace(config, acceptance=acceptance), run_dir)
+
+
+def test_the_acceptance_model_is_replaceable(campaign, tmp_path):
+    report = _in_model(campaign, tmp_path, {"name": LINEAR}).validate()
+    for kind, results in (("baseline", report.baseline), ("with_accepted", report.with_accepted)):
+        assert [r.seed for r in results] == [0, 1]
+        for result in results:
+            run = TrainedRun.open(result.run)
+            assert run.config["name"] == LINEAR and run.path.parent.name == f"{kind}_s{result.seed}"
+            assert result.n_days > 200 and np.isfinite(result.rank_ic)
+
+
+def test_every_member_of_an_ensemble_gets_its_baseline_the_accepted_factors_and_the_seed(campaign, tmp_path):
+    template = {"name": "quantlab.model.predefined.model_ensemble.ModelEnsemble", "members": [
+        {"name": LINEAR, "random_seed": 7},  # no factors: the reference set
+        {"name": LINEAR, "factors": [campaign["acceptance"].config.reference[0]],
+         "hyperparameters": {"estimator": "ridge", "alpha": 1.0}},
+    ]}
+    report = _in_model(campaign, tmp_path, template).validate()
+    for kind, added in (("baseline", []), ("with_accepted", ["accepted_0", "accepted_1"])):
+        for result in getattr(report, kind):
+            run = TrainedRun.open(result.run)
+            assert run.kind == "ensemble" and len(run.members) == 2
+            for member in run.members:
+                assert member.trained_on["factor_names"] == ["momentum_20", *added]
+                assert member.config["random_seed"] == result.seed
+            assert run.members[1].config["hyperparameters"] == {"estimator": "ridge", "alpha": 1.0}
+            assert np.isfinite(result.rank_ic)
 
 
 class _Evaluated(FactorKunQuant):

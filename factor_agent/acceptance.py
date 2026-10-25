@@ -1,8 +1,9 @@
-"""Acceptance: the accepted factors' incremental test in SEL0 xgb, the one-time hold-out, and their export.
+"""Acceptance: the accepted factors' incremental test in the acceptance model, the one-time hold-out, and their export.
 
-``validate`` trains the xgb of ``AcceptanceConfig`` twice per seed: on the
-baseline features (``features``, or the reference set) and on those plus
-every factor the campaign accepted, all read through the campaign's
+``validate`` trains the acceptance model (``AcceptanceConfig.model``, a
+template that ``factor_agent.acceptance_model`` fills in) twice per seed: on
+its baseline (its own factors, or the reference set) and on that plus every
+factor the campaign accepted, all read through the campaign's
 ``Scoring`` (on the members of day t, or on every symbol without a
 membership). It trains on the training segment and predicts the validation
 segment, both purged by ``Segments``. Each accepted factor enters the model
@@ -50,12 +51,11 @@ import numpy as np
 import xarray as xr
 from quantlab.core.store_folder import save_component
 from quantlab.factor.config import FactorConfig
-from quantlab.model.config import ModelConfig
+from quantlab.model.base import BaseModel
 from quantlab.model.evaluation import cross_sectional_ic_series, cross_sectional_rank_ic_series
-from quantlab.model.predefined.xgb import XGBoostRegressor
 from quantlab.runs.trained_run import TrainedRun
 
-from factor_agent import _admission, _feedback
+from factor_agent import _admission, _feedback, acceptance_model
 from factor_agent.config import CampaignConfig, load
 from factor_agent.evaluator import decile_returns
 from factor_agent.exported import GraphFactor
@@ -308,30 +308,23 @@ class Acceptance:
         if len(outputs) != len(records):
             raise ValueError("acceptance: two accepted factors share a label (description and round)")
         accepted = self._accepted_feature(records, list(outputs.values()), test_window[1])
-        baseline_features = [scoring.on_members(load(c)) for c in (settings.features or self.config.reference)]
-        if not baseline_features:
-            raise ValueError("acceptance: the baseline has no feature (neither acceptance.features nor reference)")
         name = label.get_factor_names()[0]
         truth = label.read(*test_window)[name]
         results = {}
-        for kind, features in (("baseline", baseline_features), ("with_accepted", [*baseline_features, accepted])):
-            panel, results[kind] = None, []
+        for kind, added in (("baseline", []), ("with_accepted", [accepted])):
+            panels, results[kind] = None, []
             for seed in settings.seeds:
-                head = XGBoostRegressor(ModelConfig(
-                    factors=features, labels=[label],
-                    model_save_dir=str(self.run_dir / "acceptance" / segment.name / f"{kind}_s{seed}"),
-                    factor_data_strategy="read", label_data_strategy="read",
-                    start_date=train_window[0], end_date=test_window[1],
-                    train_start=train_window[0], train_end=train_window[1],
-                    test_start=test_window[0], test_end=test_window[1],
-                    val_size=settings.val_size, metric_splits=("test",), random_seed=seed,
-                    hyperparameters=dict(settings.hyperparameters),
-                ))
-                if panel is None:
-                    panel = head.collect().collected_panel
-                else:
-                    head.use_panel(panel)
-                run = TrainedRun.open(head.train())
+                model = acceptance_model.build(settings.model, self._baseline, added, {
+                    "labels": [label], "random_seed": seed,
+                    "model_save_dir": str(self.run_dir / "acceptance" / segment.name / f"{kind}_s{seed}"),
+                    "factor_data_strategy": "read", "label_data_strategy": "read",
+                    "start_date": train_window[0], "end_date": test_window[1],
+                    "train_start": train_window[0], "train_end": train_window[1],
+                    "test_start": test_window[0], "test_end": test_window[1],
+                    "val_size": settings.val_size, "metric_splits": ("test",),
+                })
+                panels = _collect(model, panels)
+                run = TrainedRun.open(model.train())
                 predictions = scoring.mask(xr.open_zarr(run.test_predictions)[[name]].load())[name]
                 results[kind].append(self._result(seed, predictions, truth, label.span_bars(), str(run.path)))
         report = AcceptanceReport(
@@ -347,6 +340,16 @@ class Acceptance:
         (out / f"{segment.name}.json").write_text(json.dumps(report.to_dict(), indent=2) + "\n")
         (out / f"{segment.name}.md").write_text(report.markdown())
         return report
+
+    def _baseline(self, entries: tuple) -> list:
+        """A model's baseline: its factor entries, or the reference set, read as the scoring reads; built once."""
+        key = ("baseline", json.dumps(entries, sort_keys=True))
+        if key not in self._loaded:
+            features = [self._scoring().on_members(load(c)) for c in (entries or self.config.reference)]
+            if not features:
+                raise ValueError("acceptance: a baseline has no feature (the model names none and there is no reference)")
+            self._loaded[key] = features
+        return self._loaded[key]
 
     def _result(self, seed: int, predictions: xr.DataArray, truth: xr.DataArray, horizon: int, run: str) -> ModelResult:
         """One model's statistics on the dates and members both the prediction and the label have."""
@@ -477,6 +480,21 @@ class Acceptance:
             "- Read it on a universe with `MembershipMaskedFactor(RosterFactor(load_component(<this folder>)))`.",
         ]
         return "\n".join(lines) + "\n"
+
+
+def _collect(model, panels: list | None) -> list:
+    """Collect ``model``'s data, or hand it ``panels``, collected by a model of the same features; its panels.
+
+    A single model shares a panel across seeds; an ensemble's members collect their own each time.
+    """
+    if isinstance(model, BaseModel):
+        if panels is None:
+            model.collect()
+        else:
+            model.use_panel(panels[0])
+        return [model.collected_panel]
+    model.collect()
+    return []
 
 
 def _class_name(name: str) -> str:

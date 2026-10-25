@@ -127,7 +127,8 @@ llm:
 
 ## Acceptance
 
-After the campaign, `Acceptance(config)` judges the accepted factors by what they add to SEL0 xgb:
+After the campaign, `Acceptance(config)` judges the accepted factors by what they add to the acceptance
+model, which the config must name:
 
 ```yaml
 segments:
@@ -136,14 +137,22 @@ segments:
   holdout:    {start: 2020-01-02, end: 2026-10-23}
   purge_bars: 5          # at least; a label that reads further purges more (ret_5: 6)
 acceptance:
-  features: [...]        # SEL0's features as components; empty: the reference set
-  seeds: [0, 1, 2]
+  model:                 # required: the get_config() of any quantlab BaseModel or ModelEnsemble
+    name: quantlab.model.predefined.xgb.XGBoostRegressor
+    factors: []          # the baseline, as reference entries; empty: the reference set
+    hyperparameters: {...}   # us3000_ret5.yaml names SEL0's xgb_deep
+  seeds: [0, 1, 2]       # each replaces every model's (every member's) random_seed
   top_k: 100
-  hyperparameters: {...}  # the xgb's; unset: quantlab's XGBoost defaults (us3000_ret5.yaml names SEL0's xgb_deep)
   factor_root: /data/quantlab/factors/market   # where export() writes the stores; an export needs it
 ```
 
-- `validate()` trains the xgb per seed on the baseline features and on those plus every accepted
+- The model is a template. A `ModelEnsemble` is `{name: ...ModelEnsemble, members: [<model>, ...]}`, each
+  member with its own `factors` (its baseline; empty: the reference set) and hyperparameters. Acceptance
+  fills in the label, the windows, `val_size`, the read strategies and the seed, and appends the accepted
+  factors to every member; what a template says of those is replaced, so a trained run's `config.json`
+  serves as one. A `SeedEnsemble` is refused (the seeds are `acceptance.seeds`); the removed
+  `acceptance.hyperparameters` and `acceptance.features` fail to load.
+- `validate()` trains the model per seed on its baseline and on its baseline plus every accepted
   factor (through the same `scoring` the Evaluator admitted with), up to the
   purged end of training, and predicts the purged validation segment. It reports, per seed and on
   average, rank IC, IC, decile monotonicity, D10−D1, and the fee-free plain TopK return and excess
@@ -186,5 +195,5 @@ nohup numactl --cpunodebind=1 --preferred=1 uv run python -c \
 ```
 
 After the campaign, the same way: `Acceptance(CampaignConfig.from_file('configs/us3000_ret5.yaml')).validate()`.
-The campaign uses no GPU. `Acceptance` trains xgb on the GPU (quantlab picks CUDA); start it only when it
+The campaign uses no GPU. `Acceptance` trains SEL0's xgb on the GPU (quantlab picks CUDA); start it only when it
 ends before 06:00 US Eastern on a weekday, when the GPU must be free.

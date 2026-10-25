@@ -30,6 +30,7 @@ import yaml
 from quantlab.core.component import rebuild
 from quantlab.core.store_folder import load_component
 
+from factor_agent import acceptance_model
 from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.prompts import Templates
 from factor_agent.segments import PURGE_BARS, Segment, Segments
@@ -219,17 +220,25 @@ class ContextConfig:
 class AcceptanceConfig:
     """How ``Acceptance`` validates, opens the hold-out and exports.
 
-    ``features`` are the baseline model's features (SEL0's), as components;
-    empty, the reference set is used. Every feature, and each accepted
-    factor's scored values, is read as the campaign's ``scoring`` reads.
+    ``model`` is the acceptance model, a template (``factor_agent.acceptance_model``):
+    the component config of a quantlab ``BaseModel`` or ``ModelEnsemble``,
+    whose own factors are the baseline (empty: the reference set). Every
+    baseline feature, and each accepted factor's scored values, is read as
+    the campaign's ``scoring`` reads.
+
+    Raises
+    ------
+    ValueError
+        If there is no seed, or ``model`` is a ``SeedEnsemble``.
+    TypeError
+        If ``model`` is not a model's component config.
     """
 
-    features: tuple = ()
-    #: The xgb hyperparameters (``ModelConfig.hyperparameters``); empty: quantlab's XGBoost defaults.
-    hyperparameters: dict = field(default_factory=dict)
-    #: The seeds every model is trained with.
+    #: The acceptance model's template; required, so no campaign is accepted against a default model.
+    model: dict
+    #: The seeds every model is trained with; each replaces every member's ``random_seed``.
     seeds: tuple[int, ...] = (0, 1, 2)
-    #: Share of the training window the xgb validates (early-stops) on, at its end.
+    #: Share of the training window each model validates (early-stops) on, at its end.
     val_size: float = 0.2
     #: Members held by the plain TopK book.
     top_k: int = 100
@@ -243,10 +252,32 @@ class AcceptanceConfig:
     export_end: str | None = None
 
     def __post_init__(self):
-        object.__setattr__(self, "features", tuple(self.features))
         object.__setattr__(self, "seeds", tuple(self.seeds))
         if not self.seeds:
             raise ValueError("acceptance: at least one seed is needed")
+        acceptance_model.check(self.model)
+
+    @classmethod
+    def from_dict(cls, raw: dict | None) -> "AcceptanceConfig":
+        """Read the ``acceptance`` section.
+
+        Raises
+        ------
+        KeyError
+            If the section, or its ``model``, is missing.
+        TypeError
+            If it holds ``hyperparameters`` or ``features``, which the model template now holds.
+        """
+        raw = dict(raw or {})
+        for removed, now in (("hyperparameters", "hyperparameters"), ("features", "factors")):
+            if removed in raw:
+                raise TypeError(f"campaign config: acceptance.{removed} is gone; give them as acceptance.model's {now}")
+        if "model" not in raw:
+            raise KeyError(
+                "campaign config: acceptance.model is needed, the component config of the quantlab model "
+                "(or ModelEnsemble) the accepted factors are tested in"
+            )
+        return cls(**raw)
 
 
 @dataclass(frozen=True)
@@ -323,6 +354,7 @@ class CampaignConfig:
     fields: tuple
     #: The operator file: the operators candidates may call and their parameter values.
     operators: str
+    acceptance: AcceptanceConfig
     #: The data as the prompts describe it, such as "adjusted daily bars of every US common stock".
     market: str
     #: Modules besides KunQuant and ``quantlab.factor`` an operator's class or callable may come from.
@@ -335,7 +367,6 @@ class CampaignConfig:
     admission: AdmissionConfig = AdmissionConfig()
     round: RoundConfig = RoundConfig()
     context: ContextConfig = ContextConfig()
-    acceptance: AcceptanceConfig = AcceptanceConfig()
     mechanisms: tuple = DEFAULT_MECHANISMS
     prompts: dict = field(default_factory=dict)
 
@@ -410,11 +441,10 @@ class CampaignConfig:
         sections = {
             "evaluator": EvaluatorConfig, "gate": GateConfig,
             "admission": AdmissionConfig, "round": RoundConfig, "context": ContextConfig,
-            "acceptance": AcceptanceConfig,
         }
         unknown = set(raw) - {
             "run_dir", "segments", "data", "scoring", "fields", "operators", "operator_modules", "reference",
-            "directions", "llm", "market", "mechanisms", "prompts", *sections,
+            "directions", "llm", "market", "mechanisms", "prompts", "acceptance", *sections,
         }
         if unknown:
             raise TypeError(f"campaign config: unknown section(s) {sorted(unknown)}")
@@ -439,6 +469,7 @@ class CampaignConfig:
             operator_modules=tuple(raw.get("operator_modules") or ()),
             reference=tuple(raw.get("reference") or ()),
             directions=tuple(raw.get("directions") or ()),
+            acceptance=AcceptanceConfig.from_dict(raw.get("acceptance")),
             **{name: klass(**raw[name]) for name, klass in sections.items() if name in raw},
             **optional,
         )

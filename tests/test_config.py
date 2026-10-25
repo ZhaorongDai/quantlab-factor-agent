@@ -66,6 +66,7 @@ def test_the_reference_of_a_config_file_may_be_store_entries(store, tmp_path):
         "reference": [{"store": str(store), "factor_names": ["KMID"]}],
         "fields": [str(PRICE_VOLUME)], "operators": str(EXAMPLE_OPERATORS), "market": "test bars",
         "llm": {role: {"backend": "scripted", "model": "m", "replies": "r.json"} for role in ROLES},
+        "acceptance": {"model": {"name": XGB}},
     }))
     [factor] = [load(c) for c in CampaignConfig.from_file(path).reference]
     assert factor.get_factor_names() == ("KMID",)
@@ -80,6 +81,7 @@ def _minimal(tmp_path, **sections) -> Path:
         "scoring": {"neutralize": None},
         "fields": [str(PRICE_VOLUME)], "operators": str(EXAMPLE_OPERATORS), "market": "test bars",
         "llm": {role: {"backend": "scripted", "model": "m", "replies": "r.json"} for role in ROLES},
+        "acceptance": {"model": {"name": XGB}},
     }
     raw.update(sections)
     path = tmp_path / "campaign.yaml"
@@ -189,28 +191,48 @@ def test_the_fundamentals_config_differs_from_the_first_only_in_its_run_dir_fiel
     assert config.admission.min_coverage == 0.5
     assert {role.model for role in config.roles.values()} == {"deepseek/deepseek-v4-pro-0813"}
     assert (config.data.label, config.data.membership, config.scoring) == (first.data.label, first.data.membership, first.scoring)
-    assert config.acceptance == first.acceptance and config.acceptance.hyperparameters == XGB_DEEP
+    assert config.acceptance == first.acceptance and config.acceptance.model == SEL0_XGB_DEEP
     assert config.acceptance.factor_root == "/data/quantlab/factors/market"
 
 
-def test_an_acceptance_section_without_hyperparameters_leaves_quantlabs_xgboost_defaults(tmp_path):
-    config = CampaignConfig.from_file(_minimal(tmp_path, acceptance={"seeds": [0]}))
-    assert config.acceptance.hyperparameters == {}
-    assert config.acceptance.factor_root is None
-
-
-#: SEL0's xgb_deep (quantlab-experiment 2026-10-18-us3000-factor-selection-xgb), without its thread count.
-XGB_DEEP = {
+#: The import path of quantlab's xgb.
+XGB = "quantlab.model.predefined.xgb.XGBoostRegressor"
+#: SEL0's xgb_deep (quantlab-experiment 2026-10-18-us3000-factor-selection-xgb), without its thread count, on the reference set.
+SEL0_XGB_DEEP = {"name": XGB, "factors": [], "hyperparameters": {
     "training_target": "cs_rank", "early_stopping": True, "early_stopping_patience": 100,
     "objective": "reg:squarederror", "num_boost_round": 2000, "eta": 0.03, "max_depth": 6,
     "min_child_weight": 1000, "subsample": 0.8, "colsample_bytree": 0.5,
-}
+}}
 
 
-def test_the_real_config_names_xgb_deep_and_the_export_root_itself():
+def test_the_real_config_names_sel0s_xgb_deep_as_the_acceptance_model_and_the_export_root_itself():
     acceptance = CampaignConfig.from_file(REAL).acceptance
-    assert acceptance.hyperparameters == XGB_DEEP
+    assert acceptance.model == SEL0_XGB_DEEP
     assert acceptance.factor_root == "/data/quantlab/factors/market"
+
+
+@pytest.mark.parametrize("acceptance", [None, {"seeds": [0]}])
+def test_a_config_without_an_acceptance_model_is_refused(tmp_path, acceptance):
+    with pytest.raises(KeyError, match="acceptance.model"):
+        CampaignConfig.from_file(_minimal(tmp_path, acceptance=acceptance))
+
+
+@pytest.mark.parametrize("removed", ["hyperparameters", "features"])
+def test_the_removed_acceptance_fields_are_refused_with_where_they_went(tmp_path, removed):
+    acceptance = {"model": {"name": XGB}, removed: {"max_depth": 3} if removed == "hyperparameters" else []}
+    with pytest.raises(TypeError, match=f"acceptance.{removed} .*acceptance.model"):
+        CampaignConfig.from_file(_minimal(tmp_path, acceptance=acceptance))
+
+
+def test_a_seed_ensemble_acceptance_model_is_refused_for_acceptance_seeds(tmp_path):
+    template = {"name": "quantlab.model.predefined.seed_ensemble.SeedEnsemble", "model": {"name": XGB}, "seeds": [0, 1]}
+    with pytest.raises(ValueError, match="acceptance.seeds"):
+        CampaignConfig.from_file(_minimal(tmp_path, acceptance={"model": template}))
+
+
+def test_an_acceptance_model_that_is_no_model_is_refused(tmp_path):
+    with pytest.raises(TypeError, match="BaseModel or a ModelEnsemble"):
+        CampaignConfig.from_file(_minimal(tmp_path, acceptance={"model": {"name": "quantlab.factor.kunquant.FactorKunQuant"}}))
 
 
 def test_the_planner_reads_the_last_five_rounds_trial_by_trial_by_default(tmp_path):
