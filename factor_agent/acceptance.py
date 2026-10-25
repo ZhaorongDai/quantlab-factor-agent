@@ -16,6 +16,10 @@ training and validation segments. It first records the open in the lock
 (``Segments.open_holdout``): a second open is refused unless forced, and a
 forced one is stated in its report.
 
+Every trained model's result is cached (``factor_agent._model_cache``), so a
+re-run trains only the models not finished; each run first prints how many
+it will train and how many are cached.
+
 The comparison, on the members of each day of the predicted segment (every
 symbol without a membership) and
 against the label the model trains on, per model and averaged over seeds:
@@ -43,6 +47,7 @@ import json
 import keyword
 import pprint
 import shutil
+import time
 import warnings
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -55,7 +60,7 @@ from quantlab.model.base import BaseModel
 from quantlab.model.evaluation import cross_sectional_ic_series, cross_sectional_rank_ic_series
 from quantlab.runs.trained_run import TrainedRun
 
-from factor_agent import _admission, _feedback, acceptance_model
+from factor_agent import _admission, _feedback, _model_cache, acceptance_model
 from factor_agent.config import CampaignConfig, load
 from factor_agent.evaluator import decile_returns
 from factor_agent.exported import GraphFactor
@@ -299,7 +304,7 @@ class Acceptance:
         if not records:
             raise ValueError(f"acceptance: {self.run_dir} has no accepted factor")
         settings, segments = self.config.acceptance, self.config.segments
-        label, scoring = self._data("label"), self._scoring()
+        label = self._data("label")
         calendar = self._data("prices").calendar(segments.training.start, segment.end)
         lookahead = label.lookahead_bars()
         train_window = (segments.training.start, segments.scored(trained_to, calendar, lookahead)[1])
@@ -308,25 +313,13 @@ class Acceptance:
         if len(outputs) != len(records):
             raise ValueError("acceptance: two accepted factors share a label (description and round)")
         accepted = self._accepted_feature(records, list(outputs.values()), test_window[1])
-        name = label.get_factor_names()[0]
-        truth = label.read(*test_window)[name]
-        results = {}
-        for kind, added in (("baseline", []), ("with_accepted", [accepted])):
-            panels, results[kind] = None, []
-            for seed in settings.seeds:
-                model = acceptance_model.build(settings.model, self._baseline, added, {
-                    "labels": [label], "random_seed": seed,
-                    "model_save_dir": str(self.run_dir / "acceptance" / segment.name / f"{kind}_s{seed}"),
-                    "factor_data_strategy": "read", "label_data_strategy": "read",
-                    "start_date": train_window[0], "end_date": test_window[1],
-                    "train_start": train_window[0], "train_end": train_window[1],
-                    "test_start": test_window[0], "test_end": test_window[1],
-                    "val_size": settings.val_size, "metric_splits": ("test",),
-                })
-                panels = _collect(model, panels)
-                run = TrainedRun.open(model.train())
-                predictions = scoring.mask(xr.open_zarr(run.test_predictions)[[name]].load())[name]
-                results[kind].append(self._result(seed, predictions, truth, label.span_bars(), str(run.path)))
+        results = self._train(segment, {"baseline": [], "with_accepted": [accepted]}, {
+            "labels": [label], "factor_data_strategy": "read", "label_data_strategy": "read",
+            "start_date": train_window[0], "end_date": test_window[1],
+            "train_start": train_window[0], "train_end": train_window[1],
+            "test_start": test_window[0], "test_end": test_window[1],
+            "val_size": settings.val_size, "metric_splits": ("test",),
+        })
         report = AcceptanceReport(
             segment=segment.name, train_window=train_window, test_window=test_window, seeds=settings.seeds,
             top_k=settings.top_k, accepted=outputs,
@@ -340,6 +333,51 @@ class Acceptance:
         (out / f"{segment.name}.json").write_text(json.dumps(report.to_dict(), indent=2) + "\n")
         (out / f"{segment.name}.md").write_text(report.markdown())
         return report
+
+    def _train(self, segment: Segment, feature_sets: dict[str, list], filled: dict) -> dict[str, list[ModelResult]]:
+        """Each feature set's results on ``segment``, one per seed, read from the cache or trained and cached.
+
+        ``feature_sets`` maps a name (its models are saved under
+        ``acceptance/<segment>/<name>_s<seed>``) to the features added to the
+        baseline; ``filled`` is every ``acceptance_model.FILLED`` value but the
+        seed and the save directory. Before any training it prints how many
+        models it will train, how many are cached and, from the elapsed times
+        cached with finished models, an estimate of the time it will take.
+        """
+        settings, scoring, label = self.config.acceptance, self._scoring(), filled["labels"][0]
+        directory = self.run_dir / "acceptance" / segment.name
+        cache = _model_cache.ModelCache(directory / "cache")
+        models = {}
+        for kind, added in feature_sets.items():
+            for seed in settings.seeds:
+                model = acceptance_model.build(settings.model, self._baseline, added, {
+                    **filled, "random_seed": seed, "model_save_dir": str(directory / f"{kind}_s{seed}"),
+                })
+                models[kind, seed] = model, _model_cache.key(
+                    model.get_config(), top_k=settings.top_k, scoring=dataclasses.asdict(self.config.scoring),
+                )
+        print(f"acceptance ({segment.name}): " + cache.summary([k for _, k in models.values()]), flush=True)
+        name = label.get_factor_names()[0]
+        truth = None
+        results = {kind: [] for kind in feature_sets}
+        for kind in feature_sets:
+            panels = None
+            for seed in settings.seeds:
+                model, key = models[kind, seed]
+                cached = cache.get(key)
+                if cached is None:
+                    started = time.monotonic()
+                    if truth is None:
+                        truth = label.read(filled["test_start"], filled["test_end"])[name]
+                    panels = _collect(model, panels)
+                    run = TrainedRun.open(model.train())
+                    predictions = scoring.mask(xr.open_zarr(run.test_predictions)[[name]].load())[name]
+                    result = self._result(seed, predictions, truth, label.span_bars(), str(run.path))
+                    cache.put(key, dataclasses.asdict(result), time.monotonic() - started)
+                else:
+                    result = ModelResult(**{**cached, "decile_returns": tuple(cached["decile_returns"])})
+                results[kind].append(result)
+        return results
 
     def _baseline(self, entries: tuple) -> list:
         """A model's baseline: its factor entries, or the reference set, read as the scoring reads; built once."""

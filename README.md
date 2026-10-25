@@ -157,6 +157,11 @@ acceptance:
   purged end of training, and predicts the purged validation segment. It reports, per seed and on
   average, rank IC, IC, decile monotonicity, D10−D1, and the fee-free plain TopK return and excess
   (`<run_dir>/acceptance/validation.{json,md}`).
+- Every trained model's result is cached under `<run_dir>/acceptance/<segment>/cache/`, keyed by its
+  filled-in config (template, features, label, windows, seed) and the TopK size and scoring; a re-run,
+  after an interruption say, reads what is cached and trains the rest. Before training, `validate()` and
+  `open_holdout()` print how many models they will train, how many are cached and, once some have
+  finished, an estimated duration. The print never waits for an answer.
 - `open_holdout(force=False)` writes `<run_dir>/holdout.lock` (when, with which commits), then makes the
   same comparison on the hold-out, trained through validation. A second open raises `HoldoutLocked`;
   `force=True` runs it, appends to the lock, and the report says the hold-out was opened again.

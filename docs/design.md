@@ -142,6 +142,8 @@
   超参数写在模板里；验收填入标签、训练/预测窗口、读取方式、`val_size` 与种子（覆盖每个成员的 `random_seed`），接受的因子追加到每个成员；
   `SeedEnsemble` 模板报错（种子用 `acceptance.seeds`）；`acceptance.hyperparameters`、`acceptance.features` 已删，旧配置读取即报错。
   模板填充在 `acceptance_model.py`（`check`、`build`）。
+  每个训练过的模型的结果按填好的组件 config（模板、特征、标签、窗口、种子，去掉保存目录）与 TopK 数、scoring 的摘要缓存在
+  `acceptance/<段>/cache/<摘要>.json`（含耗时），重跑读缓存；训练前打印要训练数、已缓存数与按已缓存耗时均值的估计（`_model_cache.py`；`Acceptance._train` 是唯一入口）。
 
 内部深 module：
 

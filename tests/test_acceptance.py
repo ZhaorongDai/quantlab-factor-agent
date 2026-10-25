@@ -331,3 +331,81 @@ def test_acceptance_and_export_use_the_run_snapshot_of_the_vocabulary(unscored, 
 def test_acceptance_of_a_run_directory_without_a_snapshot_fails(campaign, tmp_path):
     with pytest.raises(FileNotFoundError, match="no snapshot"):
         Acceptance(campaign["acceptance"].config, run_dir=tmp_path / "never_run")
+
+
+def _trained(acceptance: Acceptance, segment: str = "validation") -> set:
+    """The models trained so far on ``segment``: the run directories under its acceptance directory."""
+    return set((acceptance.run_dir / "acceptance" / segment).glob("*/*_trial_*"))
+
+
+def test_a_second_validate_with_nothing_changed_trains_no_model_and_gives_the_same_report(campaign, tmp_path, capsys):
+    acceptance = _in_model(campaign, tmp_path, {"name": LINEAR})
+    first = acceptance.validate()
+    trained = _trained(acceptance)
+    assert len(trained) == 4
+    out = capsys.readouterr().out
+    assert "acceptance (validation): 4 models to train, 0 cached\n" in out  # no finished model, no estimate
+
+    again = acceptance.validate()
+    assert _trained(acceptance) == trained
+    assert again == dataclasses.replace(first, code_version=again.code_version)
+    assert "acceptance (validation): 0 models to train, 4 cached\n" in capsys.readouterr().out
+
+
+def test_a_validate_interrupted_partway_trains_only_the_unfinished_models_when_run_again(
+    campaign, tmp_path, capsys, monkeypatch,
+):
+    from quantlab.model.predefined.linear import LinearRegressor
+
+    acceptance, train = _in_model(campaign, tmp_path, {"name": LINEAR}), LinearRegressor.train
+    calls = []
+
+    def interrupted(self, *args, **kwargs):
+        calls.append(1)
+        if len(calls) == 3:
+            raise KeyboardInterrupt
+        return train(self, *args, **kwargs)
+
+    monkeypatch.setattr(LinearRegressor, "train", interrupted)
+    with pytest.raises(KeyboardInterrupt):
+        acceptance.validate()
+    finished = _trained(acceptance)
+    assert len(finished) == 2
+    capsys.readouterr()
+
+    monkeypatch.setattr(LinearRegressor, "train", train)
+    report = acceptance.validate()
+    assert len(_trained(acceptance)) == 4 and finished < _trained(acceptance)
+    assert "2 models to train, 2 cached, about " in capsys.readouterr().out
+    assert {r.run for r in (*report.baseline, *report.with_accepted)} >= {str(p) for p in finished}
+
+
+def _changed(acceptance: Acceptance, **settings) -> Acceptance:
+    """``acceptance`` on the same run directory, with ``settings`` replacing the config's (``segments`` or acceptance fields)."""
+    config = acceptance.config
+    segments = settings.pop("segments", config.segments)
+    changed = dataclasses.replace(config, segments=segments, acceptance=dataclasses.replace(config.acceptance, **settings))
+    return Acceptance(changed, acceptance.run_dir)
+
+
+def test_a_changed_template_seed_or_segment_misses_the_cache_for_the_models_it_changes(campaign, tmp_path):
+    acceptance = _in_model(campaign, tmp_path, {"name": LINEAR})
+    acceptance.validate()
+    trained = _trained(acceptance)
+
+    _changed(acceptance, seeds=(0, 1, 2)).validate()  # one more seed: its baseline and its model with the factors
+    assert len(_trained(acceptance) - trained) == 2
+    trained = _trained(acceptance)
+
+    _changed(acceptance, model={"name": LINEAR, "hyperparameters": {"estimator": "ridge", "alpha": 1.0}}).validate()
+    assert len(_trained(acceptance) - trained) == 4
+    trained = _trained(acceptance)
+
+    segments = acceptance.config.segments
+    shorter = dataclasses.replace(segments, validation=dataclasses.replace(segments.validation, end="2012-11-30"))
+    _changed(acceptance, segments=shorter).validate()
+    assert len(_trained(acceptance) - trained) == 4
+    trained = _trained(acceptance)
+
+    acceptance.validate()  # back to the first settings: every model is cached
+    assert _trained(acceptance) == trained
