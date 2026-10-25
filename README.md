@@ -152,15 +152,20 @@ acceptance:
   factors to every member; what a template says of those is replaced, so a trained run's `config.json`
   serves as one. A `SeedEnsemble` is refused (the seeds are `acceptance.seeds`); the removed
   `acceptance.hyperparameters` and `acceptance.features` fail to load.
-- `validate()` trains the model per seed on its baseline and on its baseline plus every accepted
-  factor (through the same `scoring` the Evaluator admitted with), up to the
+- `validate(selection=None)` trains the model per seed on its baseline and on its baseline plus a
+  selection of the accepted factors, named as `export` names them (description, or
+  `description (accepted in round n)`), every accepted factor by default (through the same `scoring` the Evaluator admitted with), up to the
   purged end of training, and predicts the purged validation segment. It reports, per seed and on
   average, rank IC, IC, decile monotonicity, D10−D1, and the fee-free plain TopK return and excess
-  (`<run_dir>/acceptance/validation.{json,md}`).
-- `open_holdout(force=False)` writes `<run_dir>/holdout.lock` (when, with which commits), then makes the
-  same comparison on the hold-out, trained through validation. A second open raises `HoldoutLocked`;
-  `force=True` runs it, appends to the lock, and the report says the hold-out was opened again.
-- `export({"<description>": "<name>"})` writes `factor_agent/accepted/<name>.py` (a `GraphFactor`, i.e.
+  (`<run_dir>/acceptance/validation.{json,md}`; a selection of fewer goes to
+  `validation_<digest>.{json,md}`, the digest over its members' labels, and each report lists its members).
+  An unknown or ambiguous name raises `KeyError`.
+- `open_holdout(selection, force=False)` needs `validate`'s report of exactly that selection, then writes
+  `<run_dir>/holdout.lock` (when, with which commits) and makes the same comparison on the hold-out for the
+  selection only, trained through validation (`holdout[_<digest>].{json,md}`). A second open, of any
+  selection, raises `HoldoutLocked`; `force=True` runs it, appends to the lock, and the report says the
+  hold-out was opened again.
+- `export({"<description>": "<name>"})`, the keys being the selection, writes `factor_agent/accepted/<name>.py` (a `GraphFactor`, i.e.
   `FactorKunQuant`, subclass fixing the scored graph) and the whole-market store
   `<factor_root>/<name>/` (`NeutralizedFactor` of the ranked graph) with `README.md` and `component.json`.
 
