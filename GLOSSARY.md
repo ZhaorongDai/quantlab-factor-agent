@@ -64,3 +64,21 @@ _Avoid_: full history, log
 **Earlier summary**:
 The trials before the recent history, counted by mechanism type and outcome rather than listed.
 _Avoid_: old history, archive
+
+**Acceptance model**:
+The model Acceptance trains, given as a template that carries its own baseline factors; Acceptance
+fills in the accepted factors, the label, the windows and the seed.
+_Avoid_: the xgb, SEL0
+
+**Baseline**:
+The acceptance model's own factors (the reference set when it names none), without any accepted factor.
+_Avoid_: reference model, control
+
+**Selection**:
+The accepted factors a person picks to take to the hold-out and to export.
+_Avoid_: subset, final set
+
+**Contribution**:
+What one accepted factor does to the acceptance comparison: drop-one, the selection without it
+against the whole selection; add-one, the baseline with only it against the baseline.
+_Avoid_: importance, ablation
