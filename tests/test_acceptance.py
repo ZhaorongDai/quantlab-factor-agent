@@ -596,3 +596,28 @@ def test_a_changed_template_seed_or_segment_misses_the_cache_for_the_models_it_c
 
     acceptance.validate()  # back to the first settings: every model is cached
     assert _trained(acceptance) == trained
+
+
+def _trained_anywhere(acceptance: Acceptance) -> set:
+    """The models trained so far on any segment and selection."""
+    return set((acceptance.run_dir / "acceptance").glob("*/*/*_trial_*"))
+
+
+def test_a_narrowed_selection_reads_the_whole_sets_models_of_the_same_features(campaign, tmp_path, capsys):
+    acceptance = _in_model(campaign, tmp_path, {"name": LINEAR}, contribution="add_one")
+    acceptance.validate()
+    trained = _trained_anywhere(acceptance)
+    assert len(trained) == 4 * 2
+    capsys.readouterr()
+
+    # The selection's model with the factor and its add-one are the whole set's add-one: nothing new to train.
+    report = acceptance.validate(["planted"])
+    assert _trained_anywhere(acceptance) == trained
+    assert "acceptance (validation): 0 models to train, 4 cached\n" in capsys.readouterr().out
+    assert report.accepted == {"planted (accepted in round 1)": "accepted_0"}
+    assert _factor_names(report.with_accepted) == [["momentum_20", "accepted_0"]] * 2
+
+    # The selection of the other factor keeps its output name from the whole list.
+    other = acceptance.validate(["volume"])
+    assert other.accepted == {"volume (accepted in round 1)": "accepted_1"}
+    assert _trained_anywhere(acceptance) == trained

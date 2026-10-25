@@ -170,7 +170,9 @@ acceptance:
   hold-out never measures contribution.
 - Every trained model's result is cached under `<run_dir>/acceptance/<segment>/cache/`, keyed by its
   filled-in config (template, features, label, windows, seed) and the TopK size and scoring; a re-run,
-  after an interruption say, reads what is cached and trains the rest. Before training, `validate()` and
+  after an interruption say, reads what is cached and trains the rest. Every selection reads its factors
+  from one store of all accepted factors (one per predicted segment), so equal feature sets, a narrowed
+  selection's add-one and the whole set's say, share their models. Before training, `validate()` and
   `open_holdout()` print how many models they will train, how many are cached and, once some have
   finished, an estimated duration. The print never waits for an answer.
 - `open_holdout(selection, force=False)` needs `validate`'s report of exactly that selection, then writes

@@ -147,6 +147,8 @@
   模板填充在 `_acceptance_model.py`（`check`、`build`）。
   每个训练过的模型的结果按填好的组件 config（模板、特征、标签、窗口、种子，去掉保存目录）与 TopK 数、scoring 的摘要缓存在
   `acceptance/<段>/cache/<摘要>.json`（含耗时），重跑读缓存；训练前打印要训练数、已缓存数与按已缓存耗时均值的估计（`_model_cache.py`；`Acceptance._train` 是唯一入口）。
+  选中一组不另建 store：每组都按 `factor_names` 读全部接受因子的同一个 store（`acceptance/accepted_<预测段末日>/`，验证与保留期各一个，验证从不计算保留期的日期），
+  相同特征集合（如收窄后一组的 add-one 与全部的 add-one）命中同一缓存；输出名 `accepted_<k>` 取全部接受因子中的位置；全部命中缓存时不建 store，建过且记录一致时不重建。
   `acceptance.contribution`（`none` 默认 / `drop_one` / `add_one` / `both`，读取时校验）只作用于 `validate`：对比计划（纯函数）由选中一组与贡献方式列出要训练的特征集合（`baseline`、`with_accepted`、每因子 `drop_<输出>` / `add_<输出>`，
   相同集合只训一次，都经 `_train` 缓存与计数），`AcceptanceReport.contributions` 为 `Contribution(factor, mode, without, with_factor)`，`contribution_table()` 给每因子每方式
   7 项指标的种子均值差与同向种子数，按 rank IC 差排序；`open_holdout` 不做贡献。

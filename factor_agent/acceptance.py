@@ -61,6 +61,7 @@ import pprint
 import shutil
 import time
 import warnings
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -423,13 +424,12 @@ class Acceptance:
         lookahead = label.lookahead_bars()
         train_window = (segments.training.start, segments.scored(trained_to, calendar, lookahead)[1])
         test_window = segments.scored(segment, calendar, lookahead)
-        # An accepted factor keeps its output name, its place among all accepted, in every selection.
-        outputs = {
-            _feedback.accepted_label(r): f"accepted_{k}" for k, r in enumerate(self.accepted())
-            if _feedback.accepted_label(r) in members
-        }
-        records = self._named(outputs, "acceptance")
-        accepted = self._accepted_feature(records, list(outputs.values()), test_window[1], suffix)
+        # An accepted factor keeps its output name, its place among all accepted, in every selection; every
+        # selection reads its outputs from the one store of all accepted, so equal feature sets share their models.
+        records = self.accepted()
+        everything = {_feedback.accepted_label(r): f"accepted_{k}" for k, r in enumerate(records)}
+        outputs = {label: output for label, output in everything.items() if label in members}
+        accepted, build = self._accepted_feature(records, list(everything.values()), test_window[1])
         labels = list(outputs)
         planned, contributions = _plan(list(outputs.values()), contribution)
         scoring = self._scoring()
@@ -437,7 +437,7 @@ class Acceptance:
             kind: [scoring.on_members(type(accepted)(dataclasses.replace(accepted.config, factor_names=names)))] if names else []
             for kind, names in planned.items()
         }
-        results = self._train(segment, suffix, feature_sets, {
+        results = self._train(segment, suffix, feature_sets, build, {
             "labels": [label], "factor_data_strategy": "read", "label_data_strategy": "read",
             "start_date": train_window[0], "end_date": test_window[1],
             "train_start": train_window[0], "train_end": train_window[1],
@@ -463,14 +463,15 @@ class Acceptance:
         return report
 
     def _train(
-        self, segment: Segment, suffix: str, feature_sets: dict[str, list], filled: dict,
+        self, segment: Segment, suffix: str, feature_sets: dict[str, list], build: Callable[[], None], filled: dict,
     ) -> dict[str, list[ModelResult]]:
         """Each feature set's results on ``segment``, one per seed, read from the cache or trained and cached.
 
         ``feature_sets`` maps a name (its models are saved under
         ``acceptance/<segment><suffix>/<name>_s<seed>``) to the features added to the
-        baseline; the cache, ``acceptance/<segment>/cache``, is shared by every selection; ``filled`` is every ``_acceptance_model.FILLED`` value but the
-        seed and the save directory. Before any training it prints how many
+        baseline; the cache, ``acceptance/<segment>/cache``, is shared by every selection; ``build`` writes the
+        accepted factors' store, called before the first model is trained; ``filled`` is every
+        ``_acceptance_model.FILLED`` value but the seed and the save directory. Before any training it prints how many
         models it will train, how many are cached and, from the elapsed times
         cached with finished models, an estimate of the time it will take.
         """
@@ -491,15 +492,16 @@ class Acceptance:
         truth = None
         results = {kind: [] for kind in feature_sets}
         for kind in feature_sets:
-            panels = None
+            panel = None
             for seed in settings.seeds:
                 model, key = models[kind, seed]
                 cached = cache.get(key)
                 if cached is None:
                     started = time.monotonic()
                     if truth is None:
+                        build()
                         truth = label.read(filled["test_start"], filled["test_end"])[name]
-                    panels = _collect(model, panels)
+                    panel = _collect(model, panel)
                     run = TrainedRun.open(model.train())
                     predictions = scoring.mask(xr.open_zarr(run.test_predictions)[[name]].load())[name]
                     result = self._result(seed, predictions, truth, label.span_bars(), str(run.path))
@@ -547,10 +549,11 @@ class Acceptance:
                 decile_returns=deciles, n_days=int(np.isfinite(book).sum()), run=run,
             )
 
-    def _accepted_feature(self, records: list[TrialRecord], outputs: list[str], end: str, suffix: str):
-        """The accepted factors ``records``, scored, from a store under the run directory, its outputs named ``outputs``.
+    def _accepted_feature(self, records: list[TrialRecord], outputs: list[str], end: str):
+        """Every accepted factor ``records``, scored, its outputs named ``outputs``, and the function writing its store.
 
-        Every accepted factor has the store ``acceptance/accepted``, a selection ``acceptance/accepted<suffix>``.
+        The store, under ``acceptance/accepted_<end>``, runs from the training segment's start to ``end``, so a
+        validation never computes a hold-out date; it is written again only when its build record differs.
         """
         graphs = dict(zip(outputs, (r.graph for r in records)))
         classes = self.vocabulary.class_paths(graphs.values())
@@ -559,16 +562,19 @@ class Acceptance:
         factor = GraphFactor(self._factor_config(graphs, lags, kwargs={
             "graphs": graphs, "classes": classes, "directions": directions, **({"period_lags": lags} if lags else {}),
         }))
-        folder = self.run_dir / "acceptance" / f"accepted{suffix}"
+        folder = self.run_dir / "acceptance" / f"accepted_{end}"
         scored = self._scoring().apply(factor, folder / "accepted.zarr")
         start = self.config.segments.training.start
-        built = {"start": start, "end": end, "config": scored.get_config()}
-        record = folder / "accepted.json"
-        if not record.exists() or json.loads(record.read_text()) != json.loads(json.dumps(built)):
-            shutil.rmtree(folder, ignore_errors=True)
-            scored.build(start, end)
-            record.write_text(json.dumps(built) + "\n")
-        return scored
+
+        def build() -> None:
+            built = {"start": start, "end": end, "config": scored.get_config()}
+            record = folder / "accepted.json"
+            if not record.exists() or json.loads(record.read_text()) != json.loads(json.dumps(built)):
+                shutil.rmtree(folder, ignore_errors=True)
+                scored.build(start, end)
+                record.write_text(json.dumps(built) + "\n")
+
+        return scored, build
 
     # Shared.
 
@@ -699,19 +705,19 @@ def _plan(outputs: list[str], contribution: str) -> tuple[dict[str, tuple[str, .
     return {name: members for members, name in named.items()}, contributions
 
 
-def _collect(model, panels: list | None) -> list:
-    """Collect ``model``'s data, or hand it ``panels``, collected by a model of the same features; its panels.
+def _collect(model, panel):
+    """Collect ``model``'s data, or hand it ``panel``, collected by a model of the same features; the panel to share.
 
-    A single model shares a panel across seeds; an ensemble's members collect their own each time.
+    A single model shares a panel across seeds; an ensemble's members collect their own each time (None).
     """
-    if isinstance(model, BaseModel):
-        if panels is None:
-            model.collect()
-        else:
-            model.use_panel(panels[0])
-        return [model.collected_panel]
-    model.collect()
-    return []
+    if not isinstance(model, BaseModel):
+        model.collect()
+        return None
+    if panel is None:
+        model.collect()
+    else:
+        model.use_panel(panel)
+    return model.collected_panel
 
 
 def _class_name(name: str) -> str:
