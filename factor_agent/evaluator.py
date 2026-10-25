@@ -28,7 +28,10 @@ The statistics of a candidate:
   section, lowest values first, averaged over dates.
 - Coverage: the share of the day's scored members on which the graph
   itself (before the rank, which ranks a missing value too) has a value,
-  averaged over the dates with any scored member.
+  averaged over the dates with any scored member. It is measured before
+  any fill, on the graph with every ``SetInfOrNanToValue`` replaced by its
+  input (``Graph.without_fills``), so a fill does not raise it; the scored
+  values come from the graph as written.
 
 Normal scores: on each date a factor's values are ranked among its own
 finite symbols and mapped to the standard normal quantiles of their ranks;
@@ -83,7 +86,7 @@ class Metrics:
     ``nearest_correlation`` is that mean correlation, with its sign.
     ``decile_returns`` holds the mean label of each decile, lowest
     candidate values first. ``coverage`` is the mean daily share of the
-    scored members with a value.
+    scored members with a value before any fill.
     """
 
     ic_mean: float

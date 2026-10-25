@@ -286,3 +286,32 @@ def test_coverage_is_the_mean_daily_share_of_the_members_with_a_value(market):
     ])
     assert full.coverage == pytest.approx(1.0)
     assert 0.1 < sparse.coverage < 0.25
+
+
+def test_a_fill_does_not_raise_coverage_above_the_data_it_fills(market):
+    sparse = "Log(Log(close / open) * 100 - 1)"
+    unfilled, filled, nested = _evaluator(market).evaluate([
+        _graph(f"alpha = {sparse}"),
+        _graph(f"alpha = SetInfOrNanToValue({sparse}, 0)"),
+        _graph(f"alpha = SetInfOrNanToValue(SetInfOrNanToValue({sparse}) + close / open)"),
+    ])
+    assert 0.1 < unfilled.coverage < 0.25
+    assert filled.coverage == pytest.approx(unfilled.coverage)
+    assert nested.coverage == pytest.approx(unfilled.coverage)
+
+
+def test_a_fill_still_changes_the_scored_values(market):
+    sparse = "Log(Log(close / open) * 100 - 1)"
+    unfilled, filled = _evaluator(market).evaluate([
+        _graph(f"alpha = {sparse}"), _graph(f"alpha = SetInfOrNanToValue({sparse}, 0)"),
+    ])
+    assert filled.ic_mean != pytest.approx(unfilled.ic_mean)
+
+
+#: Coverage, IC mean and IC t of the sparse graph, recorded before coverage was measured without fills (spec #28).
+BEFORE_FILLS = (0.15613592233009707, 0.2830496958728959, 75.08359082679765)
+
+
+def test_a_graph_without_fills_scores_as_before(market):
+    [metrics] = _evaluator(market).evaluate([_graph("alpha = Log(Log(close / open) * 100 - 1)")])
+    assert (metrics.coverage, metrics.ic_mean, metrics.ic_t) == pytest.approx(BEFORE_FILLS)
