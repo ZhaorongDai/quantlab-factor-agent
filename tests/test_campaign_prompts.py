@@ -394,3 +394,14 @@ def test_a_replaced_distill_template_naming_every_memory_part_heading_loads(tmp_
         "Fold {history} into {memory}: Working mechanism patterns, Failure constraints, Directional findings.\n"
     )
     assert "Failure constraints" in Templates.load({"distill": path}).format("distill", history="h", memory="m")
+
+
+def test_the_planner_asks_for_research_directions_at_the_level_of_a_mechanism_and_its_data(lunar):
+    for request in lunar.of_role("planner"):
+        prompt = " ".join(request.prompt.split())
+        assert "concrete enough to write as code" not in prompt
+        head = prompt[:prompt.index("Round:")]
+        assert "the mechanism" in head and "the data it reads" in head
+        assert all(word in head for word in ("formula", "windows", "ratios"))
+        fields = prompt[prompt.index("Now plan this round's research directions"):]
+        assert '"direction": the mechanism to pursue and the data it reads' in fields
