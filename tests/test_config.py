@@ -1,5 +1,6 @@
 """CampaignConfig.from_file: components given as a store folder with chosen outputs, and the real config."""
 
+import json
 import re
 from pathlib import Path
 
@@ -71,6 +72,60 @@ def test_the_reference_of_a_config_file_may_be_store_entries(store, tmp_path):
     }))
     [factor] = [load(c) for c in CampaignConfig.from_file(path).reference]
     assert factor.get_factor_names() == ("KMID",)
+
+
+def _store_entry(store) -> dict:
+    return {"store": str(store), "factor_names": ["KMID", "STD20"]}
+
+
+def _component(store) -> dict:
+    """The store's factor pinned to KMID and STD20, as a ``get_config()`` dict read back from JSON."""
+    return json.loads(json.dumps(load(_store_entry(store)).get_config()))
+
+
+@pytest.mark.parametrize(("entry", "names"), [
+    (lambda store: str(store), 169),
+    (_store_entry, ("KMID", "STD20")),
+    (_component, ("KMID", "STD20")),
+])
+def test_the_known_factors_may_be_given_in_each_entry_form(store, tmp_path, entry, names):
+    config = CampaignConfig.from_file(_minimal(tmp_path, known=[entry(store)]))
+    reference, [known] = config.load_factors()
+    assert reference == [] and isinstance(known, Alpha158Stock)
+    assert (len(known.get_factor_names()) if isinstance(names, int) else known.get_factor_names()) == names
+
+
+def test_outputs_of_a_known_factor_already_in_the_reference_set_are_dropped_from_it(store, tmp_path):
+    config = CampaignConfig.from_file(_minimal(
+        tmp_path, reference=[{"store": str(store), "factor_names": ["KMID"]}], known=[_store_entry(store), str(store)],
+    ))
+    [reference], known = config.load_factors()
+    assert reference.get_factor_names() == ("KMID",)
+    assert [factor.get_factor_names() for factor in known][0] == ("STD20",)
+    assert "KMID" not in known[1].get_factor_names() and len(known[1].get_factor_names()) == 168
+
+
+def test_a_known_factor_whose_outputs_are_all_in_the_reference_set_is_dropped(store, tmp_path):
+    config = CampaignConfig.from_file(_minimal(tmp_path, reference=[_store_entry(store)], known=[_store_entry(store)]))
+    assert config.load_factors()[1] == []
+
+
+@pytest.mark.parametrize("entry", [
+    42,
+    "",
+    {"store": "s", "names": ["KMID"]},
+    {"store": "s", "factor_names": "KMID"},
+    {"store": 3},
+    {"factor_names": ["KMID"]},
+])
+def test_a_malformed_known_entry_is_refused_when_the_config_is_read(tmp_path, entry):
+    with pytest.raises(TypeError, match=r"known\[1\]"):
+        CampaignConfig.from_file(_minimal(tmp_path, known=["folder", entry]))
+
+
+def test_a_config_without_known_factors_has_none(tmp_path):
+    config = CampaignConfig.from_file(_minimal(tmp_path))
+    assert config.known == () and config.load_factors() == ([], [])
 
 
 def _minimal(tmp_path, **sections) -> Path:
