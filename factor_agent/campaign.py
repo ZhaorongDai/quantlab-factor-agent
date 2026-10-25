@@ -184,12 +184,12 @@ class Campaign:
             config.templates(), config.vocabulary(), config.data.load("label"),
             Scoring.from_config(config.scoring, config.data, njobs=config.evaluator.njobs),
         )
-        return self._estimate([load(component) for component in config.reference], prompts)
+        return self._estimate([load(component) for component in config.reference], prompts, config.context.recent_rounds)
 
-    def _estimate(self, reference: list, prompts: Prompts) -> CostEstimate:
+    def _estimate(self, reference: list, prompts: Prompts, recent_rounds: int) -> CostEstimate:
         context = {"seed": _seed(self.config.directions), "families": _feedback.families(reference)}
         return _cost.estimate(
-            self.config.round, self._role_backends(), context, prompts, self.config.context.recent_rounds,
+            self.config.round, self._role_backends(), context, prompts, recent_rounds,
         )
 
     def _prompts(self, templates: Templates, vocabulary: Vocabulary, label, scoring: Scoring) -> Prompts:
@@ -227,7 +227,7 @@ class Campaign:
         state_path = run_dir / "state.json"
         prices = config.data.load("prices")
         snapshot = self._snapshot(run_dir, state_path, _columns(prices))
-        recent_rounds = snapshot.settings.get("context", {}).get("recent_rounds", config.context.recent_rounds)
+        recent_rounds = snapshot.settings["context"]["recent_rounds"]
         vocabulary = config.vocabulary(_columns(prices), snapshot.search_files)
         label = config.data.load("label")
         scoring = Scoring.from_config(config.scoring, config.data, njobs=config.evaluator.njobs)
@@ -242,7 +242,7 @@ class Campaign:
             state.write(state_path)
 
         reference = [load(component) for component in config.reference]
-        print(self._estimate(reference, prompts).summary(config.round.budget_usd, state.spent), flush=True)
+        print(self._estimate(reference, prompts, recent_rounds).summary(config.round.budget_usd, state.spent), flush=True)
         log = LLMLog(run_dir / "llm_log")
         log.drop_after(state.calls)
         researcher = Researcher(
@@ -275,7 +275,12 @@ class Campaign:
                     since = [r for r in records if r.round > state.memory_through]
                     memory = researcher.distill(number, state.memory, _feedback.history(since, statistics=False))
                     state.memory_round = state.rounds
-                    if memory is not None:
+                    if memory is None:
+                        print(
+                            f"Campaign: the distiller's reply before round {number} is empty or not a memory in "
+                            f"its three parts; the previous memory is kept", flush=True,
+                        )
+                    else:
                         state.memory, state.memory_through = memory, state.rounds
                         (run_dir / "memory").mkdir(parents=True, exist_ok=True)
                         (run_dir / "memory" / f"round_{number:02d}.md").write_text(memory + "\n")
@@ -284,7 +289,7 @@ class Campaign:
                     state.write(state_path)
                 quota = _scheduler.quota(number, records, config.round, prompts.mechanism_types)
                 accepted = [r for r in records if r.status == "accepted"]
-                context = self._context(records, state, reference, evaluator, accepted, recent_rounds)
+                context = self._context(records, state, reference, evaluator, accepted, recent_rounds, prompts)
                 directions, issues = researcher.plan(number, quota, context, [_feedback.accepted_label(r) for r in accepted])
                 proposals = researcher.propose(number, directions, context, gate, zoo, config.round.retries)
                 round_records = self._round(number, proposals, researcher, gate, zoo, evaluator, records)
@@ -365,12 +370,13 @@ class Campaign:
 
     def _context(
         self, records: list[TrialRecord], state: _State, reference: list, evaluator: Evaluator,
-        accepted: list[TrialRecord], recent_rounds: int,
+        accepted: list[TrialRecord], recent_rounds: int, prompts: Prompts,
     ) -> dict[str, str]:
         """The sections the planner and the proposer read; see ``_feedback``.
 
         The trials of the last ``recent_rounds`` rounds are the recent
-        history, one line each; the older ones are counted in the earlier summary.
+        history, one line each; the older ones are counted in the earlier
+        summary, by mechanism type in the order of ``prompts``.
         """
         labels = [_feedback.accepted_label(r) for r in accepted]
         first_recent = state.rounds - recent_rounds + 1
@@ -379,7 +385,7 @@ class Campaign:
             "families": _feedback.families(reference),
             "memory": state.memory,
             "earlier_summary": _feedback.earlier_summary(
-                [r for r in records if r.round < first_recent], self.config.mechanism_types,
+                [r for r in records if r.round < first_recent], prompts.mechanism_types,
             ),
             "recent_history": _feedback.history([r for r in records if r.round >= first_recent]),
             "last_round": _feedback.last_round([r for r in records if r.round == state.rounds]),

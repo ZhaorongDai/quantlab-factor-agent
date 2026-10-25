@@ -392,16 +392,32 @@ MEMORY_ITEMS = 6
 
 
 def _memory(reply: str) -> str | None:
-    """The memory in a distiller's ``reply``, each part cut to ``MEMORY_ITEMS`` items; None if a heading is missing."""
-    lines = [line.rstrip() for line in reply.strip().removeprefix("```text").removesuffix("```").strip().splitlines()]
-    starts = [next((i for i, line in enumerate(lines) if line.strip() == part), None) for part in MEMORY_PARTS]
+    """The memory in a distiller's ``reply``, with plain headings, "- " bullets and at most ``MEMORY_ITEMS`` items a part.
+
+    A heading may come with a leading "#", surrounding "**" and a trailing
+    ":", in any case; an item may start with "- ", "* ", "• ", "1." or "1)".
+    None if a heading is missing or out of order, or if no part holds an item.
+    """
+    lines = reply.strip().removeprefix("```text").removesuffix("```").strip().splitlines()
+    starts = [next((i for i, line in enumerate(lines) if _heading(line) == part.lower()), None) for part in MEMORY_PARTS]
     if None in starts or starts != sorted(starts):
         return None
-    kept = []
+    kept, found = [], 0
     for part, start, end in zip(MEMORY_PARTS, starts, [*starts[1:], len(lines)]):
-        items = [line for line in lines[start + 1:end] if line.strip()]
-        kept += [part, *[line for line in items if line.lstrip().startswith("- ")][:MEMORY_ITEMS]]
-    return "\n".join(kept)
+        items = [match.group(1).strip() for line in lines[start + 1:end] if (match := _BULLET.match(line))]
+        found += len(items)
+        kept += [part, *(f"- {item}" for item in items[:MEMORY_ITEMS])]
+    return "\n".join(kept) if found else None
+
+
+#: An item of the memory: its bullet, then its text.
+_BULLET = re.compile(r"^\s*(?:[-*\u2022]|\d+[.)])\s+(\S.*)$")
+
+
+def _heading(line: str) -> str:
+    """``line`` as a bare lower-case heading: without leading "#", surrounding "**" and a trailing ":"."""
+    text = line.strip().lstrip("#").strip().strip("*").strip().removesuffix(":").strip().strip("*").strip()
+    return text.lower()
 
 
 def _render(context: dict[str, str], keys: tuple[str, ...]) -> str:

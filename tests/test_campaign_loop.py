@@ -427,3 +427,44 @@ def test_a_memory_part_keeps_at_most_six_items(tmp_path, market):
     result = _campaign(tmp_path, market, fake, candidates=5, max_rounds=2, memory_every=1)
     assert "- pattern 5" in result.memory and "- pattern 6" not in result.memory
     assert result.memory.endswith("Failure constraints\n- rule\nDirectional findings\n- finding")
+
+
+MARKDOWN_MEMORY = (
+    "## Working mechanism patterns:\n* Volume surprises: attention fades.\n"
+    "**Failure constraints**\n• Write ratios: levels rank by price.\n"
+    "### directional findings\n- Volume surges were followed by outperformance."
+)
+NUMBERED_MEMORY = (
+    "Working mechanism patterns\n1. Volume surprises: attention fades.\n2) Gaps: they revert.\n"
+    "Failure constraints\n1) Write ratios: levels rank by price.\n"
+    "Directional findings\n1. Volume surges were followed by outperformance."
+)
+NORMALISED = {
+    MARKDOWN_MEMORY: (
+        "Working mechanism patterns\n- Volume surprises: attention fades.\n"
+        "Failure constraints\n- Write ratios: levels rank by price.\n"
+        "Directional findings\n- Volume surges were followed by outperformance."
+    ),
+    NUMBERED_MEMORY: (
+        "Working mechanism patterns\n- Volume surprises: attention fades.\n- Gaps: they revert.\n"
+        "Failure constraints\n- Write ratios: levels rank by price.\n"
+        "Directional findings\n- Volume surges were followed by outperformance."
+    ),
+}
+
+
+@pytest.mark.parametrize("reply", [MARKDOWN_MEMORY, NUMBERED_MEMORY], ids=["markdown", "numbered"])
+def test_a_memory_with_markdown_headings_or_other_bullets_is_kept_with_plain_headings_and_dashes(tmp_path, market, reply):
+    fake = FakeLLM(only_noise, distill=lambda call: reply)
+    result = _campaign(tmp_path, market, fake, candidates=5, max_rounds=2, memory_every=1)
+    assert result.memory == NORMALISED[reply]
+
+
+def test_a_memory_reply_with_the_headings_but_no_item_keeps_the_previous_memory_and_says_so(tmp_path, market, capsys):
+    from tests.fake_llm import memory
+    bare = "Working mechanism patterns\nFailure constraints\nDirectional findings"
+    fake = FakeLLM(only_noise, distill={1: memory(1), 2: bare}.get)
+    result = _campaign(tmp_path, market, fake, candidates=5, max_rounds=3, memory_every=1)
+    assert result.memory == memory(1)
+    out = capsys.readouterr().out
+    assert "round 3" in out and "previous memory is kept" in out

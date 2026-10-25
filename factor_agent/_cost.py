@@ -71,7 +71,7 @@ class CostEstimate:
 
 
 def estimate(
-    settings: RoundConfig, backends: dict, context: dict[str, str], prompts: Prompts, recent_rounds: int = 5,
+    settings: RoundConfig, backends: dict, context: dict[str, str], prompts: Prompts, recent_rounds: int,
 ) -> CostEstimate:
     """Estimate a campaign's calls and cost.
 

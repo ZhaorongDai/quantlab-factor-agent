@@ -465,3 +465,26 @@ def test_a_field_column_missing_from_the_price_dataset_fails_at_start_before_any
     with pytest.raises(VocabularyError, match="adjVolumeTypo"):
         run(config_path, fake, tmp_path / "kunquant_cache")
     assert fake.requests == []
+
+
+def test_each_admission_reason_is_counted_under_its_kind():
+    from factor_agent._admission import reason_kind, reasons
+    from factor_agent.config import AdmissionConfig
+    from factor_agent.evaluator import Metrics
+
+    good = dict(
+        ic_mean=0.05, ic_t=8.0, partial_ic_mean=0.04, partial_ic_t=8.0, nearest="x", nearest_correlation=0.1,
+        decile_returns=tuple(range(10)), coverage=0.9, n_days=100, start="s", end="e",
+    )
+    cases = {
+        "coverage": {"coverage": 0.1},
+        "no direction": {"ic_mean": 0.0},
+        "correlation": {"nearest_correlation": 0.99},
+        "partial IC": {"partial_ic_t": 0.5},
+        "monotonicity": {"decile_returns": tuple(range(10, 0, -1))},
+    }
+    config = AdmissionConfig()
+    assert reasons(Metrics(**good), 1, config) == []
+    for kind, change in cases.items():
+        [reason] = reasons(Metrics(**{**good, **change}), 1, config)
+        assert reason_kind(reason) == kind, reason

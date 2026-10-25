@@ -192,8 +192,7 @@ def _check(run_dir: Path, recorded: dict, given: dict) -> None:
 
 def _check_settings(run_dir: Path, recorded: dict, given: dict) -> None:
     """Raise ``SnapshotMismatch`` naming every setting of ``given`` that is not the one ``recorded``."""
-    flat = lambda tree: {f"{section}.{key}": value for section, values in tree.items() for key, value in values.items()}
-    before, now = flat(recorded), flat(given)
+    before, now = _flat(recorded), _flat(given)
     changed = [
         f"{name} was {before.get(name, 'not recorded')}, now {now.get(name, 'not given')}"
         for name in sorted(before.keys() | now.keys()) if before.get(name) != now.get(name)
@@ -203,6 +202,11 @@ def _check_settings(run_dir: Path, recorded: dict, given: dict) -> None:
             f"run snapshot of {run_dir}: the run's settings differ from the ones it started with: "
             f"{'; '.join(changed)}. Changed prompt context settings need a new run directory."
         )
+
+
+def _flat(settings: dict) -> dict:
+    """``settings`` by section as one mapping from ``"section.key"`` to the value."""
+    return {f"{section}.{key}": value for section, values in settings.items() for key, value in values.items()}
 
 
 def _warn(last: dict, versions: Mapping[str, str]) -> None:

@@ -64,4 +64,3 @@ _Avoid_: full history, log
 **Earlier summary**:
 The trials before the recent history, counted by mechanism type and outcome rather than listed.
 _Avoid_: old history, archive
-
