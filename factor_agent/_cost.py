@@ -7,9 +7,10 @@ candidates the reviewer finds inconsistent and their second review (each
 sized here as a whole round's candidates), with a distillation every
 ``memory_every`` rounds. Prompt sizes come from the real templates
 with the data description, the seed directions and the reference families;
-the history every later prompt carries grows by a fixed number of
-characters per trial. Replies are sized per candidate, plus an allowance
-for thinking. It is a rough figure for deciding whether to start, not a
+the planner's recent history holds a fixed number of characters per trial
+of the last ``recent_rounds`` rounds, its earlier summary a fixed number per
+mechanism type, and the distiller reads the memory and the trials since it.
+Replies are sized per candidate, plus an allowance for thinking. It is a rough figure for deciding whether to start, not a
 bound: the budget is what stops a run.
 """
 
@@ -23,6 +24,9 @@ from factor_agent.researcher import _PLANNER_SECTIONS, _PROPOSER_SECTIONS, _rend
 _CHARS_PER_TOKEN = 4
 #: Characters a trial adds to the history the planner and the distiller read.
 _HISTORY_CHARS = 160
+#: Characters of a mechanism type's line in the earlier summary, and of a memory.
+_SUMMARY_CHARS = 160
+_MEMORY_CHARS = 2400
 #: Characters a candidate adds to the last round's feedback.
 _FEEDBACK_CHARS = 600
 #: Characters of one direction in a proposal request, and of one candidate in a review or rewrite request.
@@ -66,7 +70,9 @@ class CostEstimate:
         return line
 
 
-def estimate(settings: RoundConfig, backends: dict, context: dict[str, str], prompts: Prompts) -> CostEstimate:
+def estimate(
+    settings: RoundConfig, backends: dict, context: dict[str, str], prompts: Prompts, recent_rounds: int = 5,
+) -> CostEstimate:
     """Estimate a campaign's calls and cost.
 
     ``backends`` maps each role to its backend; a backend prices a call
@@ -83,17 +89,20 @@ def estimate(settings: RoundConfig, backends: dict, context: dict[str, str], pro
     ))
     retry_base = len(prompts.render("retry", round=1, failures="", n=n))
     review_base = len(prompts.render("review", round=1, candidates=""))
-    distill_base = len(prompts.render("distill", round=1, history=""))
+    distill_base = len(prompts.render("distill", round=1, memory="", history=""))
+    summary = len(prompts.mechanism_types) * _SUMMARY_CHARS
 
     calls: dict[str, list[tuple[int, int]]] = {role: [] for role in ROLES}  # (input chars, reply tokens)
     distilled = 0
     for number in range(1, rounds + 1):
-        trials = (number - 1) * n
         feedback = n * _FEEDBACK_CHARS if number > 1 else 0
         if number - 1 - distilled >= settings.memory_every:
-            calls["distiller"].append((distill_base + trials * _HISTORY_CHARS, _MEMORY_TOKENS))
+            memory = _MEMORY_CHARS if distilled else 0
+            calls["distiller"].append((distill_base + memory + (number - 1 - distilled) * n * _HISTORY_CHARS, _MEMORY_TOKENS))
             distilled = number - 1
-        calls["planner"].append((planner_base + trials * _HISTORY_CHARS + feedback, n * _REPLY_TOKENS["planner"]))
+        recent = min(number - 1, recent_rounds) * n * _HISTORY_CHARS + (summary if number - 1 > recent_rounds else 0)
+        memory = _MEMORY_CHARS if distilled else 0
+        calls["planner"].append((planner_base + memory + recent + feedback, n * _REPLY_TOKENS["planner"]))
         calls["proposer"].append((proposer_base + n * _DIRECTION_CHARS + feedback, n * _REPLY_TOKENS["proposer"]))
         calls["proposer"] += [(retry_base + n * _CANDIDATE_CHARS, n * _REPLY_TOKENS["proposer"])] * settings.retries
         calls["proposer"].append((retry_base + n * _CANDIDATE_CHARS, n * _REPLY_TOKENS["proposer"]))

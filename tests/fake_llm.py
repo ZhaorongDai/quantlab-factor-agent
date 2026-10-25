@@ -63,6 +63,10 @@ class FakeLLM:
     plan : callable, optional
         ``plan(round, quota, prompt)`` returns the planner's directions; by
         default one new direction per slot.
+    distill : callable, optional
+        ``distill(call)`` returns the distiller's reply to its ``call``-th
+        request (from 1); by default a memory in the three parts whose first
+        item reads "Distilled memory number <call>".
 
     An item whose ``mechanism_type`` is one of the default types is given its
     direction's type, whatever the config's types, so a script need not know
@@ -72,6 +76,7 @@ class FakeLLM:
     def __init__(
         self, propose: Callable, fix: Callable | None = None, consistent: Callable | None = None,
         cost: float = 0.0, interrupt: Callable | None = None, plan: Callable | None = None,
+        distill: Callable | None = None,
     ):
         self._propose = propose
         self._fix = fix or (lambda number, failures: [f["refused_version"] for f in failures])
@@ -79,6 +84,7 @@ class FakeLLM:
         self._cost = cost
         self._interrupt = interrupt or (lambda request: False)
         self._plan = plan or new_directions
+        self._distill = distill or memory
         self.requests: list[Request] = []
         self.distilled = 0
 
@@ -119,11 +125,20 @@ class FakeLLM:
 
     def _distiller(self, prompt: str) -> str:
         self.distilled += 1
-        return f"Distilled memory number {self.distilled}: volume surprises keep working."
+        return self._distill(self.distilled)
 
 
 class Interrupted(RuntimeError):
     """The campaign was stopped from outside mid-round."""
+
+
+def memory(number: int) -> str:
+    """A memory in the three parts, told apart by ``number``."""
+    return (
+        f"Working mechanism patterns\n- Distilled memory number {number}: volume surprises keep working.\n"
+        "Failure constraints\n- Write ratios: levels rank by price.\n"
+        "Directional findings\n- Volume surges were followed by outperformance."
+    )
 
 
 def new_directions(number: int, quota: dict, prompt: str) -> list[dict]:

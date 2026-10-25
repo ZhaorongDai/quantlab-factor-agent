@@ -211,3 +211,11 @@ def test_the_real_config_names_xgb_deep_and_the_export_root_itself():
     acceptance = CampaignConfig.from_file(REAL).acceptance
     assert acceptance.hyperparameters == XGB_DEEP
     assert acceptance.factor_root == "/data/quantlab/factors/market"
+
+
+def test_the_planner_reads_the_last_five_rounds_trial_by_trial_by_default(tmp_path):
+    assert CampaignConfig.from_file(_minimal(tmp_path)).context.recent_rounds == 5
+
+
+def test_the_context_section_sets_how_many_rounds_the_recent_history_lists(tmp_path):
+    assert CampaignConfig.from_file(_minimal(tmp_path, context={"recent_rounds": 2})).context.recent_rounds == 2

@@ -32,7 +32,7 @@ _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 ACTIONS = ("new", "mutation", "refinement")
 
 #: The context sections each role reads (see ``factor_agent.prompts.SECTIONS``).
-_PLANNER_SECTIONS = ("seed", "families", "memory", "history", "last_round", "best")
+_PLANNER_SECTIONS = ("seed", "families", "memory", "earlier_summary", "recent_history", "last_round", "best")
 _PROPOSER_SECTIONS = ("families", "memory", "last_round", "best")
 
 
@@ -263,9 +263,18 @@ class Researcher:
             for (proposal, _), item, tried in zip(inconsistent, fixed, attempts)
         ]
 
-    def distill(self, number: int, history: str) -> str:
-        """The memory the distiller writes from ``history``, the trials before round ``number``."""
-        return self._ask("distiller", self.prompts.render("distill", round=number, history=history)).strip()
+    def distill(self, number: int, memory: str, history: str) -> str | None:
+        """The memory the distiller folds from the previous ``memory`` and ``history``, the trials since it.
+
+        The reply must hold the three parts under their headings, in order;
+        each part keeps its first ``MEMORY_ITEMS`` items. An empty reply, or
+        one without the three headings (cut short, or not a memory), gives
+        None, and the previous memory stays.
+        """
+        reply = self._ask("distiller", self.prompts.render(
+            "distill", round=number, memory=memory or "(none: this is the first memory)", history=history,
+        ))
+        return _memory(reply)
 
     def _check(self, direction: Direction, item: object, gate: Gate, zoo: Zoo, attempts: list[Attempt]) -> Proposal:
         """Parse and gate one item; a refusal is appended to ``attempts``."""
@@ -374,6 +383,25 @@ def _direction_problem(item: object, parents: list[str], types: tuple[str, ...])
     if item["action"] != "new" and item["parent"] not in parents:
         return f"names {item['parent']!r}, which is not an accepted factor"
     return ""
+
+
+#: The parts of the memory, by heading, in order (see ``factor_agent.prompts.DISTILL``).
+MEMORY_PARTS = ("Working mechanism patterns", "Failure constraints", "Directional findings")
+#: Items a part of the memory keeps at most.
+MEMORY_ITEMS = 6
+
+
+def _memory(reply: str) -> str | None:
+    """The memory in a distiller's ``reply``, each part cut to ``MEMORY_ITEMS`` items; None if a heading is missing."""
+    lines = [line.rstrip() for line in reply.strip().removeprefix("```text").removesuffix("```").strip().splitlines()]
+    starts = [next((i for i, line in enumerate(lines) if line.strip() == part), None) for part in MEMORY_PARTS]
+    if None in starts or starts != sorted(starts):
+        return None
+    kept = []
+    for part, start, end in zip(MEMORY_PARTS, starts, [*starts[1:], len(lines)]):
+        items = [line for line in lines[start + 1:end] if line.strip()]
+        kept += [part, *[line for line in items if line.lstrip().startswith("- ")][:MEMORY_ITEMS]]
+    return "\n".join(kept)
 
 
 def _render(context: dict[str, str], keys: tuple[str, ...]) -> str:

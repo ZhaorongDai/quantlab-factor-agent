@@ -50,6 +50,21 @@ def monotonicity(decile_returns, sign: int) -> float:
     return sign * float(stats.spearmanr(np.arange(len(returns)), returns).statistic)
 
 
+#: What each admission reason starts with, and the kind of refusal it is (``reason_kind``).
+_KINDS = (
+    ("coverage ", "coverage"),
+    ("the training IC ", "no direction"),
+    ("cross-sectional correlation ", "correlation"),
+    ("the partial IC's ", "partial IC"),
+    ("decile monotonicity ", "monotonicity"),
+)
+
+
+def reason_kind(reason: str) -> str:
+    """The kind of an admission reason ``reasons`` wrote: coverage, no direction, correlation, partial IC or monotonicity."""
+    return next((kind for start, kind in _KINDS if reason.startswith(start)), "other")
+
+
 def reasons(metrics: Metrics, trials: int, config: AdmissionConfig) -> list[str]:
     """Why a candidate with ``metrics`` is refused, as one reason, or nothing when it is accepted."""
     sign = direction(metrics.ic_mean)

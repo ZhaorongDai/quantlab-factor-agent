@@ -148,3 +148,15 @@ def test_a_run_refused_for_a_typo_starts_cleanly_in_the_same_run_directory_once_
     result = run(path, FakeLLM(_propose), market["cache"])
     assert result.rounds == 1
     assert (tmp_path / "run" / "snapshot" / "fields" / fields.name).read_text() == good
+
+
+def test_a_resume_with_another_recent_rounds_fails_naming_the_setting(tmp_path, market):
+    path, _ = _campaign(tmp_path, market, context={"recent_rounds": 3})
+    assert json.loads((tmp_path / "run" / "snapshot.json").read_text())["settings"] == {"context": {"recent_rounds": 3}}
+    config = yaml.safe_load(path.read_text())
+    config["context"] = {"recent_rounds": 4}
+    path.write_text(yaml.safe_dump(config))
+    fake = FakeLLM(_propose)
+    with pytest.raises(SnapshotMismatch, match=r"context\.recent_rounds.*3.*4"):
+        run(path, fake, market["cache"])
+    assert fake.requests == []

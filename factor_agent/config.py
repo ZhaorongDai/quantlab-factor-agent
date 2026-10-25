@@ -203,6 +203,19 @@ class RoundConfig:
 
 
 @dataclass(frozen=True)
+class ContextConfig:
+    """What the prompt context holds; the run snapshot records it at the first start, and a resume may not change it."""
+
+    #: Rounds whose trials the planner reads one line each (the recent history); older trials are
+    #: counted by mechanism type and outcome (the earlier summary).
+    recent_rounds: int = 5
+
+    def __post_init__(self):
+        if self.recent_rounds < 1:
+            raise ValueError(f"context: recent_rounds is {self.recent_rounds}; at least the last round is listed")
+
+
+@dataclass(frozen=True)
 class AcceptanceConfig:
     """How ``Acceptance`` validates, opens the hold-out and exports.
 
@@ -321,6 +334,7 @@ class CampaignConfig:
     gate: GateConfig = GateConfig()
     admission: AdmissionConfig = AdmissionConfig()
     round: RoundConfig = RoundConfig()
+    context: ContextConfig = ContextConfig()
     acceptance: AcceptanceConfig = AcceptanceConfig()
     mechanisms: tuple = DEFAULT_MECHANISMS
     prompts: dict = field(default_factory=dict)
@@ -395,7 +409,8 @@ class CampaignConfig:
         folder = Path(path).parent
         sections = {
             "evaluator": EvaluatorConfig, "gate": GateConfig,
-            "admission": AdmissionConfig, "round": RoundConfig, "acceptance": AcceptanceConfig,
+            "admission": AdmissionConfig, "round": RoundConfig, "context": ContextConfig,
+            "acceptance": AcceptanceConfig,
         }
         unknown = set(raw) - {
             "run_dir", "segments", "data", "scoring", "fields", "operators", "operator_modules", "reference",

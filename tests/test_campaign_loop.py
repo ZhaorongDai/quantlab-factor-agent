@@ -238,7 +238,7 @@ def test_the_feedback_holds_the_training_statistics_and_the_accepted_pool(five_r
     weights = re.findall(r"marginal weight ([-+]\d\.\d{3}), residual IC ([-+]\d\.\d{4})", best)
     assert len(weights) == 2 and all(float(w) > 0 and float(ic) > 0 for w, ic in weights)
     first = fake.of_role("planner")[0].prompt
-    assert "training IC" not in first and "All history" not in first and "Current best" not in first
+    assert "training IC" not in first and "Recent history" not in first and "Current best" not in first
 
 
 @pytest.fixture(scope="module")
@@ -260,7 +260,7 @@ def test_the_memory_is_distilled_every_five_rounds_and_carried_into_later_prompt
         number = round_of(request.prompt)
         assert ("Distilled memory number 1" in request.prompt) == (6 <= number <= 10), number
         assert ("Distilled memory number 2" in request.prompt) == (number == 11), number
-    assert (eleven_rounds["run_dir"] / "memory.md").read_text().startswith("Distilled memory number 2")
+    assert "Distilled memory number 2" in (eleven_rounds["run_dir"] / "memory.md").read_text()
 
 
 @pytest.mark.parametrize(
@@ -332,3 +332,98 @@ def test_a_candidate_sent_back_by_the_reviewer_is_listed_in_the_rewrite_request_
     [entry] = tagged(fix_request.prompt, "refused_candidates")
     assert entry["refused_version"]["description"] == "price slope"
     assert entry["output_unit"] == "price"
+
+
+def one_of_each_outcome(number, directions):
+    """Round 1: accepted, refused at admission, inconsistent, unparsable, refused by the Gate; noise afterwards."""
+    if number > 1:
+        return only_noise(number, directions)
+    return [
+        SIGNALS[0],
+        noise(number, 1),
+        candidate("inconsistent move", "alpha = high / low"),
+        candidate("unknown kind", "alpha = low / open", mechanism_type="astrology"),
+        candidate("unknown operator", "alpha = NoSuchOperator(close)"),
+    ]
+
+
+@pytest.fixture(scope="module")
+def two_recent_rounds(tmp_path_factory, market):
+    fake = FakeLLM(one_of_each_outcome)
+    root = tmp_path_factory.mktemp("two_recent_rounds")
+    path = write_config(
+        root, market["components"], context={"recent_rounds": 2},
+        round={"candidates": 5, "min_per_type": 1, "retries": 0, "max_rounds": 4, "patience": 20, "memory_every": 1},
+    )
+    return {"result": run(path, fake, market["cache"]), "fake": fake, "run_dir": root / "run"}
+
+
+def _section(prompt: str, tag: str) -> str:
+    [body] = re.findall(rf"^<{tag}>\n(.*?)\n</{tag}>$", prompt, re.DOTALL | re.MULTILINE)
+    return body
+
+
+def test_the_planner_lists_the_recent_rounds_trial_by_trial_and_counts_the_earlier_ones(two_recent_rounds):
+    fake, records = two_recent_rounds["fake"], two_recent_rounds["result"].records
+    [round_one] = [(r.status, r.stage) for r in records if r.round == 1 and r.direction["mechanism_type"] == "liquidity"]
+    assert round_one == ("rejected", "review")
+    planner = next(r.prompt for r in fake.of_role("planner") if round_of(r.prompt) == 4)
+    recent = _section(planner, "recent_history").splitlines()
+    assert len(recent) == 10 and all(line.startswith(("- round 2,", "- round 3,")) for line in recent)
+    assert "## Recent history" in planner and "## Earlier summary" in planner
+    summary = _section(planner, "earlier_summary")
+    assert summary.splitlines() == [
+        "The trials of rounds 1 to 1, by mechanism type:",
+        "- behavioural_bias: 1 trials, 1 evaluated, 1 accepted",
+        "- risk_compensation: 1 trials, 1 evaluated, 0 accepted; refused: admission (partial IC) 1",
+        "- liquidity: 1 trials, 0 evaluated, 0 accepted; refused: review inconsistent 1",
+        "- microstructure: 1 trials, 0 evaluated, 0 accepted; refused: parse 1",
+        "- information_diffusion: 1 trials, 0 evaluated, 0 accepted; refused: gate 1",
+    ]
+    assert "- round 1," not in planner
+    proposer = next(r.prompt for r in fake.of_role("proposer") if round_of(r.prompt) == 4)
+    assert not has_tag(proposer, "recent_history") and not has_tag(proposer, "earlier_summary")
+
+
+def test_the_distiller_folds_the_trials_since_the_last_distillation_into_the_previous_memory(two_recent_rounds):
+    first, second, third = (r.prompt for r in two_recent_rounds["fake"].of_role("distiller"))
+    assert "Distilled memory number" not in first and "- round 1," in first
+    trials = _section(second, "history").splitlines()
+    assert len(trials) == 5 and all(line.startswith("- round 2,") for line in trials)
+    assert "Distilled memory number 1" in _section(second, "previous_memory")
+    assert "Distilled memory number 2" in _section(third, "previous_memory") and "- round 2," not in third
+
+
+def test_every_memory_version_is_saved_and_memory_md_is_the_current_one(two_recent_rounds):
+    run_dir = two_recent_rounds["run_dir"]
+    versions = sorted(p.name for p in (run_dir / "memory").iterdir())
+    assert versions == ["round_02.md", "round_03.md", "round_04.md"]
+    assert "Distilled memory number 2" in (run_dir / "memory" / "round_03.md").read_text()
+    assert (run_dir / "memory.md").read_text() == (run_dir / "memory" / "round_04.md").read_text()
+
+
+def test_an_empty_or_unparsable_distiller_reply_keeps_the_previous_memory(tmp_path, market):
+    from tests.fake_llm import memory
+    replies = {1: memory(1), 2: "", 3: "Some thoughts, cut short by the token lim"}
+    fake = FakeLLM(only_noise, distill=replies.get)
+    result = _campaign(tmp_path, market, fake, candidates=5, max_rounds=4, patience=20, memory_every=1)
+    assert result.memory == memory(1)
+    run_dir = tmp_path / "run"
+    assert (run_dir / "memory.md").read_text() == memory(1) + "\n"
+    assert sorted(p.name for p in (run_dir / "memory").iterdir()) == ["round_02.md"]
+    planner = next(r.prompt for r in fake.of_role("planner") if round_of(r.prompt) == 4)
+    assert "Distilled memory number 1" in _section(planner, "memory")
+    third = fake.of_role("distiller")[2].prompt
+    assert "Distilled memory number 1" in _section(third, "previous_memory")
+    assert {line.split(",")[0] for line in _section(third, "history").splitlines()} == {"- round 2", "- round 3"}
+
+
+def test_a_memory_part_keeps_at_most_six_items(tmp_path, market):
+    long = (
+        "Working mechanism patterns\n" + "".join(f"- pattern {i}\n" for i in range(9))
+        + "Failure constraints\n- rule\nDirectional findings\n- finding"
+    )
+    fake = FakeLLM(only_noise, distill=lambda call: long)
+    result = _campaign(tmp_path, market, fake, candidates=5, max_rounds=2, memory_every=1)
+    assert "- pattern 5" in result.memory and "- pattern 6" not in result.memory
+    assert result.memory.endswith("Failure constraints\n- rule\nDirectional findings\n- finding")

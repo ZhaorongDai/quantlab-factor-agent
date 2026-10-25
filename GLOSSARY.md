@@ -50,3 +50,18 @@ The copies, with their hashes, of the files a run searched with (field and opera
 replaced prompt templates), and the commits it ran on, kept in its run directory; a resume may not
 change the files, and a replay or Acceptance reads the copies.
 _Avoid_: checkpoint, cache, frozen config
+
+**Memory**:
+What the distiller writes every few rounds for the planner and the proposer: the mechanism patterns that
+worked, the failures to avoid and the factor directions the data showed, in words. Each version is
+written from the previous one and the trials since, and every version is kept.
+_Avoid_: summary, notes
+
+**Recent history**:
+The trials of the last few rounds, one line each, as the planner reads them.
+_Avoid_: full history, log
+
+**Earlier summary**:
+The trials before the recent history, counted by mechanism type and outcome rather than listed.
+_Avoid_: old history, archive
+

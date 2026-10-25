@@ -31,9 +31,11 @@ Newey-West t above a threshold that rises with the evaluated trials (each counte
 and monotone deciles. An exported factor is turned to its direction: a higher value, a higher return.
 
 The planner and the proposer see the data, the seed `directions`, the reference factor families, the
-memory, every earlier trial, the last round's training statistics and rejection reasons, and the
-accepted factors with their marginal weight and residual IC in the accepted pool; never a return, a
-date or a held-out metric. Every `memory_every` rounds the distiller writes `memory.md`. The run
+memory, the last round's training statistics and rejection reasons, and the accepted factors with
+their marginal weight and residual IC in the accepted pool; the planner also sees the trials of the
+last `context.recent_rounds` rounds (default 5) one line each and the older ones counted by mechanism
+type and outcome; never a return, a date or a held-out metric. Every `memory_every` rounds the
+distiller folds the trials since the last memory into `memory.md` (each version is kept in `memory/`). The run
 stops at `max_rounds`, `max_trials`, `patience` rounds without an acceptance, or `budget_usd` (checked before every call), and
 records why in `state.json`; `ledger.jsonl` holds every candidate, and `run()` on the same run
 directory resumes from the last written round. A first start copies the field, operator and replaced template files into

@@ -89,19 +89,24 @@ class RunSnapshot:
         self.run_dir = run_dir
         self.files = {name: run_dir / "snapshot" / name for name in manifest["files"]}
         self.versions: list[dict] = manifest["versions"]
+        self.settings: dict = manifest.get("settings", {})
 
     @classmethod
-    def open(cls, run_dir: str | Path, search: SearchFiles, versions: Mapping[str, str]) -> "RunSnapshot":
-        """Open ``run_dir`` with the files of ``search`` and the code ``versions`` it runs on.
+    def open(
+        cls, run_dir: str | Path, search: SearchFiles, versions: Mapping[str, str], settings: Mapping | None = None,
+    ) -> "RunSnapshot":
+        """Open ``run_dir`` with the files of ``search``, the code ``versions`` it runs on and its ``settings``.
 
-        A first start copies the files, under their ``SearchFiles.names``; a
-        resume checks them against the copies. Either way ``versions`` is
-        appended to the recorded versions.
+        A first start copies the files, under their ``SearchFiles.names``, and
+        records ``settings`` (by section, the config settings the prompts
+        depend on, such as ``{"context": {"recent_rounds": 5}}``); a resume
+        checks the files against the copies and the settings against the
+        recorded ones. Either way ``versions`` is appended to the recorded versions.
 
         Raises
         ------
         SnapshotMismatch
-            On a resume, naming every file added, removed or changed since the first start.
+            On a resume, naming every file added, removed or changed and every setting changed since the first start.
         ValueError
             If two field files have the same file name.
 
@@ -117,9 +122,10 @@ class RunSnapshot:
         if manifest_path.exists():
             manifest = json.loads(manifest_path.read_text())
             _check(run_dir, manifest["files"], hashes)
+            _check_settings(run_dir, manifest.get("settings", {}), dict(settings or {}))
             _warn(manifest["versions"][-1], versions)
         else:
-            manifest = {"files": hashes, "versions": []}
+            manifest = {"files": hashes, "settings": dict(settings or {}), "versions": []}
             for name, path in files.items():
                 copy = run_dir / "snapshot" / name
                 copy.parent.mkdir(parents=True, exist_ok=True)
@@ -181,6 +187,21 @@ def _check(run_dir: Path, recorded: dict, given: dict) -> None:
         raise SnapshotMismatch(
             f"run snapshot of {run_dir}: the run's files differ from the ones it started with: "
             f"{'; '.join(problems)}. A changed search space needs a new run directory."
+        )
+
+
+def _check_settings(run_dir: Path, recorded: dict, given: dict) -> None:
+    """Raise ``SnapshotMismatch`` naming every setting of ``given`` that is not the one ``recorded``."""
+    flat = lambda tree: {f"{section}.{key}": value for section, values in tree.items() for key, value in values.items()}
+    before, now = flat(recorded), flat(given)
+    changed = [
+        f"{name} was {before.get(name, 'not recorded')}, now {now.get(name, 'not given')}"
+        for name in sorted(before.keys() | now.keys()) if before.get(name) != now.get(name)
+    ]
+    if changed:
+        raise SnapshotMismatch(
+            f"run snapshot of {run_dir}: the run's settings differ from the ones it started with: "
+            f"{'; '.join(changed)}. Changed prompt context settings need a new run directory."
         )
 
 

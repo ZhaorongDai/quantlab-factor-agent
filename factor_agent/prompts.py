@@ -2,7 +2,7 @@
 
 Each role's prompt opens with the role, its task and who uses its answer,
 holds the long inputs in the middle, each inside an XML tag (``<quota>``,
-``<directions>``, ``<refused_candidates>``, ``<candidates>``, ``<history>``,
+``<directions>``, ``<refused_candidates>``, ``<candidates>``, ``<previous_memory>``, ``<history>``,
 and the context sections under their keys), and ends by restating the task
 and the shape of the answer. A fenced ``json`` block holds only that shape,
 the last thing in the prompt, so no input reads like an answer to copy.
@@ -269,22 +269,27 @@ DISTILL = """\
 You are the keeper of the memory of a search for cross-sectional factors on {market}; the factors
 predict the return over the next {horizon} bars. The planner and the proposer of the next rounds read
 your memory in their context, next to the latest feedback, to choose which mechanisms to pursue and
-how to write them, so it carries the lessons that the list of trials is too long to show.
+how to write them, so it carries the lessons that the list of trials is too long to show. You receive
+the previous memory and the trials since it was written, and write the next memory from both.
 
 Round: {round}
+
+<previous_memory>
+{memory}
+</previous_memory>
 
 <history>
 {history}
 </history>
 
-Now distil the trials in <history> into the memory, in three parts:
+Now fold the new trials in <history> into the previous memory, in three parts:
 - Working mechanism patterns: the kinds of mechanism and construction that were accepted, each with
   why it worked.
 - Failure constraints: what keeps being refused, each as a rule to follow with its reason.
 - Directional findings: which way the evaluated mechanisms worked, as the factor directions in
   <history> show them, such as "volume surges were followed by outperformance".
-Write at most 6 items per part, the most useful first. Merge items that say the same thing, and drop
-a finding that later rounds overturned. Describe every pattern in words, because the next rounds
+Keep what the new trials do not contradict, merge items that say the same thing, and drop a finding
+the new trials overturned. Write at most 6 items per part, the most useful first; later items are cut. Describe every pattern in words, because the next rounds
 should reason about mechanisms rather than tune to numbers; so the memory holds no numbers,
 statistics or factor code.
 
@@ -305,7 +310,8 @@ SECTIONS = (
     ("seed", "Seed research directions"),
     ("families", "Existing factor families (candidates must add to them, not rewrite them)"),
     ("memory", "Memory distilled from earlier rounds"),
-    ("history", "All history (every earlier trial)"),
+    ("earlier_summary", "Earlier summary (the older trials, counted by mechanism type and outcome)"),
+    ("recent_history", "Recent history (the trials of the last rounds, one line each)"),
     ("last_round", "Last round's feedback (training period only)"),
     ("best", "Current best mechanisms (the accepted factors)"),
 )
@@ -330,7 +336,7 @@ PLACEHOLDERS = {
         frozenset({"code_rules", "vocabulary", "fields", "n", "failures"}), frozenset({"round", "data", "mechanisms"}),
     ),
     "review": (frozenset({"candidates", "data"}), frozenset({"round", "mechanisms"})),
-    "distill": (frozenset({"history"}), frozenset({"round", "data", "mechanisms"})),
+    "distill": (frozenset({"memory", "history"}), frozenset({"round", "data", "mechanisms"})),
 }
 
 

@@ -197,6 +197,9 @@ round:
   budget_usd: 10.0     # approved by the user 2026-10-24 (estimate $2.80 for the full 30 rounds)
   seed: 0
 
+context:
+  recent_rounds: 5    # the planner lists the last 5 rounds' trials; older ones are counted (Q83)
+
 acceptance:
   features: []         # the reference set: SEL0's 191 factors
   seeds: [0, 1, 2]

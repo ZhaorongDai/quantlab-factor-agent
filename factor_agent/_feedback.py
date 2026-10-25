@@ -12,7 +12,7 @@ factor families by name and description, without any statistic.
 import math
 import re
 
-from factor_agent._admission import direction
+from factor_agent._admission import direction, reason_kind
 from factor_agent.evaluator import Contribution
 from factor_agent.ledger import TrialRecord
 from factor_agent.zoo import owner
@@ -59,6 +59,46 @@ def history(records: list[TrialRecord], statistics: bool = True) -> str:
             line += "; " + _DECIMAL.sub("#", " ".join(r.reasons))
         lines.append(line)
     return "\n".join(lines)
+
+
+def earlier_summary(records: list[TrialRecord], mechanism_types: tuple[str, ...] = ()) -> str:
+    """The trials of ``records`` counted by mechanism type: trials, evaluated, accepted and each kind of refusal.
+
+    The types come in the order of ``mechanism_types``, then any other in
+    name order; a type without trials is left out. A refusal is counted by
+    the stage that refused it (parse, gate, review inconsistent, compile) and,
+    at admission, by the kind of its reason (``_admission.reason_kind``).
+    """
+    if not records:
+        return ""
+    by_type: dict[str, list[TrialRecord]] = {}
+    for r in records:
+        by_type.setdefault((r.direction or {}).get("mechanism_type", "?"), []).append(r)
+    order = [t for t in mechanism_types if t in by_type] + sorted(set(by_type) - set(mechanism_types))
+    rounds = sorted({r.round for r in records})
+    lines = [f"The trials of rounds {rounds[0]} to {rounds[-1]}, by mechanism type:"]
+    for kind in order:
+        trials = by_type[kind]
+        refused: dict[str, int] = {}
+        for r in trials:
+            if r.status != "accepted":
+                label = _refusal(r)
+                refused[label] = refused.get(label, 0) + 1
+        line = (
+            f"- {kind}: {len(trials)} trials, {sum(r.evaluated for r in trials)} evaluated, "
+            f"{sum(r.status == 'accepted' for r in trials)} accepted"
+        )
+        if refused:
+            line += "; refused: " + ", ".join(f"{label} {count}" for label, count in refused.items())
+        lines.append(line)
+    return "\n".join(lines)
+
+
+def _refusal(r: TrialRecord) -> str:
+    """The kind of refusal of a trial that was not accepted."""
+    if r.stage == "admission":
+        return f"admission ({reason_kind(r.reasons[0]) if r.reasons else 'other'})"
+    return {"review": "review inconsistent", "evaluate": "compile"}.get(r.stage, r.stage)
 
 
 def last_round(records: list[TrialRecord]) -> str:
