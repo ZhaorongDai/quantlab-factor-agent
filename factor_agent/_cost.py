@@ -16,9 +16,10 @@ bound: the budget is what stops a run.
 
 from dataclasses import dataclass
 
+from factor_agent._feedback import distill_due, first_recent_round
 from factor_agent.config import ROLES, RoundConfig
 from factor_agent.prompts import Prompts
-from factor_agent.researcher import _PLANNER_SECTIONS, _PROPOSER_SECTIONS, _render
+from factor_agent.researcher import PLANNER_SECTIONS, PROPOSER_SECTIONS, render_context
 
 #: Characters per token of English prose and code.
 _CHARS_PER_TOKEN = 4
@@ -83,9 +84,9 @@ def estimate(
     """
     rounds = min(settings.max_rounds, settings.max_trials // settings.candidates)
     n = settings.candidates
-    planner_base = len(prompts.render("plan", round=1, context=_render(context, _PLANNER_SECTIONS), quota="{}"))
+    planner_base = len(prompts.render("plan", round=1, context=render_context(context, PLANNER_SECTIONS), quota="{}"))
     proposer_base = len(prompts.render(
-        "propose", round=1, context=_render(context, _PROPOSER_SECTIONS), n=n, directions="",
+        "propose", round=1, context=render_context(context, PROPOSER_SECTIONS), n=n, directions="",
     ))
     retry_base = len(prompts.render("retry", round=1, failures="", n=n))
     review_base = len(prompts.render("review", round=1, candidates=""))
@@ -96,11 +97,13 @@ def estimate(
     distilled = 0
     for number in range(1, rounds + 1):
         feedback = n * _FEEDBACK_CHARS if number > 1 else 0
-        if number - 1 - distilled >= settings.memory_every:
+        done = number - 1  # the rounds before this one
+        if distill_due(done, distilled, settings.memory_every):
             memory = _MEMORY_CHARS if distilled else 0
-            calls["distiller"].append((distill_base + memory + (number - 1 - distilled) * n * _HISTORY_CHARS, _MEMORY_TOKENS))
-            distilled = number - 1
-        recent = min(number - 1, recent_rounds) * n * _HISTORY_CHARS + (summary if number - 1 > recent_rounds else 0)
+            calls["distiller"].append((distill_base + memory + (done - distilled) * n * _HISTORY_CHARS, _MEMORY_TOKENS))
+            distilled = done
+        first_recent = max(first_recent_round(done, recent_rounds), 1)
+        recent = (done - first_recent + 1) * n * _HISTORY_CHARS + (summary if first_recent > 1 else 0)
         memory = _MEMORY_CHARS if distilled else 0
         calls["planner"].append((planner_base + memory + recent + feedback, n * _REPLY_TOKENS["planner"]))
         calls["proposer"].append((proposer_base + n * _DIRECTION_CHARS + feedback, n * _REPLY_TOKENS["proposer"]))

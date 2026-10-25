@@ -377,3 +377,20 @@ def test_the_reviewer_asks_a_factor_with_a_unit_to_explain_ranking_by_that_level
     assert "6. " in criteria and "output_unit" in criteria
     assert "Amihud" in criteria and "per dollar traded" in criteria
     assert "vwap" in criteria and "trend" in criteria and "dividing by" in criteria
+
+
+def test_a_replaced_distill_template_missing_a_memory_part_heading_fails_at_load(tmp_path):
+    # Every distiller reply is parsed by the three part headings, so a template that does not name
+    # one of them would have every memory rejected.
+    path = tmp_path / "distill.txt"
+    path.write_text(TEMPLATES["distill"].replace("Failure constraints", "Things to avoid"))
+    with pytest.raises(PromptError, match=re.escape("lacks the memory part heading 'Failure constraints'")):
+        Templates.load({"distill": path})
+
+
+def test_a_replaced_distill_template_naming_every_memory_part_heading_loads(tmp_path):
+    path = tmp_path / "distill.txt"
+    path.write_text(
+        "Fold {history} into {memory}: Working mechanism patterns, Failure constraints, Directional findings.\n"
+    )
+    assert "Failure constraints" in Templates.load({"distill": path}).format("distill", history="h", memory="m")

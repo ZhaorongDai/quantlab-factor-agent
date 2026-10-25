@@ -265,6 +265,12 @@ then "consistent" (true or false). Give each verdict these fields and no others:
 ```
 """
 
+#: The parts of the memory, by heading, in order: what the distiller is asked for (``DISTILL``) and
+#: what its reply is parsed by (``factor_agent.researcher``). A replaced ``distill`` template must name each.
+MEMORY_PARTS = ("Working mechanism patterns", "Failure constraints", "Directional findings")
+#: Items a part of the memory keeps at most.
+MEMORY_ITEMS = 6
+
 DISTILL = """\
 You are the keeper of the memory of a search for cross-sectional factors on {market}; the factors
 predict the return over the next {horizon} bars. The planner and the proposer of the next rounds read
@@ -282,24 +288,24 @@ Round: {round}
 {history}
 </history>
 
-Now fold the new trials in <history> into the previous memory, in three parts:
-- Working mechanism patterns: the kinds of mechanism and construction that were accepted, each with
+""" + f"""Now fold the new trials in <history> into the previous memory, in three parts:
+- {MEMORY_PARTS[0]}: the kinds of mechanism and construction that were accepted, each with
   why it worked.
-- Failure constraints: what keeps being refused, each as a rule to follow with its reason.
-- Directional findings: which way the evaluated mechanisms worked, as the factor directions in
+- {MEMORY_PARTS[1]}: what keeps being refused, each as a rule to follow with its reason.
+- {MEMORY_PARTS[2]}: which way the evaluated mechanisms worked, as the factor directions in
   <history> show them, such as "volume surges were followed by outperformance".
 Keep what the new trials do not contradict, merge items that say the same thing, and drop a finding
-the new trials overturned. Write at most 6 items per part, the most useful first; later items are cut. Describe every pattern in words, because the next rounds
+the new trials overturned. Write at most {MEMORY_ITEMS} items per part, the most useful first; later items are cut. Describe every pattern in words, because the next rounds
 should reason about mechanisms rather than tune to numbers; so the memory holds no numbers,
 statistics or factor code.
 
 Answer with the memory as plain text, without a code fence, in this shape:
 ```text
-Working mechanism patterns
+{MEMORY_PARTS[0]}
 - <pattern>: <why it worked>
-Failure constraints
+{MEMORY_PARTS[1]}
 - <rule>: <why>
-Directional findings
+{MEMORY_PARTS[2]}
 - <finding>
 ```
 """
@@ -440,6 +446,8 @@ def _placeholder_problems(name: str, text: str) -> list[str]:
         return [f"is not a valid template ({exc}); a literal brace is written twice"]
     required, optional = PLACEHOLDERS[name]
     problems = [f"lacks the placeholder {{{p}}}" for p in sorted(required - used)]
+    if name == "distill":  # the distiller's reply is parsed by these headings, so it must be asked for them
+        problems += [f"lacks the memory part heading {part!r}" for part in MEMORY_PARTS if part not in text]
     unknown = sorted(used - required - optional - _COMMON)
     if unknown:
         problems.append(

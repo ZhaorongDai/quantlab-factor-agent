@@ -20,6 +20,16 @@ from factor_agent.zoo import owner
 _DECIMAL = re.compile(r"[-+]?\d+\.\d+")
 
 
+def first_recent_round(rounds: int, recent_rounds: int) -> int:
+    """The first round of the recent history after ``rounds`` rounds; the rounds before it are the earlier summary's."""
+    return rounds - recent_rounds + 1
+
+
+def distill_due(rounds: int, memory_round: int, memory_every: int) -> bool:
+    """Whether the distiller is asked after ``rounds`` rounds, when it was last asked after ``memory_round``."""
+    return rounds - memory_round >= memory_every
+
+
 def accepted_source(number: int) -> str:
     """The zoo source of a factor accepted in round ``number``."""
     return f"accepted in round {number}"

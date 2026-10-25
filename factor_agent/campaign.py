@@ -271,7 +271,7 @@ class Campaign:
             number = state.rounds + 1
             spent_before = researcher.spent
             try:
-                if state.rounds - state.memory_round >= config.round.memory_every:
+                if _feedback.distill_due(state.rounds, state.memory_round, config.round.memory_every):
                     since = [r for r in records if r.round > state.memory_through]
                     memory = researcher.distill(number, state.memory, _feedback.history(since, statistics=False))
                     state.memory_round = state.rounds
@@ -379,7 +379,7 @@ class Campaign:
         summary, by mechanism type in the order of ``prompts``.
         """
         labels = [_feedback.accepted_label(r) for r in accepted]
-        first_recent = state.rounds - recent_rounds + 1
+        first_recent = _feedback.first_recent_round(state.rounds, recent_rounds)
         return {
             "seed": _seed(self.config.directions),
             "families": _feedback.families(reference),

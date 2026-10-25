@@ -23,7 +23,7 @@ from dataclasses import asdict, dataclass
 from factor_agent.candidate import Candidate
 from factor_agent.gate import Gate, Passed
 from factor_agent.llm.base import LLMBackend, Request
-from factor_agent.prompts import SECTIONS, Prompts
+from factor_agent.prompts import MEMORY_ITEMS, MEMORY_PARTS, SECTIONS, Prompts
 from factor_agent.zoo import Zoo
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
@@ -31,9 +31,9 @@ _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 #: The planner's actions: a new mechanism, an orthogonal mutation of an accepted one, a refinement of one.
 ACTIONS = ("new", "mutation", "refinement")
 
-#: The context sections each role reads (see ``factor_agent.prompts.SECTIONS``).
-_PLANNER_SECTIONS = ("seed", "families", "memory", "earlier_summary", "recent_history", "last_round", "best")
-_PROPOSER_SECTIONS = ("families", "memory", "last_round", "best")
+#: The context sections each role reads (see ``factor_agent.prompts.SECTIONS``); ``render_context`` shows them.
+PLANNER_SECTIONS = ("seed", "families", "memory", "earlier_summary", "recent_history", "last_round", "best")
+PROPOSER_SECTIONS = ("families", "memory", "last_round", "best")
 
 
 @dataclass(frozen=True)
@@ -152,7 +152,7 @@ class Researcher:
         each such repair is one issue.
         """
         prompt = self.prompts.render(
-            "plan", round=number, context=_render(context, _PLANNER_SECTIONS), quota=json.dumps(quota),
+            "plan", round=number, context=render_context(context, PLANNER_SECTIONS), quota=json.dumps(quota),
         )
         issues, by_type = [], {kind: [] for kind in self._types}
         try:
@@ -190,7 +190,7 @@ class Researcher:
         one request, up to ``retries`` times.
         """
         prompt = self.prompts.render(
-            "propose", round=number, context=_render(context, _PROPOSER_SECTIONS), n=len(directions),
+            "propose", round=number, context=render_context(context, PROPOSER_SECTIONS), n=len(directions),
             directions=json.dumps([{"number": i + 1, **d.to_dict()} for i, d in enumerate(directions)], indent=2),
         )
         items = _items(self._ask("proposer", prompt), [None] * len(directions))
@@ -385,12 +385,6 @@ def _direction_problem(item: object, parents: list[str], types: tuple[str, ...])
     return ""
 
 
-#: The parts of the memory, by heading, in order (see ``factor_agent.prompts.DISTILL``).
-MEMORY_PARTS = ("Working mechanism patterns", "Failure constraints", "Directional findings")
-#: Items a part of the memory keeps at most.
-MEMORY_ITEMS = 6
-
-
 def _memory(reply: str) -> str | None:
     """The memory in a distiller's ``reply``, with plain headings, "- " bullets and at most ``MEMORY_ITEMS`` items a part.
 
@@ -420,7 +414,7 @@ def _heading(line: str) -> str:
     return text.lower()
 
 
-def _render(context: dict[str, str], keys: tuple[str, ...]) -> str:
+def render_context(context: dict[str, str], keys: tuple[str, ...]) -> str:
     """The non-empty sections of ``context`` among ``keys``, each under its heading inside the tag of its key."""
     return "\n\n".join(
         f"## {heading}\n<{key}>\n{context[key]}\n</{key}>"
