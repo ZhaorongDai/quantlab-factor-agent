@@ -9,7 +9,9 @@ in order and the first that fails is the reason:
    the members it covers);
 2. its training IC is a nonzero number, so it has a direction;
 3. its correlation with every reference and accepted factor is at most
-   ``max_correlation`` in absolute value;
+   ``max_correlation`` in absolute value, and so is its sampled correlation
+   with every known factor (on every ``KNOWN_SAMPLE_EVERY``-th scored date
+   of the Evaluator);
 4. its partial IC, in its direction, has a Newey-West t at or above the
    threshold for the number of evaluated trials so far;
 5. its decile returns, in its direction, rise with the decile: their
@@ -29,7 +31,10 @@ import numpy as np
 from scipy import stats
 
 from factor_agent.config import AdmissionConfig
-from factor_agent.evaluator import Metrics
+from factor_agent.evaluator import KNOWN_SAMPLE_EVERY, Metrics
+
+#: The dates a known factor's correlation is sampled on, as the reason says.
+_SAMPLED_DATES = f"one training date in {KNOWN_SAMPLE_EVERY}"
 
 
 def t_threshold(config: AdmissionConfig, trials: int) -> float:
@@ -79,6 +84,11 @@ def reasons(metrics: Metrics, trials: int, config: AdmissionConfig) -> list[str]
         return [
             f"cross-sectional correlation {metrics.nearest_correlation:+.2f} with {metrics.nearest} "
             f"is above {config.max_correlation:g} in absolute value"
+        ]
+    if abs(metrics.nearest_known_correlation) > config.max_correlation:
+        return [
+            f"cross-sectional correlation {metrics.nearest_known_correlation:+.2f} with {metrics.nearest_known}, "
+            f"sampled on {_SAMPLED_DATES}, is above {config.max_correlation:g} in absolute value"
         ]
     threshold = t_threshold(config, trials)
     partial_t = sign * metrics.partial_ic_t

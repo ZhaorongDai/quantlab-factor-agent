@@ -369,6 +369,28 @@ def test_the_code_rules_ask_for_a_value_comparable_across_the_cross_section(luna
         assert "unless the mechanism is about that level" in rules
 
 
+def test_the_code_rules_leave_missing_values_missing_and_say_why(lunar):
+    asked = [r for r in lunar.requests if _kind(r) in ("proposer", "fix")]
+    assert {_kind(r) for r in asked} == {"proposer", "fix"}
+    for request in asked:
+        rules = request.prompt[request.prompt.index("How to write the code:"):request.prompt.index("\n<vocabulary>\n")]
+        rules = " ".join(rules.split())
+        assert "SetInfOrNanToValue" in rules
+        assert "skips a symbol without a value that day" in rules
+        assert "ranked as real data" in rules
+        assert "coverage is measured before any fill" in rules
+        assert "unreported R&D expense is zero" in rules and "description" in rules
+
+
+def test_the_reviewer_finds_a_fill_without_a_stated_reason_inconsistent(lunar):
+    review = lunar.of_role("reviewer")[0].prompt
+    criteria = " ".join(review[review.index("</candidates>"):review.index("Otherwise it is consistent")].split())
+    seventh = criteria[criteria.index("7. "):]
+    assert "SetInfOrNanToValue" in seventh and "reason" in seventh
+    assert "R&D" in seventh and "consistent" in seventh
+    assert "ratio" in seventh and "inconsistent" in seventh
+
+
 def test_the_reviewer_asks_a_factor_with_a_unit_to_explain_ranking_by_that_level(lunar):
     review = lunar.of_role("reviewer")[0].prompt
     head = " ".join(review[:review.index("\n<candidates>\n")].split())
@@ -394,3 +416,14 @@ def test_a_replaced_distill_template_naming_every_memory_part_heading_loads(tmp_
         "Fold {history} into {memory}: Working mechanism patterns, Failure constraints, Directional findings.\n"
     )
     assert "Failure constraints" in Templates.load({"distill": path}).format("distill", history="h", memory="m")
+
+
+def test_the_planner_asks_for_research_directions_at_the_level_of_a_mechanism_and_its_data(lunar):
+    for request in lunar.of_role("planner"):
+        prompt = " ".join(request.prompt.split())
+        assert "concrete enough to write as code" not in prompt
+        head = prompt[:prompt.index("Round:")]
+        assert "the mechanism" in head and "the data it reads" in head
+        assert all(word in head for word in ("formula", "windows", "ratios"))
+        fields = prompt[prompt.index("Now plan this round's research directions"):]
+        assert '"direction": the mechanism to pursue and the data it reads' in fields

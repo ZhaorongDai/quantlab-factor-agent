@@ -1,13 +1,18 @@
 """The campaign config: one YAML file holds every setting of a run.
 
-``data`` and ``reference`` hold quantlab components: each is a
+``data``, ``reference`` and ``known`` hold quantlab components: each is a
 ``get_config()`` dict inline, the path of a store folder whose
 ``component.json`` describes it (``quantlab.core.store_folder.save_component``),
 or ``{store: <folder>, factor_names: [...]}``, that store's factor pinned to
 some of its outputs. ``reference`` lists the reference set: the factors
 candidates must be original against (the ``Zoo``) and, in admission,
 uncorrelated with and incremental to; a factor's ``factor_names`` selects
-its columns.
+its columns. ``known`` lists the known factors: every other existing factor
+a candidate is checked against for novelty (the ``Zoo``), never one it is
+measured incremental to; an output also in ``reference`` is taken there
+only (``CampaignConfig.load_factors``). A malformed entry of either list is
+refused when the config is read; a store or class is only opened when the
+factors are loaded.
 
 ``fields`` (field files, one per input family) and ``operators`` (the
 operator file) make the ``Vocabulary`` candidates write with; the
@@ -35,6 +40,7 @@ from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.prompts import Templates
 from factor_agent.segments import PURGE_BARS, Segment, Segments
 from factor_agent.snapshot import SearchFiles
+from factor_agent.zoo import owner
 
 
 
@@ -369,6 +375,8 @@ class CampaignConfig:
     operator_modules: tuple = ()
     #: The reference factors, as components; see the module docstring.
     reference: tuple = ()
+    #: The known factors besides the reference set, as components; see the module docstring.
+    known: tuple = ()
     directions: tuple = ()
     evaluator: EvaluatorConfig = EvaluatorConfig()
     gate: GateConfig = GateConfig()
@@ -389,6 +397,30 @@ class CampaignConfig:
                 f"round: {self.round.candidates} candidates cannot hold {self.round.min_per_type} of each of "
                 f"{len(names)} mechanism types"
             )
+
+    def load_factors(self) -> tuple[list, list]:
+        """Rebuild the reference factors and the known factors, ``(reference, known)``, each in config order.
+
+        An output of a known factor is dropped when a reference factor shows
+        the same output of the same class (through ``zoo.owner``, so a
+        neutralised store counts as the factor it neutralises); the factor
+        keeps its other outputs, and one left with none is dropped.
+
+        Raises
+        ------
+        ValueError, TypeError
+            As ``load`` does, for an entry its store or class does not fit.
+        """
+        reference = [load(component) for component in self.reference]
+        taken = {key for factor in reference for key in _output_keys(factor)}
+        known = []
+        for factor in (load(component) for component in self.known):
+            names = tuple(name for name, key in zip(factor.get_factor_names(), _output_keys(factor)) if key not in taken)
+            if names == tuple(factor.get_factor_names()):
+                known.append(factor)
+            elif names:
+                known.append(type(factor)(dataclasses.replace(factor.config, factor_names=names)))
+        return reference, known
 
     @property
     def mechanism_types(self) -> tuple[str, ...]:
@@ -451,7 +483,7 @@ class CampaignConfig:
             "admission": AdmissionConfig, "round": RoundConfig, "context": ContextConfig,
         }
         unknown = set(raw) - {
-            "run_dir", "segments", "data", "scoring", "fields", "operators", "operator_modules", "reference",
+            "run_dir", "segments", "data", "scoring", "fields", "operators", "operator_modules", "reference", "known",
             "directions", "llm", "market", "mechanisms", "prompts", "acceptance", *sections,
         }
         if unknown:
@@ -475,12 +507,55 @@ class CampaignConfig:
             fields=tuple(str(folder / f) for f in raw["fields"]),
             operators=str(folder / raw["operators"]),
             operator_modules=tuple(raw.get("operator_modules") or ()),
-            reference=tuple(raw.get("reference") or ()),
+            reference=_entries("reference", raw.get("reference")),
+            known=_entries("known", raw.get("known")),
             directions=tuple(raw.get("directions") or ()),
             acceptance=AcceptanceConfig.from_dict(raw.get("acceptance")),
             **{name: klass(**raw[name]) for name, klass in sections.items() if name in raw},
             **optional,
         )
+
+
+def _output_keys(factor) -> list[tuple[str, str]]:
+    """``(class of the owner, output name)`` of each output: what makes two outputs the same factor."""
+    kind = type(owner(factor)).__name__
+    return [(kind, name) for name in factor.get_factor_names()]
+
+
+def _entries(section: str, raw: list | None) -> tuple:
+    """The component entries of ``section`` (``reference`` or ``known``), each checked for its form only.
+
+    Raises
+    ------
+    TypeError
+        Naming every entry that is not a store folder path, a store entry
+        (``store`` and optionally a list of ``factor_names``) or a
+        ``get_config()`` dict (one with a ``name``).
+    """
+    entries = tuple(raw or ())
+    problems = []
+    for i, entry in enumerate(entries):
+        if isinstance(entry, str):
+            problem = None if entry else "an empty store folder path"
+        elif not isinstance(entry, dict):
+            problem = f"{entry!r} is neither a store folder, a store entry nor a component's config"
+        elif "store" in entry:
+            names = entry.get("factor_names", [])
+            if set(entry) - {"store", "factor_names"}:
+                problem = f"a store entry with the unknown key(s) {sorted(set(entry) - {'store', 'factor_names'})}"
+            elif not isinstance(entry["store"], str) or not entry["store"]:
+                problem = f"a store entry whose store {entry['store']!r} is not a folder path"
+            elif not isinstance(names, list) or not all(isinstance(name, str) for name in names):
+                problem = f"a store entry whose factor_names {names!r} is not a list of output names"
+            else:
+                problem = None
+        else:
+            problem = None if isinstance(entry.get("name"), str) else "a component's config without the name of its class"
+        if problem:
+            problems.append(f"{section}[{i}]: {problem}")
+    if problems:
+        raise TypeError("campaign config: " + "; ".join(problems))
+    return entries
 
 
 def _segments(raw: dict) -> Segments:

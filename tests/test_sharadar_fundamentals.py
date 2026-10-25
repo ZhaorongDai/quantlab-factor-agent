@@ -134,7 +134,7 @@ def fundamental_alpha(tmp_path_factory, vocabulary) -> Zoo:
         warmup_bars=600, dataset=dataset, mode="batch", factor_names=names,
         data_columns=FundamentalAlphaParameters().required_panel_columns(names),
     ))
-    return Zoo.from_reference([factor], vocabulary)
+    return Zoo.from_existing([factor], vocabulary)
 
 
 @pytest.mark.parametrize(

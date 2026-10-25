@@ -31,7 +31,9 @@ def ranked_function(
     KunQuant's ``Rank`` ranks a missing value too, so the ranked output has a
     value wherever the symbol has a bar. ``presence`` maps a graph's name to
     the name of a second output, 0 where the graph itself has a value and NaN
-    where it has none.
+    where it has none, read before any fill: it is computed from
+    ``Graph.without_fills``, so a missing value a ``SetInfOrNanToValue``
+    fills stays missing in it.
     """
     inputs: dict[str, OpBase] = {}
     ops: list[OpBase] = []
@@ -45,6 +47,10 @@ def ranked_function(
             ops += [flipped, ranked]
         ops.append(Output(ranked, name))
         if presence and name in presence:
+            unfilled = graph.without_fills()
+            if unfilled is not graph:
+                output, new = unfilled.build(inputs)
+                ops += new
             zero = MulConst(output, 0.0)
             ops += [zero, Output(zero, presence[name])]
     return Function(ops)

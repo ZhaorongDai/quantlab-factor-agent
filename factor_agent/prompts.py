@@ -54,7 +54,13 @@ as the condition of a Select.
 A factor's value should be comparable across the cross-section, so write it as a pure number: a
 ratio, a return, a rank or a z-score. An output that carries a unit (a price, a dollar amount, a share
 count) ranks the cross-section partly by that level, and that ranking is what the scoring compares,
-unless the mechanism is about that level, as a price impact per dollar traded is."""
+unless the mechanism is about that level, as a price impact per dollar traded is.
+Leave a missing value missing. The scoring skips a symbol without a value that day, so a missing
+value needs no fill; a filled value is ranked as real data, so a symbol without the data is sorted as
+if its value were the fill and the factor partly sorts the cross-section by whether the item is
+reported; and coverage is measured before any fill, so a fill does not help a factor pass the
+coverage rule. Fill (SetInfOrNanToValue) only when the mechanism says what a missing value means,
+as an unreported R&D expense is zero, and state that reason in the description."""
 
 FIELDS = """\
 - "hypothesis": the economic mechanism that makes the factor predict the return, in one or two sentences
@@ -80,8 +86,10 @@ _CANDIDATE_SKELETON = """\
 PLAN = """\
 You are the research planner of a search for cross-sectional factors on {market}, each built from a
 stated economic mechanism. You plan this round's research directions; the proposer then writes one
-candidate factor for each research direction you plan, so each one names an idea concrete enough to
-write as code.
+candidate factor for each research direction you plan and decides how to compute it. So state each
+research direction as the mechanism and the data it reads, and leave the formula, its windows and its
+ratios to the proposer: a direction written as a known formula tends to come back as that textbook
+factor, while a mechanism leaves room for a new way to measure it.
 
 Round: {round}
 
@@ -116,7 +124,7 @@ Each research direction is an object with these fields:
 - "mechanism_type": one of the mechanism types in <quota>
 - "action": "new", "mutation" or "refinement"
 - "parent": the accepted factor's name for a mutation or a refinement, "" for a new research direction
-- "direction": the idea to pursue, in one or two sentences
+- "direction": the mechanism to pursue and the data it reads, in one or two sentences
 
 Answer with a JSON array of research directions, one element per research direction, each with these
 fields and no others:
@@ -245,6 +253,10 @@ A candidate is inconsistent when any of these holds:
    price level or size. For example, the Amihud illiquidity, the absolute return per dollar traded
    (1/dollars), is consistent when its hypothesis is about the price impact per dollar traded; a
    slope of vwap described as a trend, without dividing by a price (price), is inconsistent.
+7. The code fills missing values (SetInfOrNanToValue) and the description does not state the reason,
+   what a missing value means in the mechanism, because a filled value is ranked as real data. For
+   example, R&D expense filled with 0 is consistent when the description says an unreported R&D
+   expense is zero; a ratio filled with 0 for no stated reason is inconsistent.
 Otherwise it is consistent. Which way a factor predicts (its factor direction) is read from the data
 afterwards, so a factor direction the text states, leaves out or gets the other way round is no reason
 to find a candidate inconsistent. The length of the code is no reason to find a candidate consistent

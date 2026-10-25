@@ -14,8 +14,10 @@ what is validated and exported. A factor is
 
 Steps 1 and 2 give the whole-market values a store holds (``apply``);
 step 3 is how they, and any stored reference or baseline factor, are read
-(``on_members``, ``read``, ``mask``). A stored factor is read from its
-store's first bar on: it has no value, so no score, before.
+(``on_members``, ``read``, ``mask``). ``read`` takes a reference or known
+factor given as a component through steps 2 and 3, and one given as a
+store through step 3 alone. A stored factor is read from its store's first
+bar on: it has no value, so no score, before.
 """
 
 from collections.abc import Iterator
@@ -111,12 +113,15 @@ class Scoring:
     def read(self, factor, start, end) -> Iterator[tuple[str, xr.DataArray]]:
         """Yield ``(name, values)`` of every output of ``factor`` from ``start`` to ``end``, masked to day-t members.
 
-        A factor with a store is read from it, from its first bar on; any
-        other is computed. The outputs are masked one at a time, so only one
-        masked copy is in memory.
+        A factor with a store (an entry given as a store) is read as stored,
+        from its first bar on; any other (an entry given as a component) is
+        scored by ``apply``, as a candidate is, and computed. The outputs are
+        masked one at a time, so only one masked copy is in memory.
         """
-        clipped = StartClippedFactor(StartClippedConfig(factor=factor))
-        panel = clipped.read(start, end) if factor.store_range() is not None else factor.compute(start, end)
+        if factor.store_range() is not None:
+            panel = StartClippedFactor(StartClippedConfig(factor=factor)).read(start, end)
+        else:
+            panel = self.apply(factor).compute(start, end)
         for name in factor.get_factor_names():
             yield name, self.mask(panel[[name]])[name]
 

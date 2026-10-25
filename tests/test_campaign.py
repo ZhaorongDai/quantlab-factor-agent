@@ -12,6 +12,7 @@ the round with KunQuant and reads the synthetic store of
 """
 
 import json
+import math
 from pathlib import Path
 
 import pytest
@@ -24,7 +25,7 @@ from quantlab.factor.predefined.neutralized import NeutralizedFactor
 from tests import synthetic_market
 from tests.campaign_runner import candidate as _candidate
 from tests.campaign_runner import run, write_config
-from tests.fake_llm import FakeLLM
+from tests.fake_llm import FakeLLM, Interrupted, round_of
 from tests.vocabulary_files import PRICE_VOLUME
 
 CANDIDATES = [
@@ -156,17 +157,23 @@ def test_the_round_is_compiled_once_with_its_neutralisation(outcome):
     assert 1 <= len(entries) <= 2
 
 
-def _run(root: Path, rounds: list[list[dict]], reference=(), fix=None, **sections) -> dict:
+def _run(root: Path, rounds: list[list[dict]], reference=(), fix=None, known=(), crash=None, **sections) -> dict:
     """Run a campaign on a fresh synthetic store; ``rounds`` holds the proposer's candidates of each round.
 
-    Each item of ``reference`` makes a reference factor from the prices and the exposures; ``fix``
-    answers the fix requests (``FakeLLM``'s).
+    Each item of ``reference`` (and of ``known``) makes a reference (known) factor from the prices
+    and the exposures; ``fix`` answers the fix requests (``FakeLLM``'s). With ``crash``, the run is
+    first interrupted at the request ``crash(request)`` is true for, then resumed with a fresh fake.
     """
     components = synthetic_market.build(root / "data")
     prices, exposures = rebuild(components["prices"]), rebuild(components["exposures"])
     sections["round"] = {"min_per_type": 0, "max_rounds": len(rounds), **sections.get("round", {})}
     made = [factor(prices, exposures).get_config() for factor in reference]
+    if known:
+        sections["known"] = [factor(prices, exposures).get_config() for factor in known]
     config_path = write_config(root, components, made, **sections)
+    if crash is not None:
+        with pytest.raises(Interrupted):
+            run(config_path, FakeLLM(lambda number, directions: rounds[number - 1], fix=fix, interrupt=crash), root / "kunquant_cache")
     fake = FakeLLM(lambda number, directions: rounds[number - 1], fix=fix)
     result = run(config_path, fake, root / "kunquant_cache")
     return {"result": result, "run_dir": root / "run", "fake": fake}
@@ -226,6 +233,122 @@ def test_reference_factors_without_a_graph_are_reported_as_not_covered(two_round
     zoo = json.loads((two_rounds["run_dir"] / "zoo.json").read_text())
     assert zoo["not_covered"] == ["momentum_20 (AdjustedMomentum)"]
     assert "KMID (Alpha158Stock)" in zoo["covered"]
+
+
+# One round with Alpha158's candlestick features as the reference set and
+# every Alpha158 feature, the candlestick features again and a Polars factor
+# as known factors: a rewrite of a known feature fails at the Gate naming it
+# as known, and an output of the reference set is taken there only.
+AGAINST_KNOWN = [
+    _candidate("std20", "alpha = WindowedStddev(close, 20) / close"),
+    _candidate("volume", "alpha = volume / WindowedAvg(volume, 20)"),
+]
+
+
+@pytest.fixture(scope="module")
+def against_known(tmp_path_factory):
+    return _run(
+        tmp_path_factory.mktemp("against_known"), [AGAINST_KNOWN],
+        reference=[lambda prices, _: _alpha158(prices, KBAR)],
+        known=[lambda prices, _: _alpha158(prices),
+               lambda prices, _: _alpha158(prices, KBAR),
+               lambda prices, _: synthetic_market.AdjustedMomentum(PolarsFactorConfig(warmup_bars=20, dataset=prices))],
+        round={"candidates": len(AGAINST_KNOWN), "retries": 0},
+    )
+
+
+def test_a_rewrite_of_a_known_factor_fails_at_the_gate_naming_it_as_known(against_known):
+    record = _by_description(against_known["result"].failed)["std20"]
+    assert record.stage == "gate"
+    assert any("STD20 (Alpha158Stock, a known factor)" in r for r in record.reasons), record.reasons
+
+
+def test_known_factors_are_in_the_record_of_what_the_graph_checks_cover(against_known):
+    zoo = json.loads((against_known["run_dir"] / "zoo.json").read_text())
+    assert zoo["not_covered"] == ["momentum_20 (AdjustedMomentum, a known factor)"]
+    assert against_known["result"].not_covered == ("momentum_20 (AdjustedMomentum, a known factor)",)
+    assert "KMID (Alpha158Stock)" in zoo["covered"] and "STD20 (Alpha158Stock, a known factor)" in zoo["covered"]
+    # An output of the reference set is taken once, as a reference factor, even from a known factor
+    # whose outputs are all in the reference set.
+    assert not any(label.endswith("a known factor)") and label.split()[0] in KBAR for label in zoo["covered"])
+    assert len(zoo["covered"]) == len(set(zoo["covered"])) == 169
+
+
+def test_the_families_section_lists_the_known_classes_after_the_reference_families_marked_as_known(against_known):
+    log = against_known["run_dir"] / "llm_log"
+    for role in ("planner", "proposer"):
+        prompt = json.loads(sorted(log.glob(f"*-{role}.json"))[0].read_text())["request"]["prompt"]
+        reference = prompt.index("- Alpha158Stock: ")
+        known = prompt.index("- Alpha158Stock (known, not in the reference set, refused when rewritten): ")
+        momentum = prompt.index("- AdjustedMomentum (known, not in the reference set, refused when rewritten): ")
+        assert reference < known < momentum, prompt
+        assert f"({len(KBAR)} outputs: KMID," in prompt[reference:known] and "(160 outputs: " in prompt[known:momentum]
+
+
+# Two rounds with KMID as the only known factor and no reference set: a noisy
+# copy of KMID passes the Gate (it is no rewrite) but is refused at admission
+# on its sampled correlation; the volume signal is accepted, its nearest
+# known factor recorded; round 2 is told both.
+KNOWN_ROUND_ONE = [
+    _candidate("noisy kmid", "alpha = (close - open) / (high - low)"),
+    _candidate("volume", "alpha = volume / WindowedAvg(volume, 20)"),
+]
+KNOWN_ROUND_TWO = [
+    _candidate("noise", "alpha = BackRef(volume, 10) / WindowedAvg(volume, 60)"),
+    _candidate("more noise", "alpha = BackRef(close, 20) / BackRef(WindowedAvg(close, 10), 5)"),
+]
+KMID_KNOWN = "KMID (Alpha158Stock, a known factor)"
+
+
+def _against_kmid_known(root: Path, crash=None) -> dict:
+    return _run(
+        root, [KNOWN_ROUND_ONE, KNOWN_ROUND_TWO], known=[lambda prices, _: _alpha158(prices, ("KMID",))],
+        crash=crash, round={"candidates": 2, "retries": 0},
+    )
+
+
+@pytest.fixture(scope="module")
+def against_kmid_known(tmp_path_factory):
+    return _against_kmid_known(tmp_path_factory.mktemp("kmid_known"))
+
+
+def test_a_candidate_correlated_with_a_known_factor_is_rejected_at_admission_naming_it(against_kmid_known):
+    record = _by_description(against_kmid_known["result"].rejected)["noisy kmid"]
+    assert record.stage == "admission"
+    assert record.metrics["nearest"] == ""
+    correlation = record.metrics["nearest_known_correlation"]
+    assert correlation > 0.7
+    assert record.reasons == [
+        f"cross-sectional correlation {correlation:+.2f} with {KMID_KNOWN}, sampled on one training date in 5, "
+        f"is above 0.7 in absolute value"
+    ]
+
+
+def test_the_ledger_records_the_nearest_known_factor_of_every_evaluated_candidate(against_kmid_known):
+    ledger = [json.loads(line) for line in (against_kmid_known["run_dir"] / "ledger.jsonl").read_text().splitlines()]
+    metrics = {entry["candidate"]["description"]: entry["metrics"] for entry in ledger}
+    assert set(metrics) == {"noisy kmid", "volume", "noise", "more noise"}
+    assert all(m["nearest_known"] == KMID_KNOWN for m in metrics.values())
+    assert abs(metrics["volume"]["nearest_known_correlation"]) < 0.2
+    assert [r.candidate["description"] for r in against_kmid_known["result"].accepted] == ["volume"]
+
+
+def test_the_last_rounds_feedback_gives_the_nearest_known_factor(against_kmid_known):
+    record = _by_description(against_kmid_known["result"].rejected)["noisy kmid"]
+    prompt = [r.prompt for r in against_kmid_known["fake"].of_role("proposer") if round_of(r.prompt) == 2][0]
+    feedback = prompt.split("noisy kmid", 1)[1]
+    assert (
+        f"no existing factor to compare with; nearest known factor {KMID_KNOWN}, "
+        f"sampled correlation {record.metrics['nearest_known_correlation']:+.2f}"
+    ) in feedback
+
+
+def test_a_resumed_campaign_with_known_factors_writes_the_same_ledger(against_kmid_known, tmp_path):
+    resumed = _against_kmid_known(tmp_path, crash=lambda r: r.role == "reviewer" and round_of(r.prompt) == 2)
+    assert {round_of(r.prompt) for r in resumed["fake"].requests} == {2}
+    assert (resumed["run_dir"] / "ledger.jsonl").read_text() == (
+        against_kmid_known["run_dir"] / "ledger.jsonl"
+    ).read_text()
 
 
 # One round against KMID neutralised, as the shared ``*_neutral`` stores hold
@@ -406,6 +529,15 @@ def test_a_candidate_with_full_coverage_is_not_rejected_for_it(admission):
     assert not any("coverage" in reason for reason in record.reasons)
 
 
+def test_a_candidate_filling_a_sparse_value_is_rejected_for_the_coverage_of_its_data(tmp_path):
+    filled = _candidate("filled", "alpha = SetInfOrNanToValue(Log(Log(close / open) * 100 - 1), 0)")
+    outcome = _run(tmp_path, [[filled]], round={"candidates": 1, "retries": 0})
+    [record] = outcome["result"].accepted + outcome["result"].rejected
+    assert record.status == "rejected"
+    assert 0.1 < record.metrics["coverage"] < 0.25
+    assert any(reason.startswith("coverage ") and reason.endswith("is below 0.5") for reason in record.reasons)
+
+
 def test_the_coverage_threshold_is_read_from_the_config(tmp_path):
     sparse = [c for c in ADMISSION if c["description"] == "sparse"]
     outcome = _run(tmp_path, [sparse], admission={"min_coverage": 0.1}, round={"candidates": 1, "retries": 0})
@@ -420,6 +552,7 @@ def test_admission_metrics_are_in_the_ledger(admission):
     assert set(metrics) == {c["description"] for c in ADMISSION}
     assert len(metrics["incremental"]["decile_returns"]) == 10
     assert metrics["noisy copy"]["nearest_correlation"] > 0.7
+    assert all(m["nearest_known"] == "" and math.isnan(m["nearest_known_correlation"]) for m in metrics.values())
 
 
 # The weak upper-wick signal (Newey-West t a little above 3): proposed alone
@@ -474,12 +607,13 @@ def test_each_admission_reason_is_counted_under_its_kind():
 
     good = dict(
         ic_mean=0.05, ic_t=8.0, partial_ic_mean=0.04, partial_ic_t=8.0, nearest="x", nearest_correlation=0.1,
-        decile_returns=tuple(range(10)), coverage=0.9, n_days=100, start="s", end="e",
+        nearest_known="y", nearest_known_correlation=-0.2, decile_returns=tuple(range(10)), coverage=0.9, n_days=100, start="s", end="e",
     )
     cases = {
         "coverage": {"coverage": 0.1},
         "no direction": {"ic_mean": 0.0},
         "correlation": {"nearest_correlation": 0.99},
+        "correlation with a known factor": {"nearest_known_correlation": -0.99},
         "partial IC": {"partial_ic_t": 0.5},
         "monotonicity": {"decile_returns": tuple(range(10, 0, -1))},
     }
@@ -487,4 +621,4 @@ def test_each_admission_reason_is_counted_under_its_kind():
     assert reasons(Metrics(**good), 1, config) == []
     for kind, change in cases.items():
         [reason] = reasons(Metrics(**{**good, **change}), 1, config)
-        assert reason_kind(reason) == kind, reason
+        assert reason_kind(reason) == kind.removesuffix(" with a known factor"), reason

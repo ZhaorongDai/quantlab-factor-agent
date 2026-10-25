@@ -5,6 +5,7 @@ The graph is built in a real subprocess; nothing is faked.
 
 import importlib
 import pkgutil
+import re
 import sys
 
 import KunQuant
@@ -290,7 +291,7 @@ def alpha158(tmp_path_factory) -> Zoo:
         data_columns=("adjOpen", "adjHigh", "adjLow", "adjClose", "adjVolume"),
     ))
     momentum = Momentum(PolarsFactorConfig(warmup_bars=20, dataset=dataset, kwargs={"n": 20}))
-    return Zoo.from_reference([factor, momentum], price_volume())
+    return Zoo.from_existing([factor, momentum], price_volume())
 
 
 @pytest.mark.parametrize(
@@ -352,12 +353,65 @@ def test_a_neutralised_store_is_compared_by_the_graph_of_the_factor_it_neutralis
     ))
     neutral = NeutralizedFactor(NeutralizedConfig(factor=ranked, dataset=dataset, factor_names=("KMID", "STD20")))
 
-    zoo = Zoo.from_reference([neutral], price_volume())
+    zoo = Zoo.from_existing([neutral], price_volume())
 
     assert zoo.covered == ("KMID (Alpha158Stock)", "STD20 (Alpha158Stock)")
     result = Gate(GateConfig(), price_volume()).check(_candidate("alpha = (close - open) / open"), zoo)
     assert isinstance(result, Rejected)
     assert any("KMID (Alpha158Stock)" in r for r in result.reasons), result.reasons
+
+
+@pytest.fixture(scope="module")
+def known158(tmp_path_factory) -> Zoo:
+    """A zoo whose reference set is a Polars momentum factor and whose known factors are every Alpha158Stock feature and another momentum."""
+    root = tmp_path_factory.mktemp("known158")
+    xr.Dataset(
+        {"Close": (["timestamp", "symbol"], np.ones((3, 2)))},
+        coords={"timestamp": pd.bdate_range("2024-01-01", periods=3), "symbol": ["A", "B"]},
+    ).to_zarr(root / "prices.zarr")
+    dataset = StockDataset(DatasetConfig(
+        zarr_file_path=str(root / "prices.zarr"), raw_data_dir_path=str(root), market="us_equity", frequency="1d",
+    ))
+    factor = Alpha158Stock(FactorConfig(
+        warmup_bars=60, dataset=dataset, mode="batch",
+        data_columns=("adjOpen", "adjHigh", "adjLow", "adjClose", "adjVolume"),
+    ))
+    momentum = Momentum(PolarsFactorConfig(warmup_bars=20, dataset=dataset, kwargs={"n": 20}))
+    unscored = Momentum(PolarsFactorConfig(warmup_bars=10, dataset=dataset, kwargs={"n": 10}))
+    return Zoo.from_existing([momentum], price_volume(), known=[factor, unscored])
+
+
+@pytest.mark.parametrize(
+    ("code", "kind", "feature"),
+    [
+        ("alpha = (close - open) / open", "rewrites", "KMID"),
+        ("alpha = WindowedStddev(close, 40) / close", "parameter", "STD"),
+        (
+            "co = WindowedCorrelation(close / BackRef(close, 1), 20, Log(volume / (BackRef(volume, 1) + 1e-12) + 1))\n"
+            "alpha = co * Sign(close - open)\n",
+            "subtree", "CORD20",
+        ),
+    ],
+)
+def test_a_candidate_rewriting_tuning_or_sharing_a_large_subtree_of_a_known_factor_is_refused_naming_it_known(
+    known158, code, kind, feature,
+):
+    result = Gate(GateConfig(), price_volume()).check(_candidate(code), known158)
+    assert isinstance(result, Rejected)
+    reason = next((r for r in result.reasons if kind in r), None)
+    assert reason is not None, result.reasons
+    assert re.search(rf"{feature}\w* \(Alpha158Stock, a known factor\)", reason), reason
+
+
+def test_a_candidate_unlike_any_known_factor_passes(known158):
+    result = Gate(GateConfig(), price_volume()).check(_candidate("alpha = Rank(WindowedAvg(close / open, 5))"), known158)
+    assert isinstance(result, Passed), getattr(result, "reasons", None)
+
+
+def test_known_factors_are_listed_in_what_the_graph_checks_cover_and_cannot(known158):
+    assert "KMID (Alpha158Stock, a known factor)" in known158.covered
+    assert known158.not_covered == ("momentum_20 (Momentum)", "momentum_10 (Momentum, a known factor)")
+    assert {entry.kind for entry in known158.entries} == {"known"}
 
 
 def _accepted(code: str) -> Zoo:
