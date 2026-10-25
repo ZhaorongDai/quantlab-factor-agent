@@ -28,10 +28,11 @@ def ranked_function(
     return) is output as one minus its rank, so every output reads the same
     way: a higher value, a higher return.
 
-    KunQuant's ``Rank`` ranks a missing value too, so the ranked output has a
-    value wherever the symbol has a bar. ``presence`` maps a graph's name to
-    the name of a second output, 0 where the graph itself has a value and NaN
-    where it has none, read before any fill: it is computed from
+    KunQuant's ``Rank`` leaves a missing value missing and ranks the finite
+    values among themselves. ``presence`` maps a graph's name to the name of
+    a second output, 0 where the graph itself has a value and NaN where it
+    has none, read raw (never neutralised, so a symbol without exposures
+    still counts) and before any fill: it is computed from
     ``Graph.without_fills``, so a missing value a ``SetInfOrNanToValue``
     fills stays missing in it.
     """

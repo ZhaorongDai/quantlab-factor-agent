@@ -36,7 +36,7 @@ The statistics of a candidate:
 - Deciles: the mean label of each tenth of the candidate's daily cross
   section, lowest values first, averaged over dates.
 - Coverage: the share of the day's scored members on which the graph
-  itself (before the rank, which ranks a missing value too) has a value,
+  itself (before the rank and the neutralisation) has a value,
   averaged over the dates with any scored member. It is measured before
   any fill, on the graph with every ``SetInfOrNanToValue`` replaced by its
   input (``Graph.without_fills``), so a fill does not raise it; the scored
