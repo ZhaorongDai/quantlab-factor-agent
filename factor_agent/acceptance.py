@@ -383,6 +383,7 @@ class Acceptance:
                 if path.exists():
                     raise ValueError(f"export: {path} already exists")
         start, end = self._export_window()
+        validation = self._validation_report(list(names))
         folders = []
         for (key, name), record in zip(names.items(), records):
             module, folder = package_dir / f"{name}.py", root / name
@@ -399,7 +400,7 @@ class Acceptance:
                 }))
                 scored = self._scoring().apply(factor, folder / f"{name}.zarr")
                 scored.build(start, end)
-                save_component(scored, folder, readme=self._readme(name, record, factor_class, start, end))
+                save_component(scored, folder, readme=self._readme(name, record, factor_class, start, end, validation))
             except BaseException:  # leave nothing half written, so the export can be run again
                 module.unlink(missing_ok=True)
                 shutil.rmtree(folder, ignore_errors=True)
@@ -648,9 +649,19 @@ class Acceptance:
             out.append(matches[0])
         return out
 
-    def _readme(self, name: str, record: TrialRecord, factor_class: type, start: str, end: str) -> str:
+    def _validation_report(self, selection: list[str]) -> dict | None:
+        """``validate``'s report of the accepted factors ``selection`` names, or None when there is none."""
+        if self.config.segments.validation is None:
+            return None
+        _, suffix = self._selected(selection)
+        path = self.run_dir / "acceptance" / f"{self.config.segments.validation.name}{suffix}.json"
+        return json.loads(path.read_text()) if path.exists() else None
+
+    def _readme(
+        self, name: str, record: TrialRecord, factor_class: type, start: str, end: str, validation: dict | None,
+    ) -> str:
+        """The exported store's README; ``validation`` is the report of the exported selection, if validated."""
         candidate, ic = record.candidate, record.metrics["ic_mean"]
-        validation = self.run_dir / "acceptance" / "validation.json"
         lines = [
             f"# {name}", "",
             f"{candidate['description']}", "",
@@ -671,11 +682,11 @@ class Acceptance:
             f"- Computed by `{factor_class.__module__}.{factor_class.__name__}` (a `FactorKunQuant`), "
             f"code {code_version()}.",
         ]
-        if validation.exists():
-            difference = json.loads(validation.read_text())["difference"]
+        if validation is not None:
             lines.append(
-                "- Validation (with the campaign's accepted factors, against the baseline, seed mean): "
-                + ", ".join(f"{k} {v:+.4f}" for k, v in difference.items()) + "."
+                f"- Validation of the exported selection ({', '.join(validation['accepted'])}) added to the baseline, "
+                "against the baseline, seed mean: "
+                + ", ".join(f"{k} {v:+.4f}" for k, v in validation["difference"].items()) + "."
             )
         lines += [
             "", "## Coverage", "",

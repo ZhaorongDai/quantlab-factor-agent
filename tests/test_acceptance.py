@@ -652,3 +652,19 @@ def test_the_duration_estimate_reads_only_finished_models_of_the_same_template(c
     _changed(acceptance, model=ridge, seeds=(0, 1, 2)).validate()
     out = capsys.readouterr().out
     assert "acceptance (validation): 2 models to train, 4 cached, about " in out and " a model over 4 finished)" in out
+
+
+def test_an_exported_selection_quotes_its_own_validation_report(campaign, tmp_path):
+    acceptance = _in_model(campaign, tmp_path, {"name": LINEAR})
+    out = acceptance.run_dir / "acceptance"
+    acceptance.validate()
+    acceptance.validate(["volume"])
+    whole = json.loads((out / "validation.json").read_text())["difference"]
+    [selected] = [json.loads(p.read_text())["difference"] for p in out.glob("validation_*.json")]
+    assert f"{selected['rank_ic']:+.4f}" != f"{whole['rank_ic']:+.4f}"
+
+    [folder] = acceptance.export({"volume": "volume_selected"})
+    readme = (folder / "README.md").read_text()
+    assert f"rank_ic {selected['rank_ic']:+.4f}" in readme
+    assert f"rank_ic {whole['rank_ic']:+.4f}" not in readme
+    assert "volume (accepted in round 1)" in readme.split("Validation")[1]

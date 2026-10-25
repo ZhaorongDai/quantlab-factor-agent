@@ -184,7 +184,8 @@ acceptance:
   hold-out was opened again.
 - `export({"<description>": "<name>"})`, the keys being the selection, writes `factor_agent/accepted/<name>.py` (a `GraphFactor`, i.e.
   `FactorKunQuant`, subclass fixing the scored graph) and the whole-market store
-  `<factor_root>/<name>/` (`NeutralizedFactor` of the ranked graph) with `README.md` and `component.json`.
+  `<factor_root>/<name>/` (`NeutralizedFactor` of the ranked graph) with `README.md` and `component.json`;
+  the README quotes `validate`'s report of the exported selection, when there is one.
 
 ## Setup
 
