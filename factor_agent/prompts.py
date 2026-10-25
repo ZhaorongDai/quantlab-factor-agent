@@ -80,8 +80,10 @@ _CANDIDATE_SKELETON = """\
 PLAN = """\
 You are the research planner of a search for cross-sectional factors on {market}, each built from a
 stated economic mechanism. You plan this round's research directions; the proposer then writes one
-candidate factor for each research direction you plan, so each one names an idea concrete enough to
-write as code.
+candidate factor for each research direction you plan and decides how to compute it. So state each
+research direction as the mechanism and the data it reads, and leave the formula, its windows and its
+ratios to the proposer: a direction written as a known formula tends to come back as that textbook
+factor, while a mechanism leaves room for a new way to measure it.
 
 Round: {round}
 
@@ -116,7 +118,7 @@ Each research direction is an object with these fields:
 - "mechanism_type": one of the mechanism types in <quota>
 - "action": "new", "mutation" or "refinement"
 - "parent": the accepted factor's name for a mutation or a refinement, "" for a new research direction
-- "direction": the idea to pursue, in one or two sentences
+- "direction": the mechanism to pursue and the data it reads, in one or two sentences
 
 Answer with a JSON array of research directions, one element per research direction, each with these
 fields and no others:
