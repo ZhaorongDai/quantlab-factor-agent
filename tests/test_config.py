@@ -17,6 +17,7 @@ from quantlab.factor.predefined.alpha158 import Alpha158Stock
 from factor_agent.config import DEFAULT_MECHANISMS, ROLES, CampaignConfig, NeutralizeConfig, load
 from factor_agent.gate.vocabulary import VocabularyError
 from factor_agent.prompts import PromptError
+from tests.campaign_runner import XGB
 from tests.vocabulary_files import CONFIGS, EXAMPLE_OPERATORS, PRICE_VOLUME
 
 FUNDAMENTALS = CONFIGS / "fields" / "sharadar_fundamentals.yaml"
@@ -194,9 +195,6 @@ def test_the_fundamentals_config_differs_from_the_first_only_in_its_run_dir_fiel
     assert config.acceptance == first.acceptance and config.acceptance.model == SEL0_XGB_DEEP
     assert config.acceptance.factor_root == "/data/quantlab/factors/market"
 
-
-#: The import path of quantlab's xgb.
-XGB = "quantlab.model.predefined.xgb.XGBoostRegressor"
 #: SEL0's xgb_deep (quantlab-experiment 2026-10-18-us3000-factor-selection-xgb), without its thread count, on the reference set.
 SEL0_XGB_DEEP = {"name": XGB, "factors": [], "hyperparameters": {
     "training_target": "cs_rank", "early_stopping": True, "early_stopping_patience": 100,

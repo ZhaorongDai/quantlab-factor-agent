@@ -110,6 +110,12 @@ def _mean(results: tuple[ModelResult, ...]) -> dict[str, float]:
     return {name: float(np.mean([getattr(r, name) for r in results])) for name in COMPARED}
 
 
+def _difference(without: tuple[ModelResult, ...], with_: tuple[ModelResult, ...]) -> dict[str, float]:
+    """``with_`` minus ``without``, of each seed-averaged statistic."""
+    base, new = _mean(without), _mean(with_)
+    return {name: new[name] - base[name] for name in COMPARED}
+
+
 @dataclass(frozen=True)
 class Contribution:
     """One accepted factor's contribution in one mode: the models with it against the same models without it.
@@ -128,8 +134,7 @@ class Contribution:
     @property
     def difference(self) -> dict[str, float]:
         """With the factor minus without it, of each seed-averaged statistic."""
-        base, new = _mean(self.without), _mean(self.with_factor)
-        return {name: new[name] - base[name] for name in COMPARED}
+        return _difference(self.without, self.with_factor)
 
     @property
     def agreeing(self) -> dict[str, int]:
@@ -171,15 +176,10 @@ class AcceptanceReport:
     code_version: dict = field(default_factory=dict)
     contributions: tuple[Contribution, ...] = ()
 
-    def mean(self, results: tuple[ModelResult, ...]) -> dict[str, float]:
-        """Each compared statistic averaged over the seeds."""
-        return _mean(results)
-
     @property
     def difference(self) -> dict[str, float]:
         """With the accepted factors minus the baseline, of each seed-averaged statistic."""
-        base, new = self.mean(self.baseline), self.mean(self.with_accepted)
-        return {name: new[name] - base[name] for name in COMPARED}
+        return _difference(self.baseline, self.with_accepted)
 
     def contribution_table(self) -> list[dict]:
         """One row per factor and mode: ``factor``, ``mode``, ``difference`` and ``agreeing`` of every statistic.
@@ -195,14 +195,14 @@ class AcceptanceReport:
     def to_dict(self) -> dict:
         """The report as ``<segment>.json`` holds it, with the seed means, the difference and the contribution table."""
         out = dataclasses.asdict(self)
-        out["mean"] = {"baseline": self.mean(self.baseline), "with_accepted": self.mean(self.with_accepted)}
+        out["mean"] = {"baseline": _mean(self.baseline), "with_accepted": _mean(self.with_accepted)}
         out["difference"] = self.difference
         out["contribution"] = self.contribution_table()
         return out
 
     def markdown(self) -> str:
         """The report as a short Markdown page."""
-        base, new, diff = self.mean(self.baseline), self.mean(self.with_accepted), self.difference
+        base, new, diff = _mean(self.baseline), _mean(self.with_accepted), self.difference
         lines = [f"# Acceptance: {self.segment}", ""]
         if self.forced:
             lines += [

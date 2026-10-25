@@ -27,7 +27,7 @@ def candidate(description: str, code: str, **overrides) -> dict:
 #: The synthetic store as the prompts describe it.
 SYNTHETIC_MARKET = "adjusted daily bars of every synthetic test symbol"
 
-#: The import path of quantlab's xgb, the acceptance model of a config that names none.
+#: The import path of quantlab's xgb, the acceptance model of the test configs.
 XGB = "quantlab.model.predefined.xgb.XGBoostRegressor"
 
 #: The synthetic store's exposure columns.
