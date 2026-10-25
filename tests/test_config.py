@@ -170,7 +170,7 @@ def test_the_real_config_reads_with_sel0s_191_reference_factors_and_a_direction_
     assert len(names) == len(set(names)) == 191
     assert {direction.split(":")[0] for direction in config.directions} == {m.name for m in DEFAULT_MECHANISMS}
     assert not re.search(r"\b(19|20)\d\d\b", " ".join(config.directions))  # no date reaches a prompt
-    assert {role.model for role in config.roles.values()} == {"deepseek/deepseek-v4-pro-0813"}
+    assert {role.model for role in config.roles.values()} == {"deepseek-v4-pro"}
     assert config.data.membership == "/data/quantlab/universe/us3000/membership_estu"
     assert (config.scoring.neutralize.size_column, config.scoring.neutralize.industry_column) == ("marketcap", "industry")
     assert config.fields == (str(PRICE_VOLUME),) and config.operators == str(EXAMPLE_OPERATORS)
@@ -190,7 +190,7 @@ def test_the_fundamentals_config_differs_from_the_first_only_in_its_run_dir_fiel
     assert config.run_dir == "/data/quantlab/runs/factor_agent_us3000_fund_ret5" != first.run_dir
     assert config.fields == (str(PRICE_VOLUME), str(FUNDAMENTALS)) and config.operators == first.operators
     assert config.admission.min_coverage == 0.5
-    assert {role.model for role in config.roles.values()} == {"deepseek/deepseek-v4-pro-0813"}
+    assert {role.model for role in config.roles.values()} == {"deepseek-v4-pro"}
     assert (config.data.label, config.data.membership, config.scoring) == (first.data.label, first.data.membership, first.scoring)
     assert config.acceptance == first.acceptance and config.acceptance.model == SEL0_XGB_DEEP
     assert config.acceptance.factor_root == "/data/quantlab/factors/market"

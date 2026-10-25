@@ -214,12 +214,14 @@ acceptance:
   top_k: 100
   factor_root: /data/quantlab/factors/market   # exported stores, beside the other whole-market factors
 
-# All four roles: DeepSeek V4 Pro through OpenRouter (prices checked 2026-10-24, USD per million tokens).
+# All four roles: DeepSeek V4 Pro on DeepSeek's own API. Prices checked 2026-10-25: peak hours
+# (Beijing weekdays 9-12, 14-18) CNY 9 input (cache miss) and 27 output per million tokens, half off
+# peak; given at the peak price in USD (CNY 7.1 to the dollar), so the estimate and budget err high.
 llm:
-  planner:   &deepseek {backend: openai_compatible, model: deepseek/deepseek-v4-pro-0813,
-                        base_url: "https://openrouter.ai/api/v1", api_key_env: OPENROUTER_API_KEY,
+  planner:   &deepseek {backend: openai_compatible, model: deepseek-v4-pro,
+                        base_url: "https://api.deepseek.com", api_key_env: DEEPSEEK_API_KEY,
                         max_tokens: 32000, timeout_seconds: 900,
-                        input_usd_per_mtok: 0.66, output_usd_per_mtok: 1.98}
+                        input_usd_per_mtok: 1.27, output_usd_per_mtok: 3.80}
   proposer:  *deepseek
   reviewer:  *deepseek
   distiller: *deepseek
