@@ -156,16 +156,18 @@ def test_the_round_is_compiled_once_with_its_neutralisation(outcome):
     assert 1 <= len(entries) <= 2
 
 
-def _run(root: Path, rounds: list[list[dict]], reference=(), fix=None, **sections) -> dict:
+def _run(root: Path, rounds: list[list[dict]], reference=(), fix=None, known=(), **sections) -> dict:
     """Run a campaign on a fresh synthetic store; ``rounds`` holds the proposer's candidates of each round.
 
-    Each item of ``reference`` makes a reference factor from the prices and the exposures; ``fix``
-    answers the fix requests (``FakeLLM``'s).
+    Each item of ``reference`` (and of ``known``) makes a reference (known) factor from the prices
+    and the exposures; ``fix`` answers the fix requests (``FakeLLM``'s).
     """
     components = synthetic_market.build(root / "data")
     prices, exposures = rebuild(components["prices"]), rebuild(components["exposures"])
     sections["round"] = {"min_per_type": 0, "max_rounds": len(rounds), **sections.get("round", {})}
     made = [factor(prices, exposures).get_config() for factor in reference]
+    if known:
+        sections["known"] = [factor(prices, exposures).get_config() for factor in known]
     config_path = write_config(root, components, made, **sections)
     fake = FakeLLM(lambda number, directions: rounds[number - 1], fix=fix)
     result = run(config_path, fake, root / "kunquant_cache")
@@ -226,6 +228,51 @@ def test_reference_factors_without_a_graph_are_reported_as_not_covered(two_round
     zoo = json.loads((two_rounds["run_dir"] / "zoo.json").read_text())
     assert zoo["not_covered"] == ["momentum_20 (AdjustedMomentum)"]
     assert "KMID (Alpha158Stock)" in zoo["covered"]
+
+
+# One round with Alpha158's candlestick features as the reference set and
+# every Alpha158 feature and a Polars factor as known factors: a rewrite of a
+# known feature fails at the Gate naming it as known.
+AGAINST_KNOWN = [
+    _candidate("std20", "alpha = WindowedStddev(close, 20) / close"),
+    _candidate("volume", "alpha = volume / WindowedAvg(volume, 20)"),
+]
+
+
+@pytest.fixture(scope="module")
+def against_known(tmp_path_factory):
+    return _run(
+        tmp_path_factory.mktemp("against_known"), [AGAINST_KNOWN],
+        reference=[lambda prices, _: _alpha158(prices, KBAR)],
+        known=[lambda prices, _: _alpha158(prices),
+               lambda prices, _: synthetic_market.AdjustedMomentum(PolarsFactorConfig(warmup_bars=20, dataset=prices))],
+        round={"candidates": len(AGAINST_KNOWN), "retries": 0},
+    )
+
+
+def test_a_rewrite_of_a_known_factor_fails_at_the_gate_naming_it_as_known(against_known):
+    record = _by_description(against_known["result"].failed)["std20"]
+    assert record.stage == "gate"
+    assert any("STD20 (Alpha158Stock, a known factor)" in r for r in record.reasons), record.reasons
+
+
+def test_known_factors_are_in_the_record_of_what_the_graph_checks_cover(against_known):
+    zoo = json.loads((against_known["run_dir"] / "zoo.json").read_text())
+    assert zoo["not_covered"] == ["momentum_20 (AdjustedMomentum, a known factor)"]
+    assert against_known["result"].not_covered == ("momentum_20 (AdjustedMomentum, a known factor)",)
+    assert "KMID (Alpha158Stock)" in zoo["covered"] and "STD20 (Alpha158Stock, a known factor)" in zoo["covered"]
+    assert "KMID (Alpha158Stock, a known factor)" not in zoo["covered"]  # taken once, as a reference factor
+
+
+def test_the_families_section_lists_the_known_classes_after_the_reference_families_marked_as_known(against_known):
+    log = against_known["run_dir"] / "llm_log"
+    for role in ("planner", "proposer"):
+        prompt = json.loads(sorted(log.glob(f"*-{role}.json"))[0].read_text())["request"]["prompt"]
+        reference = prompt.index("- Alpha158Stock: ")
+        known = prompt.index("- Alpha158Stock (known, not in the reference set, refused when rewritten): ")
+        momentum = prompt.index("- AdjustedMomentum (known, not in the reference set, refused when rewritten): ")
+        assert reference < known < momentum, prompt
+        assert f"({len(KBAR)} outputs: KMID," in prompt[reference:known] and "(160 outputs: " in prompt[known:momentum]
 
 
 # One round against KMID neutralised, as the shared ``*_neutral`` stores hold

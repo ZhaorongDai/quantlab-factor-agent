@@ -7,7 +7,7 @@ One round:
 2. the planner plans one direction per slot: a new mechanism, an
    orthogonal mutation of an accepted factor, or a refinement of one;
 3. the proposer writes one candidate per direction; the Gate checks each
-   (against the zoo of reference factors and accepted factors) and the
+   (against the zoo of reference, known and accepted factors) and the
    refused ones go back to the proposer to be fixed;
 4. the reviewer, in its own call, judges each gated candidate's hypothesis,
    description and code for consistency, with the data section's fields;
@@ -38,7 +38,7 @@ config's mechanism types, through the snapshot's templates.
 
 The planner and the proposer read the context of ``_feedback``, a pure
 function of the ledger and the config: the seed directions, the reference
-factor families, the memory, the last round's feedback and the current best
+factor families and the known ones (marked as known), the memory, the last round's feedback and the current best
 mechanisms; the planner also reads the recent history (the trials of the
 last ``context.recent_rounds`` rounds, one line each) and the earlier
 summary (the older trials counted by mechanism type and outcome). The
@@ -62,6 +62,8 @@ the calls the ledger was written from. ``run`` resumes
 a run directory from its state: the rounds written are kept, a round a
 crash left half written is dropped and run again, and the zoo, the pool and
 the graphs the Gate compares duplicates with are restored from the ledger.
+The reference set and the known factors are read from the config on every
+start, a resume included; neither is snapshotted.
 """
 
 import json
@@ -72,7 +74,7 @@ import xarray as xr
 
 from factor_agent import _admission, _cost, _feedback, _scheduler
 from factor_agent._cost import CostEstimate
-from factor_agent.config import ROLES, CampaignConfig, load
+from factor_agent.config import ROLES, CampaignConfig
 from factor_agent.evaluator import CompileFailure, Evaluator, Metrics
 from factor_agent.gate import Gate
 from factor_agent.gate.graph import Graph
@@ -101,7 +103,7 @@ class CampaignResult:
     """Every trial record of the run, why it stopped, and where the ledger is.
 
     ``evaluated_trials`` counts the candidates the Evaluator scored.
-    ``not_covered`` names the reference factors without a KunQuant graph,
+    ``not_covered`` names the reference and known factors without a KunQuant graph,
     which the Gate's originality check cannot compare a candidate with.
     """
 
@@ -184,10 +186,10 @@ class Campaign:
             config.templates(), config.vocabulary(), config.data.load("label"),
             Scoring.from_config(config.scoring, config.data, njobs=config.evaluator.njobs),
         )
-        return self._estimate([load(component) for component in config.reference], prompts, config.context.recent_rounds)
+        return self._estimate(*config.load_factors(), prompts, config.context.recent_rounds)
 
-    def _estimate(self, reference: list, prompts: Prompts, recent_rounds: int) -> CostEstimate:
-        context = {"seed": _seed(self.config.directions), "families": _feedback.families(reference)}
+    def _estimate(self, reference: list, known: list, prompts: Prompts, recent_rounds: int) -> CostEstimate:
+        context = {"seed": _seed(self.config.directions), "families": _feedback.families(reference, known)}
         return _cost.estimate(
             self.config.round, self._role_backends(), context, prompts, recent_rounds,
         )
@@ -241,8 +243,8 @@ class Campaign:
             state.spent = spent
             state.write(state_path)
 
-        reference = [load(component) for component in config.reference]
-        print(self._estimate(reference, prompts, recent_rounds).summary(config.round.budget_usd, state.spent), flush=True)
+        reference, known = config.load_factors()
+        print(self._estimate(reference, known, prompts, recent_rounds).summary(config.round.budget_usd, state.spent), flush=True)
         log = LLMLog(run_dir / "llm_log")
         log.drop_after(state.calls)
         researcher = Researcher(
@@ -263,7 +265,7 @@ class Campaign:
             purge_bars=config.segments.purge_bars,
             period_lags=vocabulary.lag_columns,
         )
-        zoo = Zoo.from_reference(reference, vocabulary)
+        zoo = Zoo.from_reference(reference, vocabulary, known=known)
         _write_zoo(run_dir / "zoo.json", zoo)
         gate = Gate(config.gate, vocabulary, seen=[Graph.from_json(r.graph, vocabulary.classes) for r in records if r.graph])
         _restore(records, zoo, evaluator, vocabulary)
@@ -289,7 +291,7 @@ class Campaign:
                     state.write(state_path)
                 quota = _scheduler.quota(number, records, config.round, prompts.mechanism_types)
                 accepted = [r for r in records if r.status == "accepted"]
-                context = self._context(records, state, reference, evaluator, accepted, recent_rounds, prompts)
+                context = self._context(records, state, reference, known, evaluator, accepted, recent_rounds, prompts)
                 directions, issues = researcher.plan(number, quota, context, [_feedback.accepted_label(r) for r in accepted])
                 proposals = researcher.propose(number, directions, context, gate, zoo, config.round.retries)
                 round_records = self._round(number, proposals, researcher, gate, zoo, evaluator, records)
@@ -369,7 +371,7 @@ class Campaign:
         return None
 
     def _context(
-        self, records: list[TrialRecord], state: _State, reference: list, evaluator: Evaluator,
+        self, records: list[TrialRecord], state: _State, reference: list, known: list, evaluator: Evaluator,
         accepted: list[TrialRecord], recent_rounds: int, prompts: Prompts,
     ) -> dict[str, str]:
         """The sections the planner and the proposer read; see ``_feedback``.
@@ -382,7 +384,7 @@ class Campaign:
         first_recent = _feedback.first_recent_round(state.rounds, recent_rounds)
         return {
             "seed": _seed(self.config.directions),
-            "families": _feedback.families(reference),
+            "families": _feedback.families(reference, known),
             "memory": state.memory,
             "earlier_summary": _feedback.earlier_summary(
                 [r for r in records if r.round < first_recent], prompts.mechanism_types,
@@ -514,7 +516,7 @@ def _columns(prices) -> set[str] | None:
 
 
 def _write_zoo(path: Path, zoo: Zoo) -> None:
-    """Write which reference factors the originality check covers and which it cannot."""
+    """Write which reference and known factors the originality check covers and which it cannot."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"covered": list(zoo.covered), "not_covered": list(zoo.not_covered)}, indent=2) + "\n")
 

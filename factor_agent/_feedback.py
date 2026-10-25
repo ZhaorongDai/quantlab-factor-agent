@@ -6,7 +6,8 @@ correlation with it, the rejection reasons, and each accepted factor's
 marginal weight and residual IC in the accepted pool. It never shows a
 return, a date, or advice to change windows or parameters. The first round
 has no history; it sees the data, the seed directions and the existing
-factor families by name and description, without any statistic.
+factor families (the reference set's, then the known factors', marked as
+known) by name and description, without any statistic.
 """
 
 import math
@@ -40,18 +41,23 @@ def accepted_label(record: TrialRecord) -> str:
     return f"{record.candidate['description']} ({accepted_source(record.round)})"
 
 
-def families(reference) -> str:
-    """One line per reference factor: its owner's class, what its docstring says it is, and its outputs.
+#: How the families section marks a known factor's class.
+KNOWN_MARK = "known, not in the reference set, refused when rewritten"
 
-    The owner (``zoo.owner``) is the factor a wrapper such as ``NeutralizedFactor`` shows.
+
+def families(reference, known=()) -> str:
+    """One line per reference factor, then per known factor: its owner's class, what its docstring says it is, and its outputs.
+
+    The owner (``zoo.owner``) is the factor a wrapper such as ``NeutralizedFactor``
+    shows. A known factor's class is marked with ``KNOWN_MARK``.
     """
     lines = []
-    for factor in reference:
+    for factor, mark in [(f, "") for f in reference] + [(f, f" ({KNOWN_MARK})") for f in known]:
         names = factor.get_factor_names()
         kind = type(owner(factor))
         doc = (kind.__doc__ or "").strip().splitlines()
         shown = ", ".join(names[:12]) + (", ..." if len(names) > 12 else "")
-        lines.append(f"- {kind.__name__}: {doc[0] if doc else 'no description'} ({len(names)} outputs: {shown})")
+        lines.append(f"- {kind.__name__}{mark}: {doc[0] if doc else 'no description'} ({len(names)} outputs: {shown})")
     return "\n".join(lines)
 
 

@@ -6,7 +6,7 @@ a proposal, ``retries`` rewrite requests, a review, and the rewrite of the
 candidates the reviewer finds inconsistent and their second review (each
 sized here as a whole round's candidates), with a distillation every
 ``memory_every`` rounds. Prompt sizes come from the real templates
-with the data description, the seed directions and the reference families;
+with the data description, the seed directions and the reference and known families;
 the planner's recent history holds a fixed number of characters per trial
 of the last ``recent_rounds`` rounds, its earlier summary a fixed number per
 mechanism type, and the distiller reads the memory and the trials since it.
@@ -79,7 +79,7 @@ def estimate(
     ``backends`` maps each role to its backend; a backend prices a call
     with ``estimate(input_tokens, output_tokens)``, and one without that
     method makes its role's cost unknown. ``context`` holds the first
-    round's sections (the seed directions and the reference families);
+    round's sections (the seed directions and the reference and known families);
     ``prompts`` are the campaign's templates and what fills them.
     """
     rounds = min(settings.max_rounds, settings.max_trials // settings.candidates)

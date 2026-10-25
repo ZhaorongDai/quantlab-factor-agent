@@ -12,7 +12,7 @@ rounds until a stop condition holds. Each round, every mechanism type gets `min_
 the rest go by Thompson sampling on each type's admission rate; the planner plans one direction per
 slot (a new mechanism, an orthogonal mutation of an accepted factor, or a refinement of one); the
 proposer writes one candidate per direction; the `Gate` builds each in a sandboxed subprocess and
-refuses rewrites of the zoo (the KunQuant graphs of the `reference` factors plus the accepted ones),
+refuses rewrites of the zoo (the KunQuant graphs of the `reference` and `known` factors plus the accepted ones),
 parameter-only variants and large shared subtrees, sending the refused ones back to be fixed; the
 reviewer, in its own call (possibly another backend) and with the data section's field descriptions,
 judges each candidate's hypothesis, description and code for consistency, the inputs and
@@ -30,7 +30,7 @@ statistics are read in it. Admission requires a direction, correlation at most 0
 Newey-West t above a threshold that rises with the evaluated trials (each counted in both directions),
 and monotone deciles. An exported factor is turned to its direction: a higher value, a higher return.
 
-The planner and the proposer see the data, the seed `directions`, the reference factor families, the
+The planner and the proposer see the data, the seed `directions`, the reference factor families (then the known ones, marked as known), the
 memory, the last round's training statistics and rejection reasons, and the accepted factors with
 their marginal weight and residual IC in the accepted pool; the planner also sees the trials of the
 last `context.recent_rounds` rounds (default 5) one line each and the older ones counted by mechanism
@@ -205,6 +205,22 @@ the reference set. A reference entry is a component (`get_config()` dict or stor
 `{store: <folder>, factor_names: [...]}`, the store's factor pinned to those outputs. The Gate compares a
 candidate with the graph of the factor a `*_neutral` store neutralises; every stored reference or baseline
 factor is read from its store's first bar (the intraday stores start in 2016, so they are empty on training).
+
+`known` (optional, default none) lists the known factors besides the reference set: every other existing
+factor a candidate is checked against for novelty. Its entries are written as `reference`'s; an output a
+reference factor of the same class already shows is dropped from `known`, so whole classes can be listed
+without subtracting the reference outputs, and a malformed entry fails when the config is read. The Gate
+refuses a rewrite, a parameter-only variant or a large shared subtree of a known factor, naming it as
+`STD20 (Alpha158Stock, a known factor)`; `zoo.json` lists the known factors it covers and those without a
+KunQuant graph it cannot; the families section lists the known classes after the reference families, marked
+"known, not in the reference set, refused when rewritten". Known factors never enter the partial IC. Like
+`reference`, `known` is read from the config on every start, a resume included, and is not snapshotted.
+
+```yaml
+known:
+  - /data/quantlab/factors/market/alpha158_neutral   # a store folder: every output
+  - {store: /data/quantlab/factors/market/alpha101_neutral, factor_names: [alpha001, alpha002]}
+```
 
 On the server (`~/projects/quantlab-factor-agent`, next to `~/projects/quantlab`), on NUMA Node 1 (Node 0's
 memory bandwidth is degraded); KunQuant runs `evaluator.njobs` = 51 threads; set no thread variables:
