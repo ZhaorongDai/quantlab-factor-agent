@@ -27,6 +27,9 @@ def candidate(description: str, code: str, **overrides) -> dict:
 #: The synthetic store as the prompts describe it.
 SYNTHETIC_MARKET = "adjusted daily bars of every synthetic test symbol"
 
+#: The import path of quantlab's xgb, the acceptance model of the test configs.
+XGB = "quantlab.model.predefined.xgb.XGBoostRegressor"
+
 #: The synthetic store's exposure columns.
 NEUTRALIZE = {"size_column": "marketcap", "industry_column": "industry"}
 
@@ -50,6 +53,7 @@ def write_config(root: Path, components: dict, reference=(), **sections) -> Path
         "reference": list(reference),
         "evaluator": {"warmup_bars": 60, "njobs": 4},
         "llm": {role: {"backend": "scripted", "model": f"model-{role}", "replies": "unused.json"} for role in ROLES},
+        "acceptance": {"model": {"name": XGB}},
         **sections,
     }))))
     return path

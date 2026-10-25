@@ -127,7 +127,8 @@ llm:
 
 ## Acceptance
 
-After the campaign, `Acceptance(config)` judges the accepted factors by what they add to SEL0 xgb:
+After the campaign, `Acceptance(config)` judges the accepted factors by what they add to the acceptance
+model, which the config must name:
 
 ```yaml
 segments:
@@ -136,24 +137,55 @@ segments:
   holdout:    {start: 2020-01-02, end: 2026-10-23}
   purge_bars: 5          # at least; a label that reads further purges more (ret_5: 6)
 acceptance:
-  features: [...]        # SEL0's features as components; empty: the reference set
-  seeds: [0, 1, 2]
+  model:                 # required: the get_config() of any quantlab BaseModel or ModelEnsemble
+    name: quantlab.model.predefined.xgb.XGBoostRegressor
+    factors: []          # the baseline, as reference entries; empty: the reference set
+    hyperparameters: {...}   # us3000_ret5.yaml names SEL0's xgb_deep
+  seeds: [0, 1, 2]       # each replaces every model's (every member's) random_seed
+  contribution: none     # per-factor contribution in validate(): none, drop_one, add_one or both
   top_k: 100
-  hyperparameters: {...}  # the xgb's; unset: quantlab's XGBoost defaults (us3000_ret5.yaml names SEL0's xgb_deep)
   factor_root: /data/quantlab/factors/market   # where export() writes the stores; an export needs it
 ```
 
-- `validate()` trains the xgb per seed on the baseline features and on those plus every accepted
-  factor (through the same `scoring` the Evaluator admitted with), up to the
+- The model is a template. A `ModelEnsemble` is `{name: ...ModelEnsemble, members: [<model>, ...]}`, each
+  member with its own `factors` (its baseline; empty: the reference set) and hyperparameters. Acceptance
+  fills in the label, the windows, `val_size`, the read strategies and the seed, and appends the accepted
+  factors to every member; what a template says of those is replaced, so a trained run's `config.json`
+  serves as one. A `SeedEnsemble` is refused (the seeds are `acceptance.seeds`); the removed
+  `acceptance.hyperparameters` and `acceptance.features` fail to load.
+- `validate(selection=None)` trains the model per seed on its baseline and on its baseline plus a
+  selection of the accepted factors, named as `export` names them (description, or
+  `description (accepted in round n)`), every accepted factor by default (through the same `scoring` the Evaluator admitted with), up to the
   purged end of training, and predicts the purged validation segment. It reports, per seed and on
   average, rank IC, IC, decile monotonicity, D10−D1, and the fee-free plain TopK return and excess
-  (`<run_dir>/acceptance/validation.{json,md}`).
-- `open_holdout(force=False)` writes `<run_dir>/holdout.lock` (when, with which commits), then makes the
-  same comparison on the hold-out, trained through validation. A second open raises `HoldoutLocked`;
-  `force=True` runs it, appends to the lock, and the report says the hold-out was opened again.
-- `export({"<description>": "<name>"})` writes `factor_agent/accepted/<name>.py` (a `GraphFactor`, i.e.
+  (`<run_dir>/acceptance/validation.{json,md}`; a selection of fewer goes to
+  `validation_<digest>.{json,md}`, the digest over its members' labels, and each report lists its members).
+  An unknown or ambiguous name raises `KeyError`.
+- With `contribution`, `validate()` also measures each factor of the selection, with the same seeds:
+  drop-one trains the model without it (the whole selection against the selection without it), add-one on
+  the baseline plus only it (against the baseline); a feature set equal to another is trained once. The
+  reports gain a contribution table, one row per factor and mode, sorted by the rank IC difference: the
+  seed-averaged difference of every statistic and, per statistic, how many seeds have the mean's sign (the
+  Markdown shows rank IC difference, seeds agreeing and TopK excess difference). No threshold. The
+  hold-out never measures contribution.
+- Every trained model's result is cached under `<run_dir>/acceptance/<segment>/cache/`, keyed by its
+  filled-in config (template, features, label, windows, seed; paths under the run directory relative to it, so a
+  moved run directory keeps its cache), the code version (the factor_agent and quantlab commits) and the TopK
+  size and scoring; a re-run,
+  after an interruption say, reads what is cached and trains the rest. Every selection reads its factors
+  from one store of all accepted factors (one per predicted segment), so equal feature sets, a narrowed
+  selection's add-one and the whole set's say, share their models. Before training, `validate()` and
+  `open_holdout()` print how many models they will train, how many are cached and, once some models of the same template have
+  finished, an estimated duration from their times. The print never waits for an answer.
+- `open_holdout(selection, force=False)` needs `validate`'s report of exactly that selection, then writes
+  `<run_dir>/holdout.lock` (when, with which commits) and makes the same comparison on the hold-out for the
+  selection only, trained through validation (`holdout[_<digest>].{json,md}`). A second open, of any
+  selection, raises `HoldoutLocked`; `force=True` runs it, appends to the lock, and the report says the
+  hold-out was opened again.
+- `export({"<description>": "<name>"})`, the keys being the selection, writes `factor_agent/accepted/<name>.py` (a `GraphFactor`, i.e.
   `FactorKunQuant`, subclass fixing the scored graph) and the whole-market store
-  `<factor_root>/<name>/` (`NeutralizedFactor` of the ranked graph) with `README.md` and `component.json`.
+  `<factor_root>/<name>/` (`NeutralizedFactor` of the ranked graph) with `README.md` and `component.json`;
+  the README quotes `validate`'s report of the exported selection, when there is one.
 
 ## Setup
 
@@ -186,5 +218,5 @@ nohup numactl --cpunodebind=1 --preferred=1 uv run python -c \
 ```
 
 After the campaign, the same way: `Acceptance(CampaignConfig.from_file('configs/us3000_ret5.yaml')).validate()`.
-The campaign uses no GPU. `Acceptance` trains xgb on the GPU (quantlab picks CUDA); start it only when it
+The campaign uses no GPU. `Acceptance` trains SEL0's xgb on the GPU (quantlab picks CUDA); start it only when it
 ends before 06:00 US Eastern on a weekday, when the GPU must be free.

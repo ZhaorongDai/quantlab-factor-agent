@@ -137,7 +137,21 @@
 对外 interface 只有两个：
 
 - `Campaign(config).run() -> CampaignResult`：可从台账断点续跑，每轮落盘后才推进。
-- `Acceptance(config, run_dir)`：`.validate()`、`.open_holdout()`、`.export(names)`。
+- `Acceptance(config, run_dir)`：`.validate(selection=None)`、`.open_holdout(selection, force=False)`、`.export(names)`。
+  选中一组（Q84）按 export 的命名方式（描述或 `描述 (accepted in round n)`）点名接受的因子，未知或歧义名报 `KeyError`、重复点名报错；
+  不传为全部接受的因子，报告为 `acceptance/<段>.json|md`，少于全部时为 `acceptance/<段>_<摘要>.json|md`（摘要取排序后的成员标签），报告列出成员；
+  `open_holdout` 要求同一选中一组的验证报告（在锁记录打开之前检查），只对比基线与基线加该组，锁照旧（任一组打开都计一次）；`export` 的 `names` 键即选中一组，导出的 README 引用该组的验证报告。验收模型由必填的 `acceptance.model` 给出（Q84）：
+  任一 quantlab `BaseModel` 或 `ModelEnsemble`（`members`）的 `get_config()` 作模板，模型/成员的 `factors` 即基线（留空用参考集）、
+  超参数写在模板里；验收填入标签、训练/预测窗口、读取方式、`val_size` 与种子（覆盖每个成员的 `random_seed`），接受的因子追加到每个成员；
+  `SeedEnsemble` 模板报错（种子用 `acceptance.seeds`）；`acceptance.hyperparameters`、`acceptance.features` 已删，旧配置读取即报错。
+  模板填充在 `_acceptance_model.py`（`check`、`build`）。
+  每个训练过的模型的结果按填好的组件 config（模板、特征、标签、窗口、种子，去掉保存目录，运行目录下的路径写成相对路径，搬动运行目录不失效）、代码版本（`segments.code_version()` 的两个提交号，改了代码即不命中）与 TopK 数、scoring 的摘要（纯 JSON，非 JSON 值报错）缓存在
+  `acceptance/<段>/cache/<摘要>.json`（含耗时），重跑读缓存；训练前打印要训练数、已缓存数与按同一模板已完成模型耗时均值的估计（`_model_cache.py`；`Acceptance._train` 是唯一入口）。
+  选中一组不另建 store：每组都按 `factor_names` 读全部接受因子的同一个 store（`acceptance/accepted_<预测段末日>/`，验证与保留期各一个，验证从不计算保留期的日期），
+  相同特征集合（如收窄后一组的 add-one 与全部的 add-one）命中同一缓存；输出名 `accepted_<k>` 取全部接受因子中的位置；全部命中缓存时不建 store，建过且记录一致时不重建。
+  `acceptance.contribution`（`none` 默认 / `drop_one` / `add_one` / `both`，读取时校验）只作用于 `validate`：对比计划（纯函数）由选中一组与贡献方式列出要训练的特征集合（`baseline`、`with_accepted`、每因子 `drop_<输出>` / `add_<输出>`，
+  相同集合只训一次，都经 `_train` 缓存与计数），`AcceptanceReport.contributions` 为 `Contribution(factor, mode, without, with_factor)`，`contribution_table()` 给每因子每方式
+  7 项指标的种子均值差与同向种子数，按 rank IC 差排序；`open_holdout` 不做贡献。
 
 内部深 module：
 
@@ -167,7 +181,7 @@ factor_agent/
   llm/             base.py、claude_code.py、anthropic.py、openai_compatible.py、replay.py
   gate/            Gate；与 Evaluator / 提示词共用的 graph.py（图的纯数据形式）、vocabulary.py（算子白名单）；内部 _sandbox.py、_checks.py
   evaluator.py     （内部 _batch.py）
-  segments.py · ledger.py · zoo.py · acceptance.py · config.py
+  segments.py · ledger.py · zoo.py · acceptance.py（内部 _acceptance_model.py、_model_cache.py）· config.py
   exported.py      GraphFactor（FactorKunQuant 子类，Evaluator 与导出共用的建图）；accepted/ 放 export 生成的模块
 tests/  只测对外与深 module 的 interface：test_gate、test_evaluator、test_campaign、test_acceptance、test_llm_backends，
         以及运行的入口配置文件 test_config（参考集写法、真实配置 configs/us3000_ret5.yaml 可解析）
