@@ -1,7 +1,7 @@
 """Acceptance: the accepted factors' incremental test in the acceptance model, the one-time hold-out, and their export.
 
 ``validate`` trains the acceptance model (``AcceptanceConfig.model``, a
-template that ``factor_agent.acceptance_model`` fills in) twice per seed: on
+template that ``factor_agent._acceptance_model`` fills in) twice per seed: on
 its baseline (its own factors, or the reference set) and on that plus a
 selection of the factors the campaign accepted (every one by default, else
 named as ``export`` names them), all read through the campaign's
@@ -72,7 +72,7 @@ from quantlab.model.base import BaseModel
 from quantlab.model.evaluation import cross_sectional_ic_series, cross_sectional_rank_ic_series
 from quantlab.runs.trained_run import TrainedRun
 
-from factor_agent import _admission, _feedback, _model_cache, acceptance_model
+from factor_agent import _acceptance_model, _admission, _feedback, _model_cache
 from factor_agent.config import CampaignConfig, load
 from factor_agent.evaluator import decile_returns
 from factor_agent.exported import GraphFactor
@@ -469,7 +469,7 @@ class Acceptance:
 
         ``feature_sets`` maps a name (its models are saved under
         ``acceptance/<segment><suffix>/<name>_s<seed>``) to the features added to the
-        baseline; the cache, ``acceptance/<segment>/cache``, is shared by every selection; ``filled`` is every ``acceptance_model.FILLED`` value but the
+        baseline; the cache, ``acceptance/<segment>/cache``, is shared by every selection; ``filled`` is every ``_acceptance_model.FILLED`` value but the
         seed and the save directory. Before any training it prints how many
         models it will train, how many are cached and, from the elapsed times
         cached with finished models, an estimate of the time it will take.
@@ -480,7 +480,7 @@ class Acceptance:
         models = {}
         for kind, added in feature_sets.items():
             for seed in settings.seeds:
-                model = acceptance_model.build(settings.model, self._baseline, added, {
+                model = _acceptance_model.build(settings.model, self._baseline, added, {
                     **filled, "random_seed": seed, "model_save_dir": str(directory / f"{kind}_s{seed}"),
                 })
                 models[kind, seed] = model, _model_cache.key(

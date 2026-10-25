@@ -30,7 +30,7 @@ import yaml
 from quantlab.core.component import rebuild
 from quantlab.core.store_folder import load_component
 
-from factor_agent import acceptance_model
+from factor_agent import _acceptance_model
 from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.prompts import Templates
 from factor_agent.segments import PURGE_BARS, Segment, Segments
@@ -224,7 +224,7 @@ CONTRIBUTIONS = ("none", "drop_one", "add_one", "both")
 class AcceptanceConfig:
     """How ``Acceptance`` validates, opens the hold-out and exports.
 
-    ``model`` is the acceptance model, a template (``factor_agent.acceptance_model``):
+    ``model`` is the acceptance model, a template (``factor_agent._acceptance_model``):
     the component config of a quantlab ``BaseModel`` or ``ModelEnsemble``,
     whose own factors are the baseline (empty: the reference set). Every
     baseline feature, and each accepted factor's scored values, is read as
@@ -263,7 +263,7 @@ class AcceptanceConfig:
             raise ValueError("acceptance: at least one seed is needed")
         if self.contribution not in CONTRIBUTIONS:
             raise ValueError(f"acceptance.contribution {self.contribution!r} is not one of {list(CONTRIBUTIONS)}")
-        acceptance_model.check(self.model)
+        _acceptance_model.check(self.model)
 
     @classmethod
     def from_dict(cls, raw: dict | None) -> "AcceptanceConfig":
