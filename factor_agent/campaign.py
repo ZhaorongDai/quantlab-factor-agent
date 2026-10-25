@@ -7,8 +7,8 @@ One round:
 2. the planner plans one direction per slot: a new mechanism, an
    orthogonal mutation of an accepted factor, or a refinement of one;
 3. the proposer writes one candidate per direction; the Gate checks each
-   (against the zoo of reference, known and accepted factors) and the
-   refused ones go back to the proposer to be fixed;
+   against the reference set, the known factors and the accepted factors
+   (the ``Zoo``) and the refused ones go back to the proposer to be fixed;
 4. the reviewer, in its own call, judges each gated candidate's hypothesis,
    description and code for consistency, with the data section's fields;
    the inconsistent ones go back to the proposer once, all in one fix
@@ -38,8 +38,8 @@ config's mechanism types, through the snapshot's templates.
 
 The planner and the proposer read the context of ``_feedback``, a pure
 function of the ledger and the config: the seed directions, the reference
-factor families and the known ones (marked as known), the memory, the last round's feedback and the current best
-mechanisms; the planner also reads the recent history (the trials of the
+factor families and the known ones (marked as known), the memory, the last
+round's feedback and the current best mechanisms; the planner also reads the recent history (the trials of the
 last ``context.recent_rounds`` rounds, one line each) and the earlier
 summary (the older trials counted by mechanism type and outcome). The
 snapshot records ``recent_rounds`` at the first start and a resume may not
@@ -266,7 +266,7 @@ class Campaign:
             purge_bars=config.segments.purge_bars,
             period_lags=vocabulary.lag_columns,
         )
-        zoo = Zoo.from_reference(reference, vocabulary, known=known)
+        zoo = Zoo.from_existing(reference, vocabulary, known=known)
         _write_zoo(run_dir / "zoo.json", zoo)
         gate = Gate(config.gate, vocabulary, seen=[Graph.from_json(r.graph, vocabulary.classes) for r in records if r.graph])
         _restore(records, zoo, evaluator, vocabulary)

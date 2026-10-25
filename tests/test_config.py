@@ -95,21 +95,6 @@ def test_the_known_factors_may_be_given_in_each_entry_form(store, tmp_path, entr
     assert (len(known.get_factor_names()) if isinstance(names, int) else known.get_factor_names()) == names
 
 
-def test_outputs_of_a_known_factor_already_in_the_reference_set_are_dropped_from_it(store, tmp_path):
-    config = CampaignConfig.from_file(_minimal(
-        tmp_path, reference=[{"store": str(store), "factor_names": ["KMID"]}], known=[_store_entry(store), str(store)],
-    ))
-    [reference], known = config.load_factors()
-    assert reference.get_factor_names() == ("KMID",)
-    assert [factor.get_factor_names() for factor in known][0] == ("STD20",)
-    assert "KMID" not in known[1].get_factor_names() and len(known[1].get_factor_names()) == 168
-
-
-def test_a_known_factor_whose_outputs_are_all_in_the_reference_set_is_dropped(store, tmp_path):
-    config = CampaignConfig.from_file(_minimal(tmp_path, reference=[_store_entry(store)], known=[_store_entry(store)]))
-    assert config.load_factors()[1] == []
-
-
 @pytest.mark.parametrize("entry", [
     42,
     "",

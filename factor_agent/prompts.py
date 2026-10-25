@@ -55,11 +55,11 @@ A factor's value should be comparable across the cross-section, so write it as a
 ratio, a return, a rank or a z-score. An output that carries a unit (a price, a dollar amount, a share
 count) ranks the cross-section partly by that level, and that ranking is what the scoring compares,
 unless the mechanism is about that level, as a price impact per dollar traded is.
-Leave a missing value missing: do not wrap the value in SetInfOrNanToValue to fill it. The scoring
-skips a symbol without a value that day, so a missing value needs no fill; a filled value is ranked as
-real data, so a symbol without the data is sorted as if its value were the fill and the factor partly
-sorts the cross-section by whether the item is reported; and coverage is measured before any fill, so a fill does
-not help a factor pass the coverage rule. Fill only when the mechanism says what a missing value means,
+Leave a missing value missing. The scoring skips a symbol without a value that day, so a missing
+value needs no fill; a filled value is ranked as real data, so a symbol without the data is sorted as
+if its value were the fill and the factor partly sorts the cross-section by whether the item is
+reported; and coverage is measured before any fill, so a fill does not help a factor pass the
+coverage rule. Fill (SetInfOrNanToValue) only when the mechanism says what a missing value means,
 as an unreported R&D expense is zero, and state that reason in the description."""
 
 FIELDS = """\

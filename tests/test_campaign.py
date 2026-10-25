@@ -236,8 +236,9 @@ def test_reference_factors_without_a_graph_are_reported_as_not_covered(two_round
 
 
 # One round with Alpha158's candlestick features as the reference set and
-# every Alpha158 feature and a Polars factor as known factors: a rewrite of a
-# known feature fails at the Gate naming it as known.
+# every Alpha158 feature, the candlestick features again and a Polars factor
+# as known factors: a rewrite of a known feature fails at the Gate naming it
+# as known, and an output of the reference set is taken there only.
 AGAINST_KNOWN = [
     _candidate("std20", "alpha = WindowedStddev(close, 20) / close"),
     _candidate("volume", "alpha = volume / WindowedAvg(volume, 20)"),
@@ -250,6 +251,7 @@ def against_known(tmp_path_factory):
         tmp_path_factory.mktemp("against_known"), [AGAINST_KNOWN],
         reference=[lambda prices, _: _alpha158(prices, KBAR)],
         known=[lambda prices, _: _alpha158(prices),
+               lambda prices, _: _alpha158(prices, KBAR),
                lambda prices, _: synthetic_market.AdjustedMomentum(PolarsFactorConfig(warmup_bars=20, dataset=prices))],
         round={"candidates": len(AGAINST_KNOWN), "retries": 0},
     )
@@ -266,7 +268,10 @@ def test_known_factors_are_in_the_record_of_what_the_graph_checks_cover(against_
     assert zoo["not_covered"] == ["momentum_20 (AdjustedMomentum, a known factor)"]
     assert against_known["result"].not_covered == ("momentum_20 (AdjustedMomentum, a known factor)",)
     assert "KMID (Alpha158Stock)" in zoo["covered"] and "STD20 (Alpha158Stock, a known factor)" in zoo["covered"]
-    assert "KMID (Alpha158Stock, a known factor)" not in zoo["covered"]  # taken once, as a reference factor
+    # An output of the reference set is taken once, as a reference factor, even from a known factor
+    # whose outputs are all in the reference set.
+    assert not any(label.endswith("a known factor)") and label.split()[0] in KBAR for label in zoo["covered"])
+    assert len(zoo["covered"]) == len(set(zoo["covered"])) == 169
 
 
 def test_the_families_section_lists_the_known_classes_after_the_reference_families_marked_as_known(against_known):
@@ -314,7 +319,7 @@ def test_a_candidate_correlated_with_a_known_factor_is_rejected_at_admission_nam
     correlation = record.metrics["nearest_known_correlation"]
     assert correlation > 0.7
     assert record.reasons == [
-        f"cross-sectional correlation {correlation:+.2f} with {KMID_KNOWN}, sampled on every fifth training date, "
+        f"cross-sectional correlation {correlation:+.2f} with {KMID_KNOWN}, sampled on one training date in 5, "
         f"is above 0.7 in absolute value"
     ]
 

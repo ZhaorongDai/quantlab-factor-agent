@@ -11,36 +11,38 @@ Status: the multi-round research loop (#5) and acceptance (#7, see below). `Camp
 rounds until a stop condition holds. Each round, every mechanism type gets `min_per_type` slots and
 the rest go by Thompson sampling on each type's admission rate; the planner plans one direction per
 slot (a new mechanism, an orthogonal mutation of an accepted factor, or a refinement of one); the
-proposer writes one candidate per direction; the `Gate` builds each in a sandboxed subprocess and
-refuses rewrites of the zoo (the KunQuant graphs of the `reference` and `known` factors plus the accepted ones),
-parameter-only variants and large shared subtrees, sending the refused ones back to be fixed; the
-reviewer, in its own call (possibly another backend) and with the data section's field descriptions,
-judges each candidate's hypothesis, description and code for consistency, the inputs and
-transformations the hypothesis says the factor is built from included; it is told each candidate's
-output unit as the Gate infers it, and a factor whose value carries a unit (a price, a dollar amount,
-a share count) needs a hypothesis about that level. An inconsistent candidate is
-sent back once to be rewritten, with the reviewer's reason and its output unit; the rewrite passes the Gate once (a
-refusal fails it) and is reviewed once more, and one still inconsistent is rejected unevaluated. The `Evaluator` compiles the rest as
-one KunQuant graph and scores them on the training segment, as the config's `scoring` says (ranked
-over the whole market; neutralised against `scoring.neutralize`'s exposures, size and industry columns, or
-not when it is null; masked to the day-t members of `data.membership`, or on every symbol without one),
-against the label (rank IC, partial IC residualised on the reference and accepted factors, correlation with each,
-deciles), and records the nearest `known` factor and its correlation on a fixed sample of the dates. A candidate states no direction: its direction is the sign of its training IC, and the
-statistics are read in it. Admission requires a direction, correlation at most 0.7 (with every reference and
-accepted factor, and sampled with every known factor), a partial-IC
-Newey-West t above a threshold that rises with the evaluated trials (each counted in both directions),
-monotone deciles, and coverage (the mean daily share of the members with a value) of at least
-`admission.min_coverage` (default 0.5). Coverage is measured before any fill: on the candidate's graph with
-every `SetInfOrNanToValue` replaced by its input, so filling a sparse field with 0 leaves the coverage of
-the field; the scored values still come from the graph as written. The proposer is told to leave a missing
-value missing (the scoring skips it) and to fill only when the mechanism says what a missing value means,
-stated in the description; the reviewer finds a fill without that reason inconsistent. An exported factor is turned to its direction: a higher value, a higher return.
+proposer writes one candidate per direction; the `Gate` builds each in a sandboxed subprocess and refuses
+rewrites of the reference set, the known factors and the accepted factors (compared by their KunQuant
+graphs), parameter-only variants of them and large subtrees shared with them, sending the refused ones
+back to be fixed; the reviewer, in its own call (possibly another backend) and with the data section's
+field descriptions, judges each candidate's hypothesis, description and code for consistency, the inputs
+and transformations the hypothesis says the factor is built from included; it is told each candidate's
+output unit as the Gate infers it, and a factor whose value carries a unit (a price, a dollar amount, a
+share count) needs a hypothesis about that level. An inconsistent candidate is sent back once to be
+rewritten, with the reviewer's reason and its output unit; the rewrite passes the Gate once (a refusal
+fails it) and is reviewed once more, and one still inconsistent is rejected unevaluated. The `Evaluator`
+compiles the rest as one KunQuant graph and scores them on the training segment, as the config's
+`scoring` says (ranked over the whole market; neutralised against `scoring.neutralize`'s exposures, size
+and industry columns, or not when it is null; masked to the day-t members of `data.membership`, or on
+every symbol without one), against the label (rank IC, partial IC residualised on the reference and
+accepted factors, correlation with each, deciles), and records the nearest known factor and its
+correlation on a fixed sample of the dates. A candidate states no direction: its direction is the sign of
+its training IC, and the statistics are read in it. Admission requires a direction, correlation at most
+0.7 (with every factor of the reference set and every accepted factor, and sampled with every known
+factor), a partial-IC Newey-West t above a threshold that rises with the evaluated trials (each counted
+in both directions), monotone deciles, and coverage (the mean daily share of the members with a value) of
+at least `admission.min_coverage` (default 0.5). Coverage is measured before any fill: on the candidate's
+graph with every `SetInfOrNanToValue` replaced by its input, so filling a sparse field with 0 leaves the
+coverage of the field; the scored values still come from the graph as written. The proposer is told to
+leave a missing value missing (the scoring skips it) and to fill only when the mechanism says what a
+missing value means, stated in the description; the reviewer finds a fill without that reason
+inconsistent. An exported factor is turned to its direction: a higher value, a higher return.
 
-The planner and the proposer see the data, the seed `directions`, the reference factor families (then the known ones, marked as known), the
-memory, the last round's training statistics and rejection reasons, and the accepted factors with
-their marginal weight and residual IC in the accepted pool; the planner also sees the trials of the
-last `context.recent_rounds` rounds (default 5) one line each and the older ones counted by mechanism
-type and outcome; never a return, a date or a held-out metric. Every `memory_every` rounds the
+The planner and the proposer see the data, the seed `directions`, the reference factor families (then
+the known ones, marked as known), the memory, the last round's training statistics and rejection
+reasons, and the accepted factors with their marginal weight and residual IC in the accepted pool; the
+planner also sees the trials of the last `context.recent_rounds` rounds (default 5) one line each and the
+older ones counted by mechanism type and outcome; never a return, a date or a held-out metric. Every `memory_every` rounds the
 distiller folds the trials since the last memory into `memory.md` (each version is kept in `memory/`). The run
 stops at `max_rounds`, `max_trials`, `patience` rounds without an acceptance, or `budget_usd` (checked before every call), and
 records why in `state.json`; `ledger.jsonl` holds every candidate, and `run()` on the same run
@@ -212,6 +214,12 @@ the reference set. A reference entry is a component (`get_config()` dict or stor
 candidate with the graph of the factor a `*_neutral` store neutralises; every stored reference or baseline
 factor is read from its store's first bar (the intraday stores start in 2016, so they are empty on training).
 
+A reference or known entry given as a component (a `get_config()` dict without a store) is scored as a
+candidate is, through the campaign's `scoring` (neutralised when it neutralises, so it should output
+ranked values, as candidates do), and then masked to the day's members; an entry given as a store (a
+store folder, a store entry, or a component whose store exists, such as a `*_neutral` store) is read as
+stored and masked. Both lists are read by this one rule.
+
 `known` (optional, default none) lists the known factors besides the reference set: every other existing
 factor a candidate is checked against for novelty. Its entries are written as `reference`'s; an output a
 reference factor of the same class already shows is dropped from `known`, so whole classes can be listed
@@ -222,9 +230,9 @@ KunQuant graph it cannot; the families section lists the known classes after the
 "known, not in the reference set, refused when rewritten". Known factors never enter the partial IC. Like
 `reference`, `known` is read from the config on every start, a resume included, and is not snapshotted.
 
-On each start or resume the `Evaluator` scores the known factors as it reads the reference set (the
-campaign's `scoring`, on the day's members) and keeps only their normal scores on every fifth scored
-training date, counting from the first, in a panel of its own (float32, one column per output). Each
+On each start or resume the `Evaluator` reads the known factors as it reads the reference set and keeps
+only their normal scores on one scored training date in `KNOWN_SAMPLE_EVERY` (5), counting from the
+first, in a panel of its own (float32, one column per output). Each
 evaluated candidate's correlation with every known output is averaged over those dates; the nearest one and
 its correlation are in the ledger's metrics (`nearest_known`, `nearest_known_correlation`; empty and NaN
 without `known`) and in the next round's feedback, and admission's correlation step refuses an absolute

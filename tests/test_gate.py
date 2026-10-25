@@ -291,7 +291,7 @@ def alpha158(tmp_path_factory) -> Zoo:
         data_columns=("adjOpen", "adjHigh", "adjLow", "adjClose", "adjVolume"),
     ))
     momentum = Momentum(PolarsFactorConfig(warmup_bars=20, dataset=dataset, kwargs={"n": 20}))
-    return Zoo.from_reference([factor, momentum], price_volume())
+    return Zoo.from_existing([factor, momentum], price_volume())
 
 
 @pytest.mark.parametrize(
@@ -353,7 +353,7 @@ def test_a_neutralised_store_is_compared_by_the_graph_of_the_factor_it_neutralis
     ))
     neutral = NeutralizedFactor(NeutralizedConfig(factor=ranked, dataset=dataset, factor_names=("KMID", "STD20")))
 
-    zoo = Zoo.from_reference([neutral], price_volume())
+    zoo = Zoo.from_existing([neutral], price_volume())
 
     assert zoo.covered == ("KMID (Alpha158Stock)", "STD20 (Alpha158Stock)")
     result = Gate(GateConfig(), price_volume()).check(_candidate("alpha = (close - open) / open"), zoo)
@@ -378,7 +378,7 @@ def known158(tmp_path_factory) -> Zoo:
     ))
     momentum = Momentum(PolarsFactorConfig(warmup_bars=20, dataset=dataset, kwargs={"n": 20}))
     unscored = Momentum(PolarsFactorConfig(warmup_bars=10, dataset=dataset, kwargs={"n": 10}))
-    return Zoo.from_reference([momentum], price_volume(), known=[factor, unscored])
+    return Zoo.from_existing([momentum], price_volume(), known=[factor, unscored])
 
 
 @pytest.mark.parametrize(

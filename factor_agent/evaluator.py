@@ -2,13 +2,15 @@
 
 It is fixed to one segment when it is made. ``evaluate`` compiles all of a
 round's graphs as one KunQuant graph and computes it on the whole-market
-dataset (the segment plus the warm-up bars before it). Each candidate, and
-each reference factor, is then scored by the campaign's ``Scoring``: ranked
-across the whole market (KunQuant ``Rank``), neutralised when the scoring
-neutralises, and masked to the members of day t, or kept on every symbol
-without a membership. A batch that does
-not compile or run is bisected until the failing graphs are found; they
-become ``CompileFailure`` and the rest are evaluated.
+dataset (the segment plus the warm-up bars before it). Each candidate is
+then scored by the campaign's ``Scoring``: ranked across the whole market
+(KunQuant ``Rank``), neutralised when the scoring neutralises, and masked to
+the members of day t, or kept on every symbol without a membership. A
+reference or known factor given as a component is scored the same way; one
+given as a store (a ``*_neutral`` store, say) is read as stored and masked
+(``Scoring.read``). A batch that does not compile or run is bisected until
+the failing graphs are found; they become ``CompileFailure`` and the rest
+are evaluated.
 
 Only dates whose label lies entirely inside the segment are scored (the
 purge of ``segments``), and on each date only the members with a label.
@@ -22,12 +24,12 @@ The statistics of a candidate:
   mean is the nearest. It is the van der Waerden rank correlation, within a
   few hundredths of Spearman's.
 - Nearest known factor: the same correlation with every output of the
-  known factors, on a fixed sample of the scored dates (``sampled_dates``:
-  every fifth, counting from the first); the known factor with the largest
-  absolute mean is the nearest. The known factors are scored by the same
-  ``Scoring`` as the reference set, once, on first use, and only their
-  normal scores on the sampled dates are kept, in a panel of their own:
-  they never enter the reference pool or the partial-IC regression.
+  known factors, on a fixed sample of the scored dates (every
+  ``KNOWN_SAMPLE_EVERY``-th, counting from the first); the known factor
+  with the largest absolute mean is the nearest. The known factors are
+  read as the reference set is, once, on first use, and only their normal
+  scores on the sampled dates are kept, in a panel of their own: they
+  never enter the reference pool or the partial-IC regression.
 - Partial IC: the rank IC of the residual of the candidate's normal scores
   from a daily least-squares regression on the normal scores of every pool
   factor (with an intercept), and its Newey-West t.
@@ -70,7 +72,7 @@ from factor_agent.exported import ranked_function
 from factor_agent.gate.graph import Graph
 from factor_agent.scoring import Scoring
 from factor_agent.segments import PURGE_BARS, Segment, purge
-from factor_agent.zoo import KNOWN, owner
+from factor_agent.zoo import Kind, factor_label, owner
 
 #: Groups the daily cross section is cut into for the decile returns.
 DECILES = 10
@@ -239,13 +241,14 @@ class Evaluator:
             The forward return, read from its store; only the symbols it
             has a value for on a date are scored on that date.
         scoring : Scoring
-            How candidates are scored and reference factors read.
+            How candidates are scored and reference and known factors read.
         reference : sequence of quantlab factors
             The reference set: every output enters the pool. A factor with
-            a store is read from it, any other is computed (``Scoring.read``).
+            a store is read as stored, any other is scored as a candidate
+            is (``Scoring.read``).
         known : sequence of quantlab factors
             The known factors besides the reference set, read the same way
-            on first use and kept only on ``sampled_dates``; a candidate's
+            on first use and kept only on the sampled dates; a candidate's
             nearest one is in its metrics, and none enters the pool.
         warmup_bars, njobs : int
             Warm-up bars and KunQuant executor threads.
@@ -262,12 +265,6 @@ class Evaluator:
     def segment(self) -> Segment:
         """The segment this evaluator reads."""
         return self._segment
-
-    @property
-    def sampled_dates(self) -> pd.DatetimeIndex:
-        """The scored dates the known factors are kept on: every fifth, counting from the first."""
-        frame = self._scored_frame()
-        return pd.DatetimeIndex(frame.label["timestamp"].values[frame.sampled])
 
     def evaluate(self, graphs: list[Graph], admit: Admit | None = None) -> list[Metrics | CompileFailure]:
         """Return one entry per graph, in order; see the module docstring.
@@ -337,21 +334,24 @@ class Evaluator:
             label = self._label.read(self._segment.start, self._segment.end)[name]
             keep = label.sizes["timestamp"] - purge(self._label.lookahead_bars(), self._purge_bars)
             self._frame = _Frame(label.isel(timestamp=slice(0, max(keep, 0))))
-            self._frame.add_to_pool(dict(item for factor in self._reference for item in self._reference_scores(factor)))
+            self._frame.add_to_pool({
+                name: self._frame.daily_scores(values)
+                for factor in self._reference for name, values in self._read(factor, "reference")
+            })
             self._frame.hold_known(sum(len(factor.get_factor_names()) for factor in self._known))
-            j = 0
-            for factor in self._known:
-                source = type(owner(factor)).__name__
-                for name, values in self._scoring.read(factor, self._segment.start, self._segment.end):
-                    self._frame.set_known(j, f"{name} ({source}, {KNOWN})", self._frame.on_axes(values))
-                    j += 1
+            known = (item for factor in self._known for item in self._read(factor, "known"))
+            for j, (name, values) in enumerate(known):
+                self._frame.set_known(j, name, values)
         return self._frame
 
-    def _reference_scores(self, factor) -> Iterator[tuple[str, list[np.ndarray]]]:
-        """Yield ``(name, daily normal scores)`` of every output of a reference factor, as ``Scoring.read`` reads it."""
+    def _read(self, factor, kind: Kind) -> Iterator[tuple[str, np.ndarray]]:
+        """Yield ``(label, values on the frame's axes)`` of every output of a reference or known factor.
+
+        The values are as ``Scoring.read`` reads them; the label is ``zoo.factor_label``'s.
+        """
         source = type(owner(factor)).__name__
         for name, values in self._scoring.read(factor, self._segment.start, self._segment.end):
-            yield f"{name} ({source})", self._frame.daily_scores(self._frame.on_axes(values))
+            yield factor_label(name, source, kind), self._frame.on_axes(values)
 
     def _values(self, graphs: list[Graph], frame: "_Frame") -> list["_Values | CompileFailure"]:
         """Each graph's scored values and its own (unranked) presence, bisecting a batch that fails."""

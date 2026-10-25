@@ -2,8 +2,9 @@
 
 It shows only training-segment statistics: each candidate's IC and its
 Newey-West t, its residual (partial) IC, the nearest existing factor and the
-correlation with it, the nearest known factor and its sampled correlation, the rejection reasons, and each accepted factor's
-marginal weight and residual IC in the accepted pool. It never shows a
+correlation with it, the nearest known factor and its sampled correlation,
+the rejection reasons, and each accepted factor's marginal weight and
+residual IC in the accepted pool. It never shows a
 return, a date, or advice to change windows or parameters. The first round
 has no history; it sees the data, the seed directions and the existing
 factor families (the reference set's, then the known factors', marked as
@@ -46,10 +47,11 @@ KNOWN_MARK = "known, not in the reference set, refused when rewritten"
 
 
 def families(reference, known=()) -> str:
-    """One line per reference factor, then per known factor: its owner's class, what its docstring says it is, and its outputs.
+    """One line per factor of the reference set, then per known factor: its owner's class, doc line and outputs.
 
-    The owner (``zoo.owner``) is the factor a wrapper such as ``NeutralizedFactor``
-    shows. A known factor's class is marked with ``KNOWN_MARK``.
+    The owner (``zoo.owner``) is the factor a wrapper such as
+    ``NeutralizedFactor`` shows; the doc line is the first line of its
+    class docstring. A known factor's class is marked with ``KNOWN_MARK``.
     """
     lines = []
     for factor, mark in [(f, "") for f in reference] + [(f, f" ({KNOWN_MARK})") for f in known]:
