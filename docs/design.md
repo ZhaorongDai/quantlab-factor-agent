@@ -137,7 +137,10 @@
 对外 interface 只有两个：
 
 - `Campaign(config).run() -> CampaignResult`：可从台账断点续跑，每轮落盘后才推进。
-- `Acceptance(config, run_dir)`：`.validate()`、`.open_holdout()`、`.export(names)`。验收模型由必填的 `acceptance.model` 给出（Q84）：
+- `Acceptance(config, run_dir)`：`.validate(selection=None)`、`.open_holdout(selection, force=False)`、`.export(names)`。
+  选中一组（Q84）按 export 的命名方式（描述或 `描述 (accepted in round n)`）点名接受的因子，未知或歧义名报 `KeyError`、重复点名报错；
+  不传为全部接受的因子，报告为 `acceptance/<段>.json|md`，少于全部时为 `acceptance/<段>_<摘要>.json|md`（摘要取排序后的成员标签），报告列出成员；
+  `open_holdout` 要求同一选中一组的验证报告（在锁记录打开之前检查），只对比基线与基线加该组，锁照旧（任一组打开都计一次）；`export` 的 `names` 键即选中一组。验收模型由必填的 `acceptance.model` 给出（Q84）：
   任一 quantlab `BaseModel` 或 `ModelEnsemble`（`members`）的 `get_config()` 作模板，模型/成员的 `factors` 即基线（留空用参考集）、
   超参数写在模板里；验收填入标签、训练/预测窗口、读取方式、`val_size` 与种子（覆盖每个成员的 `random_seed`），接受的因子追加到每个成员；
   `SeedEnsemble` 模板报错（种子用 `acceptance.seeds`）；`acceptance.hyperparameters`、`acceptance.features` 已删，旧配置读取即报错。

@@ -2,8 +2,9 @@
 
 ``validate`` trains the acceptance model (``AcceptanceConfig.model``, a
 template that ``factor_agent.acceptance_model`` fills in) twice per seed: on
-its baseline (its own factors, or the reference set) and on that plus every
-factor the campaign accepted, all read through the campaign's
+its baseline (its own factors, or the reference set) and on that plus a
+selection of the factors the campaign accepted (every one by default, else
+named as ``export`` names them), all read through the campaign's
 ``Scoring`` (on the members of day t, or on every symbol without a
 membership). It trains on the training segment and predicts the validation
 segment, both purged by ``Segments``. Each accepted factor enters the model
@@ -11,10 +12,13 @@ as the Evaluator scored it: its graph ranked across the whole market and
 neutralised when the scoring neutralises (a store written under the run
 directory), read as the scoring reads.
 
-``open_holdout`` makes the same comparison on the hold-out, trained on the
-training and validation segments. It first records the open in the lock
+``open_holdout`` makes the same comparison on the hold-out for a selection
+that ``validate`` reported on, trained on the training and validation
+segments. It first records the open in the lock
 (``Segments.open_holdout``): a second open is refused unless forced, and a
-forced one is stated in its report.
+forced one is stated in its report. Reports of every accepted factor are
+``acceptance/<segment>.json|md``, of a selection of fewer
+``acceptance/<segment>_<digest>.json|md``.
 
 Every trained model's result is cached (``factor_agent._model_cache``), so a
 re-run trains only the models not finished; each run first prints how many
@@ -42,6 +46,7 @@ whole-market store, the ranked graph scored as above (neutralised or not), under
 """
 
 import dataclasses
+import hashlib
 import importlib
 import json
 import keyword
@@ -96,8 +101,9 @@ class ModelResult:
 class AcceptanceReport:
     """The baseline against the baseline plus the accepted factors, seed by seed and on average.
 
-    ``accepted`` maps each accepted factor's label to its output name in the
-    model. ``forced`` is true when the hold-out was opened past its lock;
+    ``accepted`` maps each factor added to the baseline, by label, to its
+    output name in the model: every accepted factor, or the members of a
+    selection when ``selection`` is true. ``forced`` is true when the hold-out was opened past its lock;
     ``holdout_opens`` lists every open of the hold-out so far (empty for a
     validation report).
     """
@@ -110,6 +116,7 @@ class AcceptanceReport:
     accepted: dict
     baseline: tuple[ModelResult, ...]
     with_accepted: tuple[ModelResult, ...]
+    selection: bool = False
     forced: bool = False
     holdout_opens: tuple[dict, ...] = ()
     code_version: dict = field(default_factory=dict)
@@ -143,7 +150,8 @@ class AcceptanceReport:
         lines += [
             f"- Trained {self.train_window[0]} to {self.train_window[1]}, predicted "
             f"{self.test_window[0]} to {self.test_window[1]} (both purged); seeds {list(self.seeds)}.",
-            f"- Accepted factors ({len(self.accepted)}): " + ", ".join(self.accepted) + ".",
+            f"- {'Selection of accepted factors' if self.selection else 'Accepted factors'} ({len(self.accepted)}): "
+            + ", ".join(self.accepted) + ".",
             f"- Plain TopK of {self.top_k}, equal weights; returns are fee-free, over the label's horizon.", "",
             "| statistic | baseline | with accepted | difference |", "|---|---|---|---|",
             *(f"| {name} | {base[name]:.4f} | {new[name]:.4f} | {diff[name]:+.4f} |" for name in COMPARED), "",
@@ -193,47 +201,72 @@ class Acceptance:
         """The ledger's accepted factors, in the order they were accepted."""
         return [r for r in Ledger(self.run_dir / "ledger.jsonl").records() if r.status == "accepted"]
 
-    def validate(self) -> AcceptanceReport:
-        """Compare the baseline with the baseline plus the accepted factors on the validation segment.
+    def validate(self, selection: list[str] | None = None) -> AcceptanceReport:
+        """Compare the baseline with the baseline plus a selection of the accepted factors on the validation segment.
+
+        Parameters
+        ----------
+        selection : list of str, optional
+            The accepted factors to add, named as ``export`` names them (by
+            description or label); every accepted factor by default.
 
         Writes ``acceptance/validation.json`` and ``acceptance/validation.md``
-        under the run directory.
+        under the run directory for every accepted factor, and
+        ``acceptance/validation_<digest>.json|md`` for a selection of fewer,
+        the digest over its members' labels.
 
         Raises
         ------
+        KeyError
+            If a name names no accepted factor, or a description several.
         ValueError
-            If there is no validation segment or no accepted factor.
+            If there is no validation segment or no accepted factor, the
+            selection is empty or names a factor twice.
         """
         segments = self.config.segments
         if segments.validation is None:
             raise ValueError("acceptance: the config has no validation segment")
-        return self._compare(segments.validation, trained_to=segments.training)
+        members, suffix = self._selected(selection)
+        return self._compare(segments.validation, segments.training, members, suffix)
 
-    def open_holdout(self, force: bool = False) -> AcceptanceReport:
-        """Open the hold-out, once, and compare on it, trained on the training and validation segments.
+    def open_holdout(self, selection: list[str], force: bool = False) -> AcceptanceReport:
+        """Open the hold-out, once, and compare on it with a selection, trained on the training and validation segments.
+
+        Parameters
+        ----------
+        selection : list of str
+            The accepted factors to add, named as in ``validate``; ``validate``
+            must have written the report of exactly this selection first.
+        force : bool, default False
+            Open a hold-out that was opened before.
 
         The open is recorded in ``holdout.lock`` before any hold-out data is
         read, so an open that fails midway still counts (the hold-out may
-        have been seen) and running it again needs ``force``. ``validate``
-        must have written its report first. Writes ``acceptance/holdout.json`` and ``acceptance/holdout.md``.
+        have been seen) and running it again needs ``force``; the lock counts
+        opens of any selection. Writes ``acceptance/holdout.json|md``, or
+        ``acceptance/holdout_<digest>.json|md`` for a selection of fewer than
+        every accepted factor.
 
         Raises
         ------
         HoldoutLocked
             If the hold-out was opened before and ``force`` is false.
+        KeyError
+            If a name names no accepted factor, or a description several.
         ValueError
             If there is no validation or hold-out segment, no accepted factor,
-            or no validation report.
+            the selection is empty or names a factor twice, or there is no
+            validation report of the selection.
         """
         segments = self.config.segments
         if segments.validation is None or segments.holdout is None:
             raise ValueError("acceptance: the config needs validation and hold-out segments to open the hold-out")
-        if not self.accepted():
-            raise ValueError(f"acceptance: {self.run_dir} has no accepted factor")
-        if not (self.run_dir / "acceptance" / "validation.json").exists():
-            raise ValueError("acceptance: run validate() before opening the hold-out")
+        members, suffix = self._selected(selection)
+        validation = self.run_dir / "acceptance" / f"{segments.validation.name}{suffix}.json"
+        if not validation.exists() or set(json.loads(validation.read_text())["accepted"]) != set(members):
+            raise ValueError(f"acceptance: run validate({sorted(members)}) before opening the hold-out on that selection")
         lock = segments.open_holdout(self.lock_path, force=force)
-        return self._compare(segments.holdout, trained_to=segments.validation, lock=lock)
+        return self._compare(segments.holdout, segments.validation, members, suffix, lock=lock)
 
     def export(self, names: dict[str, str]) -> list[Path]:
         """Export accepted factors as ``GraphFactor`` subclasses and whole-market stores.
@@ -299,21 +332,27 @@ class Acceptance:
 
     # The comparison.
 
-    def _compare(self, segment: Segment, trained_to: Segment, lock: HoldoutLock | None = None) -> AcceptanceReport:
-        records = self.accepted()
-        if not records:
-            raise ValueError(f"acceptance: {self.run_dir} has no accepted factor")
+    def _compare(
+        self, segment: Segment, trained_to: Segment, members: list[str], suffix: str, lock: HoldoutLock | None = None,
+    ) -> AcceptanceReport:
+        """Compare on ``segment`` the baseline with it plus the accepted factors labelled ``members``.
+
+        Reports and models go under names ending in ``suffix``.
+        """
         settings, segments = self.config.acceptance, self.config.segments
         label = self._data("label")
         calendar = self._data("prices").calendar(segments.training.start, segment.end)
         lookahead = label.lookahead_bars()
         train_window = (segments.training.start, segments.scored(trained_to, calendar, lookahead)[1])
         test_window = segments.scored(segment, calendar, lookahead)
-        outputs = {_feedback.accepted_label(r): f"accepted_{k}" for k, r in enumerate(records)}
-        if len(outputs) != len(records):
-            raise ValueError("acceptance: two accepted factors share a label (description and round)")
-        accepted = self._accepted_feature(records, list(outputs.values()), test_window[1])
-        results = self._train(segment, {"baseline": [], "with_accepted": [accepted]}, {
+        # An accepted factor keeps its output name, its place among all accepted, in every selection.
+        outputs = {
+            _feedback.accepted_label(r): f"accepted_{k}" for k, r in enumerate(self.accepted())
+            if _feedback.accepted_label(r) in members
+        }
+        records = self._named(outputs, "acceptance")
+        accepted = self._accepted_feature(records, list(outputs.values()), test_window[1], suffix)
+        results = self._train(segment, suffix, {"baseline": [], "with_accepted": [accepted]}, {
             "labels": [label], "factor_data_strategy": "read", "label_data_strategy": "read",
             "start_date": train_window[0], "end_date": test_window[1],
             "train_start": train_window[0], "train_end": train_window[1],
@@ -322,7 +361,7 @@ class Acceptance:
         })
         report = AcceptanceReport(
             segment=segment.name, train_window=train_window, test_window=test_window, seeds=settings.seeds,
-            top_k=settings.top_k, accepted=outputs,
+            top_k=settings.top_k, accepted=outputs, selection=bool(suffix),
             baseline=tuple(results["baseline"]), with_accepted=tuple(results["with_accepted"]),
             forced=lock.last.forced if lock else False,
             holdout_opens=tuple(dataclasses.asdict(o) for o in lock.opens) if lock else (),
@@ -330,23 +369,25 @@ class Acceptance:
         )
         out = self.run_dir / "acceptance"
         out.mkdir(parents=True, exist_ok=True)
-        (out / f"{segment.name}.json").write_text(json.dumps(report.to_dict(), indent=2) + "\n")
-        (out / f"{segment.name}.md").write_text(report.markdown())
+        (out / f"{segment.name}{suffix}.json").write_text(json.dumps(report.to_dict(), indent=2) + "\n")
+        (out / f"{segment.name}{suffix}.md").write_text(report.markdown())
         return report
 
-    def _train(self, segment: Segment, feature_sets: dict[str, list], filled: dict) -> dict[str, list[ModelResult]]:
+    def _train(
+        self, segment: Segment, suffix: str, feature_sets: dict[str, list], filled: dict,
+    ) -> dict[str, list[ModelResult]]:
         """Each feature set's results on ``segment``, one per seed, read from the cache or trained and cached.
 
         ``feature_sets`` maps a name (its models are saved under
-        ``acceptance/<segment>/<name>_s<seed>``) to the features added to the
-        baseline; ``filled`` is every ``acceptance_model.FILLED`` value but the
+        ``acceptance/<segment><suffix>/<name>_s<seed>``) to the features added to the
+        baseline; the cache, ``acceptance/<segment>/cache``, is shared by every selection; ``filled`` is every ``acceptance_model.FILLED`` value but the
         seed and the save directory. Before any training it prints how many
         models it will train, how many are cached and, from the elapsed times
         cached with finished models, an estimate of the time it will take.
         """
         settings, scoring, label = self.config.acceptance, self._scoring(), filled["labels"][0]
-        directory = self.run_dir / "acceptance" / segment.name
-        cache = _model_cache.ModelCache(directory / "cache")
+        directory = self.run_dir / "acceptance" / f"{segment.name}{suffix}"
+        cache = _model_cache.ModelCache(self.run_dir / "acceptance" / segment.name / "cache")
         models = {}
         for kind, added in feature_sets.items():
             for seed in settings.seeds:
@@ -417,8 +458,11 @@ class Acceptance:
                 decile_returns=deciles, n_days=int(np.isfinite(book).sum()), run=run,
             )
 
-    def _accepted_feature(self, records: list[TrialRecord], outputs: list[str], end: str):
-        """The accepted factors, scored, from a store under the run directory, read as the scoring reads."""
+    def _accepted_feature(self, records: list[TrialRecord], outputs: list[str], end: str, suffix: str):
+        """The accepted factors ``records``, scored, from a store under the run directory, read as the scoring reads.
+
+        Every accepted factor has the store ``acceptance/accepted``, a selection ``acceptance/accepted<suffix>``.
+        """
         graphs = dict(zip(outputs, (r.graph for r in records)))
         classes = self.vocabulary.class_paths(graphs.values())
         lags = GraphFactor.period_lags(graphs, self.vocabulary.lag_columns)
@@ -426,7 +470,7 @@ class Acceptance:
         factor = GraphFactor(self._factor_config(graphs, lags, kwargs={
             "graphs": graphs, "classes": classes, "directions": directions, **({"period_lags": lags} if lags else {}),
         }))
-        folder = self.run_dir / "acceptance" / "accepted"
+        folder = self.run_dir / "acceptance" / f"accepted{suffix}"
         scored = self._scoring().apply(factor, folder / "accepted.zarr")
         start = self.config.segments.training.start
         built = {"start": start, "end": end, "config": scored.get_config()}
@@ -466,8 +510,31 @@ class Acceptance:
         last = segments.holdout or segments.validation or segments.training
         return settings.export_start or segments.training.start, settings.export_end or last.end
 
-    def _named(self, names: dict[str, str]) -> list[TrialRecord]:
-        """The accepted record each key of ``names`` names, by label or description."""
+    def _selected(self, selection: list[str] | None) -> tuple[list[str], str]:
+        """The labels of the accepted factors ``selection`` names (every one for None) and the suffix of their reports.
+
+        The suffix is empty for every accepted factor, else ``_`` and a digest of the sorted labels.
+        """
+        accepted = [_feedback.accepted_label(r) for r in self.accepted()]
+        if not accepted:
+            raise ValueError(f"acceptance: {self.run_dir} has no accepted factor")
+        if len(set(accepted)) != len(accepted):
+            raise ValueError("acceptance: two accepted factors share a label (description and round)")
+        if selection is None:
+            return accepted, ""
+        if not selection:
+            raise ValueError("acceptance: the selection is empty")
+        members = [_feedback.accepted_label(r) for r in self._named(selection, "acceptance")]
+        if len(set(members)) == len(accepted):
+            return accepted, ""
+        return members, "_" + hashlib.sha256(json.dumps(sorted(members)).encode()).hexdigest()[:12]
+
+    def _named(self, names, caller: str = "export") -> list[TrialRecord]:
+        """The accepted record each of ``names`` (or each key) names, by label or description.
+
+        Raises ``KeyError`` for a name of no accepted factor or a description of several, and
+        ``ValueError`` for two names of one factor.
+        """
         accepted = self.accepted()
         out = []
         for key in names:
@@ -476,9 +543,11 @@ class Acceptance:
             ]
             if len(matches) != 1:
                 raise KeyError(
-                    f"export: {key!r} names {len(matches)} accepted factors; "
+                    f"{caller}: {key!r} names {len(matches)} accepted factors; "
                     f"accepted: {[_feedback.accepted_label(r) for r in accepted]}"
                 )
+            if any(r is matches[0] for r in out):
+                raise ValueError(f"{caller}: {_feedback.accepted_label(matches[0])!r} is named twice")
             out.append(matches[0])
         return out
 
