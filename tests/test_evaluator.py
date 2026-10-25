@@ -315,3 +315,65 @@ BEFORE_FILLS = (0.15613592233009707, 0.2830496958728959, 75.08359082679765)
 def test_a_graph_without_fills_scores_as_before(market):
     [metrics] = _evaluator(market).evaluate([_graph("alpha = Log(Log(close / open) * 100 - 1)")])
     assert (metrics.coverage, metrics.ic_mean, metrics.ic_t) == pytest.approx(BEFORE_FILLS)
+
+
+def _known(market, names) -> Alpha158Stock:
+    return Alpha158Stock(FactorConfig(
+        warmup_bars=WARMUP, dataset=market["prices"], mode="batch", data_columns=INPUTS,
+        factor_names=names, njobs=4,
+    ))
+
+
+def _against_known(market, known, reference=()) -> Evaluator:
+    return Evaluator.for_segment(
+        Segment("training", *synthetic_market.TRAINING),
+        prices=market["prices"], label=market["label"], scoring=_scoring(market),
+        reference=reference, known=known, warmup_bars=WARMUP, njobs=4,
+    )
+
+
+def test_a_rewrite_of_a_known_factor_has_a_sampled_correlation_near_one_and_is_named(market):
+    evaluator = _against_known(market, [_known(market, ("KMID", "STD20"))])
+
+    [rewrite] = evaluator.evaluate([_graph("alpha = close / open - 1")])
+
+    assert rewrite.nearest_known == "KMID (Alpha158Stock, a known factor)"
+    assert rewrite.nearest_known_correlation > 0.95
+    # A known factor is not in the reference pool: nothing to be nearest to, nothing residualised.
+    assert rewrite.nearest == ""
+    assert rewrite.partial_ic_t == pytest.approx(rewrite.ic_t, rel=1e-6)
+
+
+def test_the_known_factors_are_sampled_on_every_fifth_scored_date_the_same_on_a_second_evaluator(market):
+    graph = _graph("alpha = (close - open) / (high - low)")
+    first, second = (_against_known(market, [_known(market, ("KMID",))]) for _ in range(2))
+
+    [a], [b] = first.evaluate([graph]), second.evaluate([graph])
+
+    # The synthetic market trades every business day, and every date before the purge is scored.
+    assert list(first.sampled_dates) == list(pd.bdate_range(a.start, a.end)[::5])
+    assert list(second.sampled_dates) == list(first.sampled_dates)
+    assert _same(a, b)
+    assert 0.4 < a.nearest_known_correlation < 0.99
+
+
+def test_known_factors_change_neither_the_partial_ic_nor_the_correlation_with_the_reference_set(market, against_kmid):
+    codes = ["alpha = (close - open) / (high - low)", "alpha = WindowedAvg(close / open, 5)",
+             "alpha = volume / WindowedAvg(volume, 20)"]
+    evaluator = _against_known(market, [_known(market, ("KMID", "STD20", "VSTD5"))], reference=[_kmid(market)])
+
+    results = evaluator.evaluate([_graph(code) for code in codes])
+
+    for result, before in zip(results, against_kmid.values()):
+        assert result.nearest_known.endswith("(Alpha158Stock, a known factor)")
+        assert json.dumps(_without_known(result)) == json.dumps(_without_known(before))
+
+
+def _without_known(metrics: Metrics) -> dict:
+    return {k: v for k, v in metrics.to_dict().items() if not k.startswith("nearest_known")}
+
+
+def test_without_known_factors_there_is_no_nearest_known_factor(against_kmid):
+    noisy = against_kmid["noisy copy"]
+    assert noisy.nearest_known == ""
+    assert np.isnan(noisy.nearest_known_correlation)

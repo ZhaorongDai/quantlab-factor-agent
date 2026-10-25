@@ -260,6 +260,7 @@ class Campaign:
             label=label,
             scoring=scoring,
             reference=reference,
+            known=known,
             warmup_bars=config.evaluator.warmup_bars,
             njobs=config.evaluator.njobs,
             purge_bars=config.segments.purge_bars,

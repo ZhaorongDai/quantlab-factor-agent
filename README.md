@@ -25,8 +25,9 @@ one KunQuant graph and scores them on the training segment, as the config's `sco
 over the whole market; neutralised against `scoring.neutralize`'s exposures, size and industry columns, or
 not when it is null; masked to the day-t members of `data.membership`, or on every symbol without one),
 against the label (rank IC, partial IC residualised on the reference and accepted factors, correlation with each,
-deciles). A candidate states no direction: its direction is the sign of its training IC, and the
-statistics are read in it. Admission requires a direction, correlation at most 0.7, a partial-IC
+deciles), and records the nearest `known` factor and its correlation on a fixed sample of the dates. A candidate states no direction: its direction is the sign of its training IC, and the
+statistics are read in it. Admission requires a direction, correlation at most 0.7 (with every reference and
+accepted factor, and sampled with every known factor), a partial-IC
 Newey-West t above a threshold that rises with the evaluated trials (each counted in both directions),
 monotone deciles, and coverage (the mean daily share of the members with a value) of at least
 `admission.min_coverage` (default 0.5). Coverage is measured before any fill: on the candidate's graph with
@@ -220,6 +221,19 @@ refuses a rewrite, a parameter-only variant or a large shared subtree of a known
 KunQuant graph it cannot; the families section lists the known classes after the reference families, marked
 "known, not in the reference set, refused when rewritten". Known factors never enter the partial IC. Like
 `reference`, `known` is read from the config on every start, a resume included, and is not snapshotted.
+
+On each start or resume the `Evaluator` scores the known factors as it reads the reference set (the
+campaign's `scoring`, on the day's members) and keeps only their normal scores on every fifth scored
+training date, counting from the first, in a panel of its own (float32, one column per output). Each
+evaluated candidate's correlation with every known output is averaged over those dates; the nearest one and
+its correlation are in the ledger's metrics (`nearest_known`, `nearest_known_correlation`; empty and NaN
+without `known`) and in the next round's feedback, and admission's correlation step refuses an absolute
+sampled correlation above `max_correlation`, naming the factor and saying the correlation is sampled.
+The panel costs 4 bytes per known output per sampled member-day: measured on the synthetic test market
+(Alpha158's 169 outputs, 103 sampled dates of 100 members) it is 6.6 MiB, exactly that. Estimated, not
+measured, for us3000 (training 2000-02 to 2014-12, about 750 sampled dates of about 3,000 members) it is
+about 9 MB per known output: about 1.8 GB for 200 outputs beyond the reference set, 2.7 GB for 300. While it
+is built, one known factor's panel at a time is read whole, as a reference factor's is.
 
 ```yaml
 known:

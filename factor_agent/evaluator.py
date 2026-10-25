@@ -21,6 +21,13 @@ The statistics of a candidate:
   so far), averaged over dates; the pool factor with the largest absolute
   mean is the nearest. It is the van der Waerden rank correlation, within a
   few hundredths of Spearman's.
+- Nearest known factor: the same correlation with every output of the
+  known factors, on a fixed sample of the scored dates (``sampled_dates``:
+  every fifth, counting from the first); the known factor with the largest
+  absolute mean is the nearest. The known factors are scored by the same
+  ``Scoring`` as the reference set, once, on first use, and only their
+  normal scores on the sampled dates are kept, in a panel of their own:
+  they never enter the reference pool or the partial-IC regression.
 - Partial IC: the rank IC of the residual of the candidate's normal scores
   from a daily least-squares regression on the normal scores of every pool
   factor (with an intercept), and its Newey-West t.
@@ -63,7 +70,7 @@ from factor_agent.exported import ranked_function
 from factor_agent.gate.graph import Graph
 from factor_agent.scoring import Scoring
 from factor_agent.segments import PURGE_BARS, Segment, purge
-from factor_agent.zoo import owner
+from factor_agent.zoo import KNOWN, owner
 
 #: Groups the daily cross section is cut into for the decile returns.
 DECILES = 10
@@ -71,6 +78,9 @@ DECILES = 10
 #: Singular values below this fraction of the largest are dropped from a
 #: day's pool regression, so collinear pool factors do not blow it up.
 _RANK_TOLERANCE = 1e-6
+
+#: The known factors are kept on every this many of the scored dates, counting from the first.
+KNOWN_SAMPLE_EVERY = 5
 
 #: An admitted candidate whose residual norm on a day is below this adds no
 #: direction to that day's pool (it is already spanned).
@@ -84,6 +94,9 @@ class Metrics:
     ``nearest`` names the pool factor most correlated with the candidate
     (empty, with a NaN correlation, when the pool is empty) and
     ``nearest_correlation`` is that mean correlation, with its sign.
+    ``nearest_known`` and ``nearest_known_correlation`` are the same for the
+    known factors, on the sampled dates only (empty and NaN without known
+    factors).
     ``decile_returns`` holds the mean label of each decile, lowest
     candidate values first. ``coverage`` is the mean daily share of the
     scored members with a value before any fill.
@@ -95,6 +108,8 @@ class Metrics:
     partial_ic_t: float
     nearest: str
     nearest_correlation: float
+    nearest_known: str
+    nearest_known_correlation: float
     decile_returns: tuple[float, ...]
     coverage: float
     n_days: int
@@ -193,6 +208,7 @@ class Evaluator:
     def __init__(
         self, segment: Segment, prices, label, scoring: Scoring, reference: Sequence,
         warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS, period_lags: Mapping[str, Mapping] | None = None,
+        known: Sequence = (),
     ):
         self._segment = segment
         self._period_lags = dict(period_lags or {})
@@ -201,13 +217,14 @@ class Evaluator:
         self._label = label
         self._scoring = scoring
         self._reference = tuple(reference)
+        self._known = tuple(known)
         self._warmup_bars = warmup_bars
         self._njobs = njobs
         self._frame: _Frame | None = None
 
     @classmethod
     def for_segment(
-        cls, segment: Segment, *, prices, label, scoring: Scoring, reference: Sequence = (),
+        cls, segment: Segment, *, prices, label, scoring: Scoring, reference: Sequence = (), known: Sequence = (),
         warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS, period_lags: Mapping[str, Mapping] | None = None,
     ) -> "Evaluator":
         """Return an evaluator of ``segment``.
@@ -226,6 +243,10 @@ class Evaluator:
         reference : sequence of quantlab factors
             The reference set: every output enters the pool. A factor with
             a store is read from it, any other is computed (``Scoring.read``).
+        known : sequence of quantlab factors
+            The known factors besides the reference set, read the same way
+            on first use and kept only on ``sampled_dates``; a candidate's
+            nearest one is in its metrics, and none enters the pool.
         warmup_bars, njobs : int
             Warm-up bars and KunQuant executor threads.
         purge_bars : int
@@ -235,12 +256,18 @@ class Evaluator:
             (``Vocabulary.lag_columns``); a lag reads the warm-up it needs
             when that is longer than ``warmup_bars``.
         """
-        return cls(segment, prices, label, scoring, reference, warmup_bars, njobs, purge_bars, period_lags)
+        return cls(segment, prices, label, scoring, reference, warmup_bars, njobs, purge_bars, period_lags, known)
 
     @property
     def segment(self) -> Segment:
         """The segment this evaluator reads."""
         return self._segment
+
+    @property
+    def sampled_dates(self) -> pd.DatetimeIndex:
+        """The scored dates the known factors are kept on: every fifth, counting from the first."""
+        frame = self._scored_frame()
+        return pd.DatetimeIndex(frame.label["timestamp"].values[frame.sampled])
 
     def evaluate(self, graphs: list[Graph], admit: Admit | None = None) -> list[Metrics | CompileFailure]:
         """Return one entry per graph, in order; see the module docstring.
@@ -304,13 +331,20 @@ class Evaluator:
         return {name: Contribution(float(weight[j]), float(ic[j])) for j, name in enumerate(names)}
 
     def _scored_frame(self) -> "_Frame":
-        """The scored dates, the label and the reference pool, read once."""
+        """The scored dates, the label, the reference pool and the sampled known factors, read once."""
         if self._frame is None:
             name = self._label.get_factor_names()[0]
             label = self._label.read(self._segment.start, self._segment.end)[name]
             keep = label.sizes["timestamp"] - purge(self._label.lookahead_bars(), self._purge_bars)
             self._frame = _Frame(label.isel(timestamp=slice(0, max(keep, 0))))
             self._frame.add_to_pool(dict(item for factor in self._reference for item in self._reference_scores(factor)))
+            self._frame.hold_known(sum(len(factor.get_factor_names()) for factor in self._known))
+            j = 0
+            for factor in self._known:
+                source = type(owner(factor)).__name__
+                for name, values in self._scoring.read(factor, self._segment.start, self._segment.end):
+                    self._frame.set_known(j, f"{name} ({source}, {KNOWN})", self._frame.on_axes(values))
+                    j += 1
         return self._frame
 
     def _reference_scores(self, factor) -> Iterator[tuple[str, list[np.ndarray]]]:
@@ -360,7 +394,9 @@ class _Frame:
 
     The symbols are those with a label on some scored date. The pool is
     held per date on the symbols with a label that date (``rows``), as
-    each factor's normal scores (float32), one column per factor.
+    each factor's normal scores (float32), one column per factor. The
+    known factors are held the same way, but only on the sampled dates
+    (``sampled``, positions among the scored dates).
     """
 
     def __init__(self, label: xr.DataArray):
@@ -370,6 +406,9 @@ class _Frame:
         self.rows = [np.flatnonzero(row) for row in self.in_rows]
         self.pool_names: list[str] = []
         self.pool = [np.zeros((len(rows), 0), dtype=np.float32) for rows in self.rows]
+        self.sampled = np.arange(0, len(self.rows), KNOWN_SAMPLE_EVERY)
+        self.known_names: list[str] = []
+        self.known = [np.zeros((len(self.rows[d]), 0), dtype=np.float32) for d in self.sampled]
 
     def on_axes(self, values: xr.DataArray) -> np.ndarray:
         """``values`` on the frame's dates and symbols, NaN where it has none."""
@@ -380,6 +419,18 @@ class _Frame:
         """The normal scores of ``(date, symbol)`` values among each date's rows, one array per date."""
         scores = _normal_scores(np.where(self.in_rows, values, np.nan), axis=1)
         return [scores[d, rows] for d, rows in enumerate(self.rows)]
+
+    def hold_known(self, count: int) -> None:
+        """Make room for ``count`` known factors on the sampled dates; ``set_known`` fills each."""
+        self.known_names = [""] * count
+        self.known = [np.zeros((len(self.rows[d]), count), dtype=np.float32) for d in self.sampled]
+
+    def set_known(self, j: int, name: str, values: np.ndarray) -> None:
+        """Keep known factor ``j``'s normal scores on the sampled dates' rows, from its ``(date, symbol)`` values."""
+        sampled = _normal_scores(np.where(self.in_rows[self.sampled], values[self.sampled], np.nan), axis=1)
+        self.known_names[j] = name
+        for i, d in enumerate(self.sampled):
+            self.known[i][:, j] = sampled[i, self.rows[d]]
 
     def add_to_pool(self, factors: dict[str, np.ndarray | list[np.ndarray]]) -> None:
         """Add factors to the pool: each name maps to its ``(date, symbol)`` values or its ``daily_scores``."""
@@ -397,7 +448,7 @@ class _Scores:
         self.values = values
         self.admitted: list[tuple[int, str]] = []
         self.residuals = []
-        daily_pool, daily_batch = [], []
+        daily_pool, daily_batch, daily_known = [], [], []
         candidates = [frame.daily_scores(v) for v in values]
         for d in range(len(frame.rows)):
             scores = np.column_stack([c[d] for c in candidates])
@@ -405,10 +456,16 @@ class _Scores:
             daily_batch.append(_correlations(scores, scores))
             basis = _basis(frame.pool[d])
             self.residuals.append(scores - basis @ (basis.T @ scores))
+        for i, d in enumerate(frame.sampled):
+            daily_known.append(_correlations(np.column_stack([c[d] for c in candidates]), frame.known[i]))
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", RuntimeWarning)  # a pair with no usable date stays NaN
             self.correlations = np.nanmean(np.stack(daily_pool), axis=0)
             self.batch_correlations = np.nanmean(np.stack(daily_batch), axis=0)
+            self.known_correlations = (
+                np.nanmean(np.stack(daily_known), axis=0) if daily_known
+                else np.full((len(values), len(frame.known_names)), np.nan)
+            )
 
     def metrics(self, k: int, horizon: int, coverage: float) -> Metrics:
         """Candidate ``k``'s metrics against the pool and the batch candidates admitted before it."""
@@ -420,10 +477,8 @@ class _Scores:
         partial = cross_sectional_rank_ic_series(residual, frame.target)
         names = frame.pool_names + [name for _, name in self.admitted]
         row = np.concatenate([self.correlations[k], [self.batch_correlations[k, j] for j, _ in self.admitted]])
-        nearest, correlation = "", float("nan")
-        if np.isfinite(row).any():
-            best = int(np.nanargmax(np.abs(row)))
-            nearest, correlation = names[best], float(row[best])
+        nearest, correlation = _nearest(names, row)
+        nearest_known, known_correlation = _nearest(frame.known_names, self.known_correlations[k])
         scored = np.isfinite(ic)
         days = pd.DatetimeIndex(frame.label["timestamp"].values)[scored]
         ic_mean, ic_t = _mean_and_t(ic, horizon)
@@ -431,6 +486,7 @@ class _Scores:
         return Metrics(
             ic_mean=ic_mean, ic_t=ic_t, partial_ic_mean=partial_mean, partial_ic_t=partial_t,
             nearest=nearest, nearest_correlation=correlation,
+            nearest_known=nearest_known, nearest_known_correlation=known_correlation,
             decile_returns=decile_returns(values, frame.target),
             coverage=coverage,
             n_days=int(scored.sum()),
@@ -449,6 +505,14 @@ class _Scores:
             direction = direction / norm
             residuals[:, k + 1:] -= np.outer(direction, direction @ residuals[:, k + 1:])
         self.frame.add_to_pool({name: self.values[k]})
+
+
+def _nearest(names: Sequence[str], correlations: np.ndarray) -> tuple[str, float]:
+    """The name with the largest absolute finite correlation and that correlation, or ``("", NaN)`` when none is finite."""
+    if not np.isfinite(correlations).any():
+        return "", float("nan")
+    best = int(np.nanargmax(np.abs(correlations)))
+    return names[best], float(correlations[best])
 
 
 def _normal_scores(values: np.ndarray, axis: int) -> np.ndarray:

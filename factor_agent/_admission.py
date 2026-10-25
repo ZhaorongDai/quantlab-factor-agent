@@ -9,7 +9,8 @@ in order and the first that fails is the reason:
    the members it covers);
 2. its training IC is a nonzero number, so it has a direction;
 3. its correlation with every reference and accepted factor is at most
-   ``max_correlation`` in absolute value;
+   ``max_correlation`` in absolute value, and so is its sampled correlation
+   with every known factor (on the Evaluator's ``sampled_dates``);
 4. its partial IC, in its direction, has a Newey-West t at or above the
    threshold for the number of evaluated trials so far;
 5. its decile returns, in its direction, rise with the decile: their
@@ -79,6 +80,11 @@ def reasons(metrics: Metrics, trials: int, config: AdmissionConfig) -> list[str]
         return [
             f"cross-sectional correlation {metrics.nearest_correlation:+.2f} with {metrics.nearest} "
             f"is above {config.max_correlation:g} in absolute value"
+        ]
+    if abs(metrics.nearest_known_correlation) > config.max_correlation:
+        return [
+            f"cross-sectional correlation {metrics.nearest_known_correlation:+.2f} with {metrics.nearest_known}, "
+            f"sampled on every fifth training date, is above {config.max_correlation:g} in absolute value"
         ]
     threshold = t_threshold(config, trials)
     partial_t = sign * metrics.partial_ic_t
