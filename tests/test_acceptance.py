@@ -121,6 +121,30 @@ def test_validate_compares_the_baseline_with_the_accepted_factors_for_three_seed
     ]
 
 
+def test_validate_on_a_selection_trains_only_it_and_keeps_its_report_apart(campaign, validation):
+    out = campaign["root"] / "run" / "acceptance"
+    whole = (out / "validation.json").read_text()
+    report = campaign["acceptance"].validate(["planted"])
+    assert report.accepted == {"planted (accepted in round 1)": "accepted_0"}
+    for kind, added in (("baseline", []), ("with_accepted", ["accepted_0"])):
+        for result in getattr(report, kind):
+            assert TrainedRun.open(result.run).trained_on["factor_names"] == ["momentum_20", *added]
+    [written] = [p for p in out.glob("validation_*.json")]
+    assert json.loads(written.read_text())["accepted"] == report.accepted
+    assert "planted (accepted in round 1)" in written.with_suffix(".md").read_text()
+    assert (out / "validation.json").read_text() == whole
+    # The same selection named by its label is the same selection, reported in the same file.
+    assert campaign["acceptance"].validate(["planted (accepted in round 1)"]).accepted == report.accepted
+    assert [p for p in out.glob("validation_*.json")] == [written]
+
+
+def test_a_selection_naming_no_accepted_factor_or_one_twice_is_refused(campaign):
+    with pytest.raises(KeyError, match="names 0 accepted"):
+        campaign["acceptance"].validate(["never accepted"])
+    with pytest.raises(ValueError, match="twice"):
+        campaign["acceptance"].validate(["planted", "planted (accepted in round 1)"])
+
+
 def test_a_signal_that_holds_only_on_the_training_segment_fails_validation(validation):
     # The planted intraday signal reverses after the training segment, so the model that learnt it ranks backwards.
     assert validation.difference["rank_ic"] < -0.1
@@ -146,7 +170,7 @@ def test_the_purge_leaves_no_label_crossing_a_segment_boundary(campaign, validat
 
 def test_the_hold_out_opens_once_and_a_forced_reopen_is_stated(campaign, validation):
     acceptance = campaign["acceptance"]
-    first = acceptance.open_holdout()
+    first = acceptance.open_holdout(["planted", "volume"])
     lock = json.loads(acceptance.lock_path.read_text())
     assert [o["forced"] for o in lock["opens"]] == [False]
     assert lock["opens"][0]["code_version"]["factor_agent"]
@@ -154,10 +178,10 @@ def test_the_hold_out_opens_once_and_a_forced_reopen_is_stated(campaign, validat
     assert first.segment == "holdout" and first.train_window[1] < "2013-01-01" <= first.test_window[0]
 
     with pytest.raises(HoldoutLocked, match="opened on"):
-        acceptance.open_holdout()
+        acceptance.open_holdout(["planted", "volume"])
     assert json.loads(acceptance.lock_path.read_text()) == lock
 
-    forced = acceptance.open_holdout(force=True)
+    forced = acceptance.open_holdout(["planted", "volume"], force=True)
     assert forced.forced
     assert [o["forced"] for o in forced.holdout_opens] == [False, True]
     assert "opened again with force" in (campaign["root"] / "run" / "acceptance" / "holdout.md").read_text()
@@ -249,20 +273,57 @@ def test_contribution_trains_one_feature_set_per_factor_and_mode_and_reports_a_r
 
 def test_the_hold_out_runs_no_contribution_whatever_the_config_says(contributed):
     acceptance = contributed["acceptance"]
-    report = acceptance.open_holdout()
+    report = acceptance.open_holdout(["planted", "volume"])
     assert report.contributions == ()
     assert _trained(acceptance, "holdout") == ["baseline_s0", "baseline_s1", "with_accepted_s0", "with_accepted_s1"]
     assert "Contribution" not in (acceptance.run_dir / "acceptance" / "holdout.md").read_text()
 
 
-def test_a_one_factor_selection_reuses_the_baseline_and_the_selection_for_its_contribution(unscored, tmp_path):
-    acceptance = _in_model(unscored, tmp_path, {"name": LINEAR}, contribution="both")
-    report = acceptance.validate()
-    assert _trained(acceptance, "validation") == ["baseline_s0", "baseline_s1", "with_accepted_s0", "with_accepted_s1"]
-    [drop] = [c for c in report.contributions if c.mode == "drop_one"]
-    [add] = [c for c in report.contributions if c.mode == "add_one"]
+def test_contribution_runs_over_the_selection_and_a_one_factor_selection_reuses_its_two_sets(campaign, tmp_path):
+    acceptance = _in_model(campaign, tmp_path, {"name": LINEAR}, contribution="both")
+    report = acceptance.validate(["planted"])
+    assert [(c.factor, c.mode) for c in report.contributions] == [
+        ("planted (accepted in round 1)", "drop_one"), ("planted (accepted in round 1)", "add_one"),
+    ]
+    [drop, add] = report.contributions
     assert drop.without == add.without == report.baseline
     assert drop.with_factor == add.with_factor == report.with_accepted
+    assert _factor_names(report.with_accepted) == [["momentum_20", "accepted_0"]] * 2
+    [folder] = (acceptance.run_dir / "acceptance").glob("validation_*/")
+    assert _trained(acceptance, folder.name) == ["baseline_s0", "baseline_s1", "with_accepted_s0", "with_accepted_s1"]
+
+
+def test_the_hold_out_opens_only_on_a_validated_selection_and_compares_it_alone(campaign, tmp_path):
+    acceptance = _in_model(campaign, tmp_path, {"name": LINEAR})
+    acceptance.validate(["planted"])
+    for unvalidated in (["volume"], ["planted", "volume"]):
+        with pytest.raises(ValueError, match="run validate"):
+            acceptance.open_holdout(unvalidated)
+    with pytest.raises(KeyError, match="names 0 accepted"):
+        acceptance.open_holdout(["never accepted"])
+    assert not acceptance.lock_path.exists()
+
+    report = acceptance.open_holdout(["planted"])
+    assert report.segment == "holdout" and report.selection
+    assert report.accepted == {"planted (accepted in round 1)": "accepted_0"}
+    for kind, added in (("baseline", []), ("with_accepted", ["accepted_0"])):
+        for result in getattr(report, kind):
+            assert TrainedRun.open(result.run).trained_on["factor_names"] == ["momentum_20", *added]
+    out = acceptance.run_dir / "acceptance"
+    [written] = out.glob("holdout_*.json")
+    assert written.stem.removeprefix("holdout") == next(out.glob("validation_*.json")).stem.removeprefix("validation")
+    assert not (out / "holdout.json").exists()
+
+    # One open of any selection locks the hold-out; a forced one opens another selection and says so.
+    acceptance.validate()
+    with pytest.raises(HoldoutLocked):
+        acceptance.open_holdout(["planted", "volume"])
+    forced = acceptance.open_holdout(["volume (accepted in round 1)", "planted"], force=True)
+    assert forced.forced and not forced.selection and set(forced.accepted) == {
+        "planted (accepted in round 1)", "volume (accepted in round 1)",
+    }
+    assert [o["forced"] for o in json.loads(acceptance.lock_path.read_text())["opens"]] == [False, True]
+    assert (out / "holdout.json").exists()
 
 
 class _Evaluated(FactorKunQuant):
