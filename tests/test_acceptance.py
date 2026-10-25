@@ -621,3 +621,21 @@ def test_a_narrowed_selection_reads_the_whole_sets_models_of_the_same_features(c
     other = acceptance.validate(["volume"])
     assert other.accepted == {"volume (accepted in round 1)": "accepted_1"}
     assert _trained_anywhere(acceptance) == trained
+
+
+def test_a_moved_run_directory_keeps_its_cache_and_a_code_change_misses_it(campaign, tmp_path, capsys, monkeypatch):
+    import factor_agent.acceptance
+
+    acceptance = _in_model(campaign, tmp_path / "first", {"name": LINEAR})
+    acceptance.validate()
+    moved = tmp_path / "moved"
+    shutil.copytree(acceptance.run_dir, moved)
+    capsys.readouterr()
+
+    Acceptance(acceptance.config, moved).validate()
+    assert "acceptance (validation): 0 models to train, 4 cached\n" in capsys.readouterr().out
+
+    commits = factor_agent.acceptance.code_version()
+    monkeypatch.setattr(factor_agent.acceptance, "code_version", lambda: {**commits, "factor_agent": "another"})
+    Acceptance(acceptance.config, moved).validate()
+    assert "acceptance (validation): 4 models to train, 0 cached" in capsys.readouterr().out

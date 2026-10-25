@@ -2,10 +2,14 @@
 
 A model's key is the sha256 of its filled-in component config (the template,
 its features' component configs, the label, the windows and the seed), less
-its save directory, and of whatever else its result depends on (the TopK
-size). ``ModelCache`` keeps one JSON file per key under the segment's
-acceptance directory: the result as a plain dict and the seconds its
-training and scoring took, the record the duration estimate reads.
+its save directory and with every path under the run directory relative to
+it (``portable``), so a moved run directory keeps its cache, and of whatever
+else its result depends on (the code version, the TopK size, the scoring).
+The digest is of plain JSON: a value JSON cannot hold raises rather than
+hashing its ``repr``. ``ModelCache`` keeps one JSON file per key under the
+segment's acceptance directory: the result as a plain dict, the seconds its
+training and scoring took and the digest of its template, the record the
+duration estimate reads.
 """
 
 import hashlib
@@ -13,10 +17,33 @@ import json
 from pathlib import Path
 
 
-def key(config: dict, **extra) -> str:
-    """The cache key of a model of component ``config``, whose result also depends on ``extra``."""
-    payload = json.dumps({"model": _without_save_dir(config), **extra}, sort_keys=True, default=str)
-    return hashlib.sha256(payload.encode()).hexdigest()
+def key(config: dict, root: Path, **extra) -> str:
+    """The cache key of a model of component ``config`` in the run directory ``root``, whose result also depends on ``extra``.
+
+    Raises
+    ------
+    TypeError
+        If ``config`` or ``extra`` holds a value JSON cannot hold.
+    """
+    return digest({"model": portable(_without_save_dir(config), root), **extra})
+
+
+def digest(value) -> str:
+    """The sha256 of ``value`` as sorted JSON; a value JSON cannot hold raises ``TypeError``."""
+    return hashlib.sha256(json.dumps(value, sort_keys=True).encode()).hexdigest()
+
+
+def portable(value, root: Path):
+    """``value`` with every string path under ``root`` written relative to it, as ``<run_dir>/...``."""
+    if isinstance(value, dict):
+        return {k: portable(v, root) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [portable(v, root) for v in value]
+    if isinstance(value, str):
+        for prefix in {str(Path(root)), str(Path(root).resolve())}:
+            if value == prefix or value.startswith(prefix + "/"):
+                return "<run_dir>" + value[len(prefix):]
+    return value
 
 
 class ModelCache:

@@ -145,7 +145,7 @@
   超参数写在模板里；验收填入标签、训练/预测窗口、读取方式、`val_size` 与种子（覆盖每个成员的 `random_seed`），接受的因子追加到每个成员；
   `SeedEnsemble` 模板报错（种子用 `acceptance.seeds`）；`acceptance.hyperparameters`、`acceptance.features` 已删，旧配置读取即报错。
   模板填充在 `_acceptance_model.py`（`check`、`build`）。
-  每个训练过的模型的结果按填好的组件 config（模板、特征、标签、窗口、种子，去掉保存目录）与 TopK 数、scoring 的摘要缓存在
+  每个训练过的模型的结果按填好的组件 config（模板、特征、标签、窗口、种子，去掉保存目录，运行目录下的路径写成相对路径，搬动运行目录不失效）、代码版本（`segments.code_version()` 的两个提交号，改了代码即不命中）与 TopK 数、scoring 的摘要（纯 JSON，非 JSON 值报错）缓存在
   `acceptance/<段>/cache/<摘要>.json`（含耗时），重跑读缓存；训练前打印要训练数、已缓存数与按已缓存耗时均值的估计（`_model_cache.py`；`Acceptance._train` 是唯一入口）。
   选中一组不另建 store：每组都按 `factor_names` 读全部接受因子的同一个 store（`acceptance/accepted_<预测段末日>/`，验证与保留期各一个，验证从不计算保留期的日期），
   相同特征集合（如收窄后一组的 add-one 与全部的 add-one）命中同一缓存；输出名 `accepted_<k>` 取全部接受因子中的位置；全部命中缓存时不建 store，建过且记录一致时不重建。

@@ -478,14 +478,15 @@ class Acceptance:
         settings, scoring, label = self.config.acceptance, self._scoring(), filled["labels"][0]
         directory = self.run_dir / "acceptance" / f"{segment.name}{suffix}"
         cache = _model_cache.ModelCache(self.run_dir / "acceptance" / segment.name / "cache")
-        models = {}
+        models, code = {}, code_version()
         for kind, added in feature_sets.items():
             for seed in settings.seeds:
                 model = _acceptance_model.build(settings.model, self._baseline, added, {
                     **filled, "random_seed": seed, "model_save_dir": str(directory / f"{kind}_s{seed}"),
                 })
                 models[kind, seed] = model, _model_cache.key(
-                    model.get_config(), top_k=settings.top_k, scoring=dataclasses.asdict(self.config.scoring),
+                    model.get_config(), self.run_dir, code=code, top_k=settings.top_k,
+                    scoring=dataclasses.asdict(self.config.scoring),
                 )
         print(f"acceptance ({segment.name}): " + cache.summary([k for _, k in models.values()]), flush=True)
         name = label.get_factor_names()[0]
@@ -567,7 +568,7 @@ class Acceptance:
         start = self.config.segments.training.start
 
         def build() -> None:
-            built = {"start": start, "end": end, "config": scored.get_config()}
+            built = {"start": start, "end": end, "config": _model_cache.portable(scored.get_config(), self.run_dir)}
             record = folder / "accepted.json"
             if not record.exists() or json.loads(record.read_text()) != json.loads(json.dumps(built)):
                 shutil.rmtree(folder, ignore_errors=True)

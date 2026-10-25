@@ -169,7 +169,9 @@ acceptance:
   Markdown shows rank IC difference, seeds agreeing and TopK excess difference). No threshold. The
   hold-out never measures contribution.
 - Every trained model's result is cached under `<run_dir>/acceptance/<segment>/cache/`, keyed by its
-  filled-in config (template, features, label, windows, seed) and the TopK size and scoring; a re-run,
+  filled-in config (template, features, label, windows, seed; paths under the run directory relative to it, so a
+  moved run directory keeps its cache), the code version (the factor_agent and quantlab commits) and the TopK
+  size and scoring; a re-run,
   after an interruption say, reads what is cached and trains the rest. Every selection reads its factors
   from one store of all accepted factors (one per predicted segment), so equal feature sets, a narrowed
   selection's add-one and the whole set's say, share their models. Before training, `validate()` and
