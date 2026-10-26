@@ -1,0 +1,88 @@
+# Price-volume session statistics of one-minute trade bars: the fifteen daily outputs of quantlab's
+# PriceVolumeIntradayStats (minute amplitudes, deviations from the session's VWAP, return
+# dispersions and the high-volume minutes), one value per stock and session, read from a store of
+# them built beforehand with quantlab.
+#
+# - The price dataset reads the store through quantlab's FactorStoreDataset with the prefix pv_, so
+#   the output AMP_MEAN is the panel's column pv_AMP_MEAN; each field is named after its column.
+# - Each field is the session's own value, not a multi-day mean: candidate code applies its own
+#   windows to the daily values.
+# - Per minute bar: r is the log return of intraday_session.yaml; the amplitude a is (high - low)
+#   over the previous bar's last price, on bars with a trade; the deviation d is the bar's close over
+#   the session's VWAP so far, less 1, on bars with a trade; v is the bar's volume. A high-volume
+#   minute has v above the session's mean plus one standard deviation of v.
+# - A session with too few bars with a trade has no statistics, and a statistic over no bar (no
+#   positive return on a high-volume minute, say) is missing. With `bar: false` that leaves the day's
+#   prices of the same stock alone.
+# - The value of a session is known at that session's close.
+#
+# See sharadar_price_volume.yaml for the keys of a field file.
+family: intraday_price_volume
+description: amplitude, VWAP-deviation and high-volume statistics of each session's one-minute trade bars
+bar: false
+
+fields:
+  # Minute amplitudes.
+  - name: pv_AMP_MEAN
+    column: pv_AMP_MEAN
+    unit: '1'
+    description: mean minute amplitude, (high - low) over the previous price, over the session
+  - name: pv_AMP_MMR
+    column: pv_AMP_MMR
+    unit: '1'
+    description: mean over median of the session's minute amplitudes, how much a few wide minutes dominate
+  - name: pv_AMP_SKEW
+    column: pv_AMP_SKEW
+    unit: '1'
+    description: sample skewness of the session's minute amplitudes
+  - name: pv_AMP_STD
+    column: pv_AMP_STD
+    unit: '1'
+    description: sample standard deviation of the session's minute amplitudes
+  - name: pv_AMP_STR
+    column: pv_AMP_STR
+    unit: '1'
+    description: mean over standard deviation of the session's minute amplitudes, how steady the range was
+  # Deviation from the session's VWAP line.
+  - name: pv_PRICE_DEV_STD
+    column: pv_PRICE_DEV_STD
+    unit: '1'
+    description: sample standard deviation of the minute close's deviation from the session's VWAP so far
+  - name: pv_PRICE_DEV_STR
+    column: pv_PRICE_DEV_STR
+    unit: '1'
+    description: mean over standard deviation of that deviation, how persistently the price stayed above (or below) VWAP
+  # Dispersion of the minute returns.
+  - name: pv_RET_STD
+    column: pv_RET_STD
+    unit: '1'
+    description: sample standard deviation of the session's minute log returns
+  - name: pv_UP_RET_STD
+    column: pv_UP_RET_STD
+    unit: '1'
+    description: upside semi-deviation of the minute returns, sqrt(sum r^2 over r > 0 / (n - 1))
+  - name: pv_DOWN_RET_STD
+    column: pv_DOWN_RET_STD
+    unit: '1'
+    description: downside semi-deviation of the minute returns, sqrt(sum r^2 over r < 0 / (n - 1))
+  - name: pv_VOL_WEIGHTED_RET_STD
+    column: pv_VOL_WEIGHTED_RET_STD
+    unit: '1'
+    description: volume-weighted standard deviation of the session's minute returns
+  # The high-volume minutes.
+  - name: pv_VOL_UP_RET_STD
+    column: pv_VOL_UP_RET_STD
+    unit: '1'
+    description: sample standard deviation of the minute returns on the session's high-volume minutes
+  - name: pv_VOL_UP_RET_POS_MEAN
+    column: pv_VOL_UP_RET_POS_MEAN
+    unit: '1'
+    description: mean of the positive minute returns on the session's high-volume minutes
+  - name: pv_VOL_UP_RET_NEG_MEAN
+    column: pv_VOL_UP_RET_NEG_MEAN
+    unit: '1'
+    description: mean of the negative minute returns on the session's high-volume minutes (a negative number)
+  - name: pv_VOL_UP_NUM
+    column: pv_VOL_UP_NUM
+    unit: '1'
+    description: number of volume peaks, runs of consecutive high-volume minutes, in the session

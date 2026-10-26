@@ -1,0 +1,106 @@
+# Session statistics of one-minute trade bars: the twenty daily outputs of quantlab's IntradayStats,
+# one value per stock and session, read from a store of them built beforehand with quantlab.
+#
+# - The price dataset reads the store through quantlab's FactorStoreDataset with the prefix trade_,
+#   so the output rvol is the panel's column trade_rvol; each field is named after its column.
+# - Each field is the session's own value, not a multi-day mean: candidate code applies its own
+#   windows (means, volatilities, trends) to the daily values.
+# - A minute return r is the log change of the last trade price from one bar to the next within the
+#   session (a bar without a trade returns 0; the first traded bar's return is measured from its
+#   open), so the session's returns sum to the move from the first trade to the last price and leave
+#   out the overnight move. RV is the sum of r^2 and N the number of minute returns.
+# - A session with too few bars with a trade has no statistics: every field is missing there. With
+#   `bar: false` that leaves the day's prices of the same stock alone.
+# - The value of a session is known at that session's close.
+#
+# See sharadar_price_volume.yaml for the keys of a field file.
+family: intraday_session
+description: daily statistics of each session's one-minute trade bars
+bar: false
+
+fields:
+  # Realized moments of the minute returns.
+  - name: trade_rvol
+    column: trade_rvol
+    unit: '1'
+    description: realized volatility of the session, sqrt(RV) of the minute log returns
+  - name: trade_rskew
+    column: trade_rskew
+    unit: '1'
+    description: realized skewness of the session's minute returns, sqrt(N) * sum r^3 / RV^1.5
+  - name: trade_rkurt
+    column: trade_rkurt
+    unit: '1'
+    description: realized kurtosis of the session's minute returns, N * sum r^4 / RV^2
+  - name: trade_rsj
+    column: trade_rsj
+    unit: '1'
+    description: signed jump variation, (upside - downside realized semivariance) / RV, in [-1, 1]
+  - name: trade_jump
+    column: trade_jump
+    unit: '1'
+    description: share of RV not explained by bipower variation, max(RV - BV, 0) / RV, the jump part
+  - name: trade_ret_autocorr
+    column: trade_ret_autocorr
+    unit: '1'
+    description: first-order autocorrelation of the minute returns, sum r_t * r_(t-1) / RV
+  # Returns of the session and of its parts.
+  - name: trade_ret_intraday
+    column: trade_ret_intraday
+    unit: '1'
+    description: log return from the session's first trade to its last price
+  - name: trade_ret_overnight
+    column: trade_ret_overnight
+    unit: '1'
+    description: log return from the previous session's official close to this session's first trade
+  - name: trade_ret_open30
+    column: trade_ret_open30
+    unit: '1'
+    description: log return over the first 30 minutes of the session
+  - name: trade_ret_close30
+    column: trade_ret_close30
+    unit: '1'
+    description: log return over the last 30 minutes of the session
+  - name: trade_vwap_dev
+    column: trade_vwap_dev
+    unit: '1'
+    description: log of the session's last price over its volume-weighted average price
+  # Order flow and the price-volume relation.
+  - name: trade_oib
+    column: trade_oib
+    unit: '1'
+    description: order imbalance, (buy - sell) / (buy + sell) volume by the tick rule, in [-1, 1]
+  - name: trade_corr_rv
+    column: trade_corr_rv
+    unit: '1'
+    description: correlation of minute return and minute volume over the session
+  - name: trade_corr_pv
+    column: trade_corr_pv
+    unit: '1'
+    description: correlation of minute price and minute volume over the session
+  # The shape of the volume over the session.
+  - name: trade_volume_cv
+    column: trade_volume_cv
+    unit: '1'
+    description: standard deviation over mean of the minute volume, how unevenly the session traded
+  - name: trade_volume_close30
+    column: trade_volume_close30
+    unit: '1'
+    description: share of the session's continuous volume traded in its last 30 minutes
+  - name: trade_auction_share
+    column: trade_auction_share
+    unit: '1'
+    description: closing-auction volume over the day's volume (continuous plus auction)
+  - name: trade_offexchange_share
+    column: trade_offexchange_share
+    unit: '1'
+    description: share of the continuous volume reported off exchange (through a trade reporting facility)
+  # Liquidity.
+  - name: trade_amihud
+    column: trade_amihud
+    unit: 1/dollars
+    description: minute Amihud illiquidity, sum |r| per million dollars traded in the session (1e6 * sum |r| / dollar volume)
+  - name: trade_trade_size
+    column: trade_trade_size
+    unit: '1'
+    description: log of the mean trade size, log(volume / trades); its level reflects the shares per trade

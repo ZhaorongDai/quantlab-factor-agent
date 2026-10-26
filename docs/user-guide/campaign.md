@@ -60,6 +60,16 @@ reference set only, so whole classes can be listed in `known`.
 Every stored reference or baseline factor is read from its store's first bar, so a store
 that starts after the training segment (an intraday store from 2016, say) is empty there.
 
+The segments must lie inside the data of every family the field files open. The Evaluator
+reads the fields over the training segment, and acceptance over the validation and
+hold-out segments; a field whose data starts later or ends earlier is missing there, and
+so is every candidate that reads it. A campaign that opens a high-frequency family starts
+its training segment no earlier than the family's statistics: `configs/us3000_hf_ret5.yaml`
+trains from 2016-10-11, the first session of its minute data. The warm-up bars read
+before the training segment may lie outside the data; a long-window candidate is then
+missing on the segment's first bars, and its coverage is measured over the dates that
+have values.
+
 The Evaluator keeps the known factors only on one scored training date in five, as normal
 scores in a float32 panel of its own: 4 bytes per known output per sampled member-day. For
 us3000 (training 2000 to 2014, about 750 sampled dates of about 3,000 members) that is
