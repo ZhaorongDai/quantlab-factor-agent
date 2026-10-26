@@ -264,17 +264,15 @@ def test_the_memory_is_distilled_every_five_rounds_and_carried_into_later_prompt
 
 
 @pytest.mark.parametrize(
-    ("settings", "options", "by", "rounds"),
+    ("settings", "by", "rounds"),
     [
-        ({"max_rounds": 2}, {}, "max_rounds", 2),
-        ({"max_rounds": 10, "max_trials": 12}, {}, "max_trials", 2),
-        ({"max_rounds": 10, "patience": 2}, {}, "patience", 2),
-        # Three calls a round at a dollar each: round 2 reaches the budget before its review and is dropped.
-        ({"max_rounds": 10, "budget_usd": 5.0}, {"cost": 1.0}, "budget", 1),
+        ({"max_rounds": 2}, "max_rounds", 2),
+        ({"max_rounds": 10, "max_trials": 12}, "max_trials", 2),
+        ({"max_rounds": 10, "patience": 2}, "patience", 2),
     ],
 )
-def test_each_stop_condition_ends_the_run_and_is_recorded(tmp_path, market, settings, options, by, rounds):
-    fake = FakeLLM(only_noise, **options)
+def test_each_stop_condition_ends_the_run_and_is_recorded(tmp_path, market, settings, by, rounds):
+    fake = FakeLLM(only_noise)
     result = _campaign(tmp_path, market, fake, candidates=5, **settings)
     assert result.stop.by == by
     assert result.rounds == rounds
@@ -282,9 +280,7 @@ def test_each_stop_condition_ends_the_run_and_is_recorded(tmp_path, market, sett
     state = json.loads((tmp_path / "run" / "state.json").read_text())
     assert state["stop"] == {"by": by, "reason": result.stop.reason}
     assert state["rounds"] == rounds
-    if by == "budget":
-        assert result.spent == state["spent"] == 5.0 and "$5.00" in result.stop.reason
-        assert [r.role for r in fake.requests] == ["planner", "proposer", "reviewer", "planner", "proposer"]
+    assert "spent" not in state and not any("cost" in entry for entry in state["log"])  # the library counts no money
 
 
 def test_an_interrupted_campaign_resumes_from_the_last_written_round(tmp_path_factory, market):

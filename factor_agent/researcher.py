@@ -5,9 +5,7 @@ round's directions to the quota of each mechanism type, the proposer writes
 one candidate per direction (and fixes those the parser or the Gate
 refuses), the reviewer judges each gated candidate's consistency in a
 separate call (and the proposer rewrites, once, each it finds
-inconsistent: ``revise``), and the distiller turns the ledger into the memory. Every
-call's cost is added to ``spent``; once ``spent`` reaches the budget, the
-next call raises ``BudgetExhausted`` instead of being sent.
+inconsistent: ``revise``), and the distiller turns the ledger into the memory.
 
 What the prompts say comes from ``Prompts``: the templates (built in or
 replaced by the config), the market, the label's horizon, the scoring, the
@@ -107,10 +105,6 @@ def output_unit(checked: Passed) -> str:
     return checked.stats.get("dimension", "unknown")
 
 
-class BudgetExhausted(RuntimeError):
-    """The calls have cost the budget; no further call is sent."""
-
-
 class Researcher:
     """The LLM roles of a campaign.
 
@@ -121,25 +115,12 @@ class Researcher:
         ``distiller``) to its ``(backend, model)``.
     prompts : Prompts
         The templates and what fills them; its mechanism types are the plan's, in order.
-    spent : float
-        US dollars already spent, by the rounds a resumed campaign ran.
-    budget : float, optional
-        US dollars the calls may cost; None for no limit.
-    on_cost : callable, optional
-        Called with ``spent`` after every call, so the spending survives a crash.
     """
 
-    def __init__(
-        self, roles: dict[str, tuple[LLMBackend, str]], prompts: Prompts, spent: float = 0.0,
-        budget: float | None = None, on_cost=None,
-    ):
+    def __init__(self, roles: dict[str, tuple[LLMBackend, str]], prompts: Prompts):
         self.roles = dict(roles)
         self.prompts = prompts
         self._types = prompts.mechanism_types
-        #: US dollars spent on calls so far.
-        self.spent = spent
-        self._budget = budget
-        self._on_cost = on_cost or (lambda spent: None)
 
     def plan(
         self, number: int, quota: dict[str, int], context: dict[str, str], parents: list[str],
@@ -319,20 +300,9 @@ class Researcher:
         return _items(self._ask("proposer", prompt), items)
 
     def _ask(self, role: str, prompt: str) -> str:
-        """Send ``prompt`` to ``role``'s backend, count its cost and return the reply's text.
-
-        Raises
-        ------
-        BudgetExhausted
-            If the calls so far have cost the budget.
-        """
-        if self._budget is not None and self.spent >= self._budget:
-            raise BudgetExhausted(f"the LLM calls cost ${self.spent:.2f}, the budget is ${self._budget:.2f}")
+        """Send ``prompt`` to ``role``'s backend and return the reply's text."""
         backend, model = self.roles[role]
-        reply = backend.complete(Request(role=role, model=model, prompt=prompt))
-        self.spent += reply.cost
-        self._on_cost(self.spent)
-        return reply.text
+        return backend.complete(Request(role=role, model=model, prompt=prompt)).text
 
 
 @dataclass(frozen=True)

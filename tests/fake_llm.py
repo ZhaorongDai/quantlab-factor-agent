@@ -55,8 +55,6 @@ class FakeLLM:
         review and on the review of a rewrite alike (a rewrite reads as the
         fix made it); by default every candidate whose description does not
         say "inconsistent" passes.
-    cost : float
-        The cost of every reply.
     interrupt : callable, optional
         ``interrupt(request)`` is true for the request at which the fake
         raises ``Interrupted``, as a crash mid-campaign would.
@@ -75,13 +73,11 @@ class FakeLLM:
 
     def __init__(
         self, propose: Callable, fix: Callable | None = None, consistent: Callable | None = None,
-        cost: float = 0.0, interrupt: Callable | None = None, plan: Callable | None = None,
-        distill: Callable | None = None,
+        interrupt: Callable | None = None, plan: Callable | None = None, distill: Callable | None = None,
     ):
         self._propose = propose
         self._fix = fix or (lambda number, failures: [f["refused_version"] for f in failures])
         self._consistent = consistent or (lambda candidate: "inconsistent" not in candidate["description"])
-        self._cost = cost
         self._interrupt = interrupt or (lambda request: False)
         self._plan = plan or new_directions
         self._distill = distill or memory
@@ -97,7 +93,7 @@ class FakeLLM:
             raise Interrupted(request.role)
         self.requests.append(request)
         text = getattr(self, f"_{request.role}")(request.prompt)
-        return Reply(text=text, usage={}, cost=self._cost, model_id=f"fake-{request.role}")
+        return Reply(text=text, usage={}, model_id=f"fake-{request.role}")
 
     def of_role(self, role: str) -> list[Request]:
         return [r for r in self.requests if r.role == role]

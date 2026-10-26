@@ -44,7 +44,7 @@ reasons, and the accepted factors with their marginal weight and residual IC in 
 planner also sees the trials of the last `context.recent_rounds` rounds (default 5) one line each and the
 older ones counted by mechanism type and outcome; never a return, a date or a held-out metric. Every `memory_every` rounds the
 distiller folds the trials since the last memory into `memory.md` (each version is kept in `memory/`). The run
-stops at `max_rounds`, `max_trials`, `patience` rounds without an acceptance, or `budget_usd` (checked before every call), and
+stops at `max_rounds`, `max_trials` or `patience` rounds without an acceptance, and
 records why in `state.json`; `ledger.jsonl` holds every candidate, and `run()` on the same run
 directory resumes from the last written round. A first start copies the field, operator and replaced template files into
 `<run_dir>/snapshot/` with their hashes (`snapshot.json`); the run, its Acceptance and its replays read
@@ -111,27 +111,25 @@ Each role under `llm` picks its backend and model; the other keys are the backen
 ```yaml
 llm:
   planner:  {backend: claude_code, model: claude-opus-5-5, effort: high}
-  proposer: {backend: anthropic, model: claude-opus-5-5, max_tokens: 16000,
-             input_usd_per_mtok: 4.0, output_usd_per_mtok: 20.0}
+  proposer: {backend: anthropic, model: claude-opus-5-5, max_tokens: 16000}
   reviewer: {backend: openai_compatible, model: deepseek-chat, base_url: https://api.deepseek.com/v1,
-             api_key_env: DEEPSEEK_API_KEY, input_usd_per_mtok: 0.27, output_usd_per_mtok: 1.10}
+             api_key_env: DEEPSEEK_API_KEY}
   distiller: {backend: claude_code, model: claude-opus-5-5}
 ```
 
 - `claude_code` runs `claude -p --output-format json` with every tool, MCP server, skill and settings
-  file off, from an empty directory, through the local Claude Code login; it reports its own cost
-  (prices in the config are only used for the estimate).
+  file off, from an empty directory, through the local Claude Code login.
 - `anthropic` reads `ANTHROPIC_API_KEY`; `openai_compatible` (OpenAI, DeepSeek, DashScope, Gemini's
   compatible endpoint, vLLM, Ollama) reads the variable `api_key_env` names, or none for a local server;
   for a reasoning model give `max_completion_tokens` (in place of `max_tokens`) and `reasoning_effort`.
-  Their cost is the reply's token usage at the configured prices (check them against the provider's
-  price list). A key in the config is refused.
-- Every call is written in full to `<run_dir>/llm_log/` (prompt, model, parameters, reply, usage, cost,
+  A key in the config is refused.
+- Every call is written in full to `<run_dir>/llm_log/` (prompt, model, parameters, reply, token usage,
   the raw reply). `replay` (every role `{backend: replay, model: ..., log: <run_dir>/llm_log}`) serves such a log back, matched on role and prompt, so the campaign
   reproduces byte for byte without calling a provider; a request the log has no reply for fails.
   A replay searches with the snapshot of the run whose log it replays, not the config's files.
-- Before the first round `run()` prints the estimated cost per role against `budget_usd`
-  (`Campaign(config).estimate()`); the run stops once the calls have cost the budget.
+- The library counts no money: spending limits belong to the provider (a prepaid balance or an
+  account limit), and the token usage in the log is there for working out a cost. A config naming
+  `round.budget_usd` or per-token prices (`input_usd_per_mtok`, `output_usd_per_mtok`) is refused.
 
 ## Acceptance
 

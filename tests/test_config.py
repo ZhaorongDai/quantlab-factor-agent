@@ -291,3 +291,16 @@ def test_the_planner_reads_the_last_five_rounds_trial_by_trial_by_default(tmp_pa
 
 def test_the_context_section_sets_how_many_rounds_the_recent_history_lists(tmp_path):
     assert CampaignConfig.from_file(_minimal(tmp_path, context={"recent_rounds": 2})).context.recent_rounds == 2
+
+
+def test_a_round_budget_is_refused_as_gone(tmp_path):
+    with pytest.raises(TypeError, match="round.budget_usd is gone"):
+        CampaignConfig.from_file(_minimal(tmp_path, round={"budget_usd": 10.0}))
+
+
+@pytest.mark.parametrize("price", ["input_usd_per_mtok", "output_usd_per_mtok"])
+def test_per_token_prices_in_a_role_are_refused_as_gone(tmp_path, price):
+    llm = {role: {"backend": "scripted", "model": "m", "replies": "r.json"} for role in ROLES}
+    llm["reviewer"][price] = 1.0
+    with pytest.raises(TypeError, match=f"llm.reviewer.{price} is gone"):
+        CampaignConfig.from_file(_minimal(tmp_path, llm=llm))

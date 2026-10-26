@@ -201,8 +201,6 @@ class RoundConfig:
     max_trials: int = 600
     #: Consecutive rounds without an acceptance after which the campaign stops.
     patience: int = 5
-    #: US dollars the LLM calls may cost; the campaign stops once they have. None: no limit.
-    budget_usd: float | None = None
     #: Rounds between two distillations of the ledger into the memory.
     memory_every: int = 5
     #: Seed of the Thompson sampling; round n draws from ``(seed, n)``.
@@ -468,7 +466,7 @@ class CampaignConfig:
         Raises
         ------
         TypeError
-            If a section holds a key its config class does not have.
+            If a section holds a key its config class does not have, or names a budget or per-token prices.
         KeyError
             If a required section or role is missing.
         ValueError
@@ -491,6 +489,7 @@ class CampaignConfig:
         unknown_roles = set(raw["llm"]) - set(ROLES)
         if unknown_roles:
             raise TypeError(f"campaign config: unknown LLM role(s) {sorted(unknown_roles)}; known: {list(ROLES)}")
+        _refuse_money(raw)
         if "market" not in raw:
             raise KeyError("campaign config: market is needed, the data as the prompts describe it")
         optional = {}
@@ -514,6 +513,22 @@ class CampaignConfig:
             **{name: klass(**raw[name]) for name, klass in sections.items() if name in raw},
             **optional,
         )
+
+
+def _refuse_money(raw: dict) -> None:
+    """Refuse a budget or per-token prices: spending limits belong to the provider (Q86).
+
+    Raises
+    ------
+    TypeError
+        Naming the first such setting.
+    """
+    if "budget_usd" in (raw.get("round") or {}):
+        raise TypeError("campaign config: round.budget_usd is gone; the provider's balance or account limit caps the spending")
+    for role, spec in raw["llm"].items():
+        for price in ("input_usd_per_mtok", "output_usd_per_mtok"):
+            if price in (spec or {}):
+                raise TypeError(f"campaign config: llm.{role}.{price} is gone; the library no longer counts the cost")
 
 
 def _output_keys(factor) -> list[tuple[str, str]]:

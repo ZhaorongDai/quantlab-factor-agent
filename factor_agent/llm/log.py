@@ -1,7 +1,7 @@
 """The LLM log: every call of a run, in full, one JSON file per call under ``llm_log/``.
 
 A file ``<number>-<role>.json`` holds the request (role, model, prompt and
-the parameters sent) and the reply (text, usage, cost, the model that
+the parameters sent) and the reply (text, usage, the model that
 answered and the provider's raw reply); the numbers count the calls of the
 run from 1, across every role; the calls of a round a resume dropped are
 kept in ``dropped/``, out of the sequence. No key is ever part of a request
