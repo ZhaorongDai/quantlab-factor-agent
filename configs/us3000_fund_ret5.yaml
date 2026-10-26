@@ -242,7 +242,6 @@ round:
   max_trials: 600
   patience: 5
   memory_every: 5
-  budget_usd: 10.0     # approved by the user against the $2.90 estimate (2026-10-24)
   seed: 0
 
 context:
@@ -262,14 +261,12 @@ acceptance:
   top_k: 100
   factor_root: /data/quantlab/factors/market   # exported stores, beside the other whole-market factors
 
-# All four roles: DeepSeek V4 Pro on DeepSeek's own API. Prices checked 2026-10-25: peak hours
-# (Beijing weekdays 9-12, 14-18) CNY 9 input (cache miss) and 27 output per million tokens, half off
-# peak; given at the peak price in USD (CNY 7.1 to the dollar), so the estimate and budget err high.
+# All four roles: DeepSeek V4 Pro on DeepSeek's own API. The spending limit is the account's prepaid
+# balance (Q86): the library counts no money.
 llm:
   planner:   &deepseek {backend: openai_compatible, model: deepseek-v4-pro,
                         base_url: "https://api.deepseek.com", api_key_env: DEEPSEEK_API_KEY,
-                        max_tokens: 32000, timeout_seconds: 900,
-                        input_usd_per_mtok: 1.27, output_usd_per_mtok: 3.80}
+                        max_tokens: 32000, timeout_seconds: 900}
   proposer:  *deepseek
   reviewer:  *deepseek
   distiller: *deepseek

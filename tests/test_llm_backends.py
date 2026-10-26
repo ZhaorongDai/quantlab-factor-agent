@@ -17,8 +17,7 @@ import threading
 
 import pytest
 
-from factor_agent.campaign import Campaign
-from factor_agent.config import ROLES, CampaignConfig
+from factor_agent.config import ROLES
 from factor_agent.llm.base import Request, make_backend
 from factor_agent.llm.log import LLMLog, RecordingBackend
 from tests import synthetic_market
@@ -61,7 +60,7 @@ def market(tmp_path_factory):
 @pytest.fixture(scope="module")
 def recorded(tmp_path_factory, market):
     root = tmp_path_factory.mktemp("recorded")
-    fake = FakeLLM(_propose, fix=_rewrite, consistent=_consistent, cost=0.25)
+    fake = FakeLLM(_propose, fix=_rewrite, consistent=_consistent)
     result = run(write_config(root, market["components"], round=SETTINGS), fake, market["cache"])
     assert len([r for r in fake.of_role("reviewer") if round_of(r.prompt) == 1]) == 2, "round 1 reviews a rewrite"
     return {"root": root, "result": result, "fake": fake}
@@ -77,9 +76,8 @@ def test_every_call_is_recorded_in_full_under_the_run_llm_log(recorded):
     first = json.loads(files[0].read_text())
     request = recorded["fake"].requests[0]
     assert first["request"] == {"role": request.role, "model": request.model, "prompt": request.prompt, "params": {}}
-    assert first["reply"]["model_id"] == f"fake-{request.role}" and first["reply"]["cost"] == 0.25
-    assert first["reply"]["text"].startswith("Here it is.")
-    assert {"usage", "raw"} <= set(first["reply"])
+    assert first["reply"]["model_id"] == f"fake-{request.role}" and first["reply"]["text"].startswith("Here it is.")
+    assert set(first["reply"]) == {"text", "usage", "model_id", "raw"}  # token usage, no cost
 
 
 def test_replaying_a_recorded_campaign_gives_an_identical_ledger(tmp_path, recorded, market):
@@ -89,7 +87,6 @@ def test_replaying_a_recorded_campaign_gives_an_identical_ledger(tmp_path, recor
     assert result.accepted, "the recorded campaign should accept the planted signal"
     original = recorded["root"] / "run"
     assert (tmp_path / "run" / "ledger.jsonl").read_text() == (original / "ledger.jsonl").read_text()
-    assert result.spent == recorded["result"].spent == 0.25 * len(recorded["fake"].requests)
     replayed = {p.name: p.read_text() for p in (tmp_path / "run" / "llm_log").glob("*.json")}
     assert replayed == {p.name: p.read_text() for p in log.glob("*.json")}
 
@@ -127,8 +124,8 @@ def test_the_claude_code_adapter_reads_the_json_reply_and_uses_the_local_login(t
     seen = tmp_path / "seen"
     fake_claude = tmp_path / "claude"
     reply = {
-        "type": "result", "is_error": False, "result": "the answer", "total_cost_usd": 0.0125,
-        "usage": {"input_tokens": 120, "output_tokens": 30}, "modelUsage": {"claude-opus-5-5": {"costUSD": 0.0125}},
+        "type": "result", "is_error": False, "result": "the answer",
+        "usage": {"input_tokens": 120, "output_tokens": 30}, "modelUsage": {"claude-opus-5-5": {}},
     }
     fake_claude.write_text(
         "#!/bin/sh\n"
@@ -140,7 +137,7 @@ def test_the_claude_code_adapter_reads_the_json_reply_and_uses_the_local_login(t
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret-sentinel")
     backend = make_backend({"backend": "claude_code", "model": "claude-opus-5-5", "executable": str(fake_claude)})
     answer = backend.complete(_request())
-    assert (answer.text, answer.cost, answer.model_id) == ("the answer", 0.0125, "claude-opus-5-5")
+    assert (answer.text, answer.model_id) == ("the answer", "claude-opus-5-5")
     assert answer.usage == {"input_tokens": 120, "output_tokens": 30}
     assert json.loads(answer.raw) == reply
     assert seen.with_suffix(".stdin").read_text() == "Write one factor."
@@ -200,12 +197,12 @@ OPENAI_REPLY = {
 }
 
 
-def test_the_anthropic_adapter_reads_its_key_from_the_environment_and_prices_the_usage(provider, monkeypatch):
+def test_the_anthropic_adapter_reads_its_key_from_the_environment_and_reports_the_usage(provider, monkeypatch):
     server = provider(ANTHROPIC_REPLY)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret-sentinel")
     backend = make_backend({
         "backend": "anthropic", "model": "claude-opus-5-5", "base_url": server.url, "max_tokens": 4000,
-        "effort": "high", "input_usd_per_mtok": 4.0, "output_usd_per_mtok": 20.0,
+        "effort": "high",
     })
     answer = backend.complete(_request())
     (sent,) = server.received
@@ -215,7 +212,7 @@ def test_the_anthropic_adapter_reads_its_key_from_the_environment_and_prices_the
     assert sent["body"]["messages"] == [{"role": "user", "content": "Write one factor."}]
     assert sent["body"]["output_config"] == {"effort": "high"}
     assert answer.text == "the answer" and answer.model_id == "claude-opus-5-5"
-    assert answer.cost == pytest.approx(1000 * 4.0 / 1e6 + 500 * 20.0 / 1e6)
+    assert answer.usage == {"input_tokens": 1000, "output_tokens": 500}
     assert answer.params == {"max_tokens": 4000, "effort": "high"}
 
 
@@ -224,7 +221,7 @@ def test_the_openai_compatible_adapter_reads_the_key_variable_the_config_names(p
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-secret-sentinel")
     backend = make_backend({
         "backend": "openai_compatible", "model": "deepseek-chat", "base_url": server.url + "/v1",
-        "api_key_env": "DEEPSEEK_API_KEY", "max_tokens": 4000, "input_usd_per_mtok": 0.5, "output_usd_per_mtok": 2.0,
+        "api_key_env": "DEEPSEEK_API_KEY", "max_tokens": 4000,
     })
     answer = backend.complete(_request())
     (sent,) = server.received
@@ -232,7 +229,7 @@ def test_the_openai_compatible_adapter_reads_the_key_variable_the_config_names(p
     assert sent["headers"]["authorization"] == "Bearer sk-secret-sentinel"
     assert sent["body"]["messages"] == [{"role": "user", "content": "Write one factor."}]
     assert answer.text == "the answer" and answer.model_id == "deepseek-chat"
-    assert answer.cost == pytest.approx(1000 * 0.5 / 1e6 + 500 * 2.0 / 1e6)
+    assert answer.usage == {"input_tokens": 1000, "output_tokens": 500}
 
 
 
@@ -242,7 +239,6 @@ def test_a_reasoning_model_takes_max_completion_tokens_and_reasoning_effort(prov
     backend = make_backend({
         "backend": "openai_compatible", "model": "o-model", "base_url": server.url + "/v1",
         "api_key_env": "OPENAI_API_KEY", "max_completion_tokens": 32000, "reasoning_effort": "high",
-        "input_usd_per_mtok": 1.0, "output_usd_per_mtok": 1.0,
     })
     answer = backend.complete(_request())
     (sent,) = server.received
@@ -255,18 +251,18 @@ def test_max_tokens_and_max_completion_tokens_together_are_refused():
     with pytest.raises(ValueError, match="max_tokens or max_completion_tokens"):
         make_backend({
             "backend": "openai_compatible", "model": "m", "base_url": "http://127.0.0.1:1/v1",
-            "max_tokens": 100, "max_completion_tokens": 100, "input_usd_per_mtok": 1, "output_usd_per_mtok": 1,
+            "max_tokens": 100, "max_completion_tokens": 100,
         })
 
 def test_a_missing_key_variable_is_named(monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     with pytest.raises(ValueError, match="ANTHROPIC_API_KEY"):
-        make_backend({"backend": "anthropic", "model": "m", "input_usd_per_mtok": 1, "output_usd_per_mtok": 1})
+        make_backend({"backend": "anthropic", "model": "m"})
     monkeypatch.delenv("NO_SUCH_KEY", raising=False)
     with pytest.raises(ValueError, match="NO_SUCH_KEY"):
         make_backend({
             "backend": "openai_compatible", "model": "m", "base_url": "http://127.0.0.1:1/v1",
-            "api_key_env": "NO_SUCH_KEY", "input_usd_per_mtok": 1, "output_usd_per_mtok": 1,
+            "api_key_env": "NO_SUCH_KEY",
         })
 
 
@@ -275,7 +271,7 @@ def test_a_key_in_the_config_is_refused(option):
     with pytest.raises(ValueError, match="environment variable"):
         make_backend({
             "backend": "openai_compatible", "model": "m", "base_url": "http://127.0.0.1:1/v1",
-            "input_usd_per_mtok": 1, "output_usd_per_mtok": 1, option: "sk-secret-sentinel",
+            option: "sk-secret-sentinel",
         })
 
 
@@ -284,55 +280,15 @@ def test_no_key_appears_in_the_llm_log(tmp_path, provider, monkeypatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret-sentinel-1")
     monkeypatch.setenv("DEEPSEEK_API_KEY", "sk-secret-sentinel-2")
     log = LLMLog(tmp_path / "llm_log")
-    prices = {"input_usd_per_mtok": 1.0, "output_usd_per_mtok": 1.0}
     for spec in (
-        {"backend": "anthropic", "model": "claude-opus-5-5", "base_url": anthropic_server.url, **prices},
+        {"backend": "anthropic", "model": "claude-opus-5-5", "base_url": anthropic_server.url},
         {"backend": "openai_compatible", "model": "deepseek-chat", "base_url": openai_server.url + "/v1",
-         "api_key_env": "DEEPSEEK_API_KEY", **prices},
+         "api_key_env": "DEEPSEEK_API_KEY"},
     ):
         RecordingBackend(make_backend(spec), log).complete(_request())
     written = "".join(file.read_text() for file in log.files())
     assert len(log.files()) == 2 and "the answer" in written
     assert "sk-secret-sentinel" not in written
-
-
-def _anthropic_roles(**options) -> dict:
-    return {
-        role: {"backend": "anthropic", "model": "claude-opus-5-5", "input_usd_per_mtok": 4.0,
-               "output_usd_per_mtok": 20.0, **options}
-        for role in ROLES
-    }
-
-
-def test_the_cost_estimate_grows_with_the_rounds_and_counts_every_call(tmp_path, market, monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-unused")
-    estimates = {}
-    for rounds in (5, 10):
-        path = write_config(tmp_path / str(rounds), market["components"], llm=_anthropic_roles(),
-                            round={**SETTINGS, "max_rounds": rounds, "memory_every": 5})
-        estimates[rounds] = Campaign(CampaignConfig.from_file(path)).estimate()
-    five, ten = estimates[5], estimates[10]
-    # Per round: a plan, a proposal, one fix and a review rewrite, two reviews; a distillation every five
-    # rounds after the first five.
-    assert five.calls == {"planner": 5, "proposer": 15, "reviewer": 10, "distiller": 0}
-    assert ten.calls == {"planner": 10, "proposer": 30, "reviewer": 20, "distiller": 1}
-    assert ten.total > 2 * five.total > 0  # the history every prompt carries grows with the rounds
-
-
-def test_the_cost_estimate_is_printed_before_the_run(tmp_path, market, capsys):
-    fake = FakeLLM(_propose)
-    run(write_config(tmp_path, market["components"], round={**SETTINGS, "max_rounds": 1, "budget_usd": 2.5}),
-        fake, market["cache"])
-    out = capsys.readouterr().out
-    assert "Estimated LLM cost" in out and "6 calls" in out and "budget $2.50" in out
-    assert "unknown" in out  # the fake cannot price its calls
-
-
-def test_an_estimate_above_the_budget_is_flagged(tmp_path, market, monkeypatch):
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-unused")
-    path = write_config(tmp_path, market["components"], llm=_anthropic_roles(), round={**SETTINGS, "budget_usd": 0.01})
-    summary = Campaign(CampaignConfig.from_file(path)).estimate().summary(0.01)
-    assert "budget $0.01" in summary and "the estimate is above the budget" in summary
 
 
 # Live smoke tests: one real call each, skipped without the provider's credentials.
@@ -351,16 +307,15 @@ def _claude_code_logged_in() -> bool:
 def test_live_claude_code():
     answer = make_backend({"backend": "claude_code", "model": "claude-opus-5-5", "effort": "low"}).complete(
         _request(prompt=SMOKE_PROMPT))
-    assert "ready" in answer.text.lower() and answer.cost > 0 and answer.model_id
+    assert "ready" in answer.text.lower() and answer.usage and answer.model_id
 
 
 @pytest.mark.skipif(not os.environ.get("ANTHROPIC_API_KEY"), reason="ANTHROPIC_API_KEY is not set")
 def test_live_anthropic():
     answer = make_backend({
         "backend": "anthropic", "model": "claude-opus-5-5", "effort": "low", "max_tokens": 1024,
-        "input_usd_per_mtok": 4.0, "output_usd_per_mtok": 20.0,
     }).complete(_request(prompt=SMOKE_PROMPT))
-    assert "ready" in answer.text.lower() and answer.cost > 0 and answer.model_id.startswith("claude-opus-5-5")
+    assert "ready" in answer.text.lower() and answer.usage and answer.model_id.startswith("claude-opus-5-5")
 
 
 #: The OpenAI-compatible provider of the smoke test: FACTOR_AGENT_SMOKE_OPENAI_BASE_URL, _MODEL and
@@ -376,9 +331,8 @@ _OPENAI_SMOKE = {
 def test_live_openai_compatible():
     answer = make_backend({
         "backend": "openai_compatible", **_OPENAI_SMOKE, "max_tokens": 64,
-        "input_usd_per_mtok": 1.0, "output_usd_per_mtok": 1.0,
     }).complete(_request(prompt=SMOKE_PROMPT))
-    assert "ready" in answer.text.lower() and answer.cost > 0 and answer.model_id
+    assert "ready" in answer.text.lower() and answer.usage and answer.model_id
 
 
 def test_a_resumed_run_replays_with_the_replies_its_ledger_used(tmp_path, market):

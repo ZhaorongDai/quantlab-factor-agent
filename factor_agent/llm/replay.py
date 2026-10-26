@@ -36,10 +36,6 @@ class ReplayBackend:
         """Build from ``{"log": <the llm_log directory of the recorded run>}``."""
         return cls(LLMLog(spec["log"]))
 
-    def estimate(self, input_tokens: int, output_tokens: int) -> float:
-        """Nothing: no provider is called."""
-        return 0.0
-
     def complete(self, request: Request) -> Reply:
         """Return the recorded reply to ``request``.
 
@@ -58,6 +54,6 @@ class ReplayBackend:
         call = queue.popleft()
         reply = call["reply"]
         return Reply(
-            text=reply["text"], usage=reply["usage"], cost=reply["cost"], model_id=reply["model_id"],
+            text=reply["text"], usage=reply["usage"], model_id=reply["model_id"],
             params=call["request"]["params"], raw=reply["raw"],
         )

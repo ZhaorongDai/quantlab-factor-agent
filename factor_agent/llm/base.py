@@ -16,7 +16,7 @@ class Request:
 
 @dataclass(frozen=True)
 class Reply:
-    """The provider's answer: its text, token usage, cost in US dollars and the model that answered.
+    """The provider's answer: its text, token usage as the provider reports it and the model that answered.
 
     ``params`` are the parameters the backend sent with the prompt (such as
     ``max_tokens``), and ``raw`` is the provider's reply as it came, before
@@ -25,20 +25,13 @@ class Reply:
 
     text: str
     usage: dict
-    cost: float
     model_id: str
     params: dict = field(default_factory=dict)
     raw: str = ""
 
 
 class LLMBackend(Protocol):
-    """Anything that completes a request.
-
-    A backend may also price a call before it is made with
-    ``estimate(input_tokens, output_tokens) -> float | None`` (None: it
-    cannot); the cost estimate before a run uses it, and treats a backend
-    without it as unknown.
-    """
+    """Anything that completes a request."""
 
     def complete(self, request: Request) -> Reply: ...
 

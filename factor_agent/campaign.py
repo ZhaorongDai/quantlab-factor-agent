@@ -50,11 +50,9 @@ prompt carries, and ``memory/round_NN.md`` every version, by the round it
 was written before.
 
 Before each round the stop conditions are checked: the round limit, the
-trial limit, ``patience`` rounds in a row without an acceptance, and the
-budget; the first that holds ends the run and is recorded. The budget is
-also checked before every call: a round that reaches it is stopped there
-and dropped, and the spending, written after every call, is kept. Before the first
-round ``run`` prints the cost estimate (``_cost``), and every call goes
+trial limit and ``patience`` rounds in a row without an acceptance; the
+first that holds ends the run and is recorded. The library counts no
+money: spending limits belong to the provider. Every call goes
 to the run's LLM log (``llm.log``), which the ``replay`` backend serves
 back to reproduce the run without a provider; on a resume the calls of the
 dropped round are moved to ``llm_log/dropped/``, so the log holds exactly
@@ -72,8 +70,7 @@ from pathlib import Path
 
 import xarray as xr
 
-from factor_agent import _admission, _cost, _feedback, _scheduler
-from factor_agent._cost import CostEstimate
+from factor_agent import _admission, _feedback, _scheduler
 from factor_agent.config import ROLES, CampaignConfig
 from factor_agent.evaluator import CompileFailure, Evaluator, Metrics
 from factor_agent.gate import Gate
@@ -83,7 +80,7 @@ from factor_agent.ledger import Ledger, TrialRecord
 from factor_agent.llm.base import LLMBackend, make_backend
 from factor_agent.llm.log import LLMLog, RecordingBackend
 from factor_agent.prompts import Prompts, Templates
-from factor_agent.researcher import BudgetExhausted, Proposal, Researcher
+from factor_agent.researcher import Proposal, Researcher
 from factor_agent.scoring import Scoring
 from factor_agent.segments import code_version
 from factor_agent.snapshot import RunSnapshot, SnapshotMismatch
@@ -92,7 +89,7 @@ from factor_agent.zoo import Zoo
 
 @dataclass(frozen=True)
 class Stop:
-    """Why the campaign stopped: ``by`` is ``"max_rounds"``, ``"max_trials"``, ``"patience"`` or ``"budget"``."""
+    """Why the campaign stopped: ``by`` is ``"max_rounds"``, ``"max_trials"`` or ``"patience"``."""
 
     by: str
     reason: str
@@ -111,7 +108,6 @@ class CampaignResult:
     ledger_path: Path
     stop: Stop
     rounds: int
-    spent: float
     memory: str = ""
     not_covered: tuple[str, ...] = ()
 
@@ -138,7 +134,6 @@ class _State:
     """What ``state.json`` holds after every round; the ledger holds the trials."""
 
     rounds: int = 0
-    spent: float = 0.0
     memory: str = ""
     #: The round after which the distiller was last asked.
     memory_round: int = 0
@@ -178,21 +173,6 @@ class Campaign:
         self.config = config
         self._backends = dict(backends or {})
         self._replaced = set(self._backends)
-
-    def estimate(self) -> CostEstimate:
-        """The calls and the cost the campaign is expected to take, from its config (see ``_cost``)."""
-        config = self.config
-        prompts = self._prompts(
-            config.templates(), config.vocabulary(), config.data.load("label"),
-            Scoring.from_config(config.scoring, config.data, njobs=config.evaluator.njobs),
-        )
-        return self._estimate(*config.load_factors(), prompts, config.context.recent_rounds)
-
-    def _estimate(self, reference: list, known: list, prompts: Prompts, recent_rounds: int) -> CostEstimate:
-        context = {"seed": _seed(self.config.directions), "families": _feedback.families(reference, known)}
-        return _cost.estimate(
-            self.config.round, self._role_backends(), context, prompts, recent_rounds,
-        )
 
     def _prompts(self, templates: Templates, vocabulary: Vocabulary, label, scoring: Scoring) -> Prompts:
         """What the prompts say: the config's market and mechanism types, ``label``'s horizon, ``scoring``'s sentence."""
@@ -239,12 +219,7 @@ class Campaign:
         ledger = Ledger(run_dir / "ledger.jsonl")
         ledger.keep(state.rounds)
         records = ledger.records()
-        def on_cost(spent: float) -> None:
-            state.spent = spent
-            state.write(state_path)
-
         reference, known = config.load_factors()
-        print(self._estimate(reference, known, prompts, recent_rounds).summary(config.round.budget_usd, state.spent), flush=True)
         log = LLMLog(run_dir / "llm_log")
         log.drop_after(state.calls)
         researcher = Researcher(
@@ -252,7 +227,7 @@ class Campaign:
                 role: (RecordingBackend(backend, log), config.roles[role].model)
                 for role, backend in self._role_backends().items()
             },
-            prompts, spent=state.spent, budget=config.round.budget_usd, on_cost=on_cost,
+            prompts,
         )
         evaluator = Evaluator.for_segment(
             config.training,
@@ -272,45 +247,40 @@ class Campaign:
         _restore(records, zoo, evaluator, vocabulary)
         while (stop := self._stop(state, records)) is None:
             number = state.rounds + 1
-            spent_before = researcher.spent
-            try:
-                if _feedback.distill_due(state.rounds, state.memory_round, config.round.memory_every):
-                    since = [r for r in records if r.round > state.memory_through]
-                    memory = researcher.distill(number, state.memory, _feedback.history(since, statistics=False))
-                    state.memory_round = state.rounds
-                    if memory is None:
-                        print(
-                            f"Campaign: the distiller's reply before round {number} is empty or not a memory in "
-                            f"its three parts; the previous memory is kept", flush=True,
-                        )
-                    else:
-                        state.memory, state.memory_through = memory, state.rounds
-                        (run_dir / "memory").mkdir(parents=True, exist_ok=True)
-                        (run_dir / "memory" / f"round_{number:02d}.md").write_text(memory + "\n")
-                        (run_dir / "memory.md").write_text(memory + "\n")
-                    state.calls = len(log.files())
-                    state.write(state_path)
-                quota = _scheduler.quota(number, records, config.round, prompts.mechanism_types)
-                accepted = [r for r in records if r.status == "accepted"]
-                context = self._context(records, state, reference, known, evaluator, accepted, recent_rounds, prompts)
-                directions, issues = researcher.plan(number, quota, context, [_feedback.accepted_label(r) for r in accepted])
-                proposals = researcher.propose(number, directions, context, gate, zoo, config.round.retries)
-                round_records = self._round(number, proposals, researcher, gate, zoo, evaluator, records)
-            except BudgetExhausted as exc:
-                stop = Stop("budget", f"{exc}; round {number} was stopped and dropped")
-                break
+            if _feedback.distill_due(state.rounds, state.memory_round, config.round.memory_every):
+                since = [r for r in records if r.round > state.memory_through]
+                memory = researcher.distill(number, state.memory, _feedback.history(since, statistics=False))
+                state.memory_round = state.rounds
+                if memory is None:
+                    print(
+                        f"Campaign: the distiller's reply before round {number} is empty or not a memory in "
+                        f"its three parts; the previous memory is kept", flush=True,
+                    )
+                else:
+                    state.memory, state.memory_through = memory, state.rounds
+                    (run_dir / "memory").mkdir(parents=True, exist_ok=True)
+                    (run_dir / "memory" / f"round_{number:02d}.md").write_text(memory + "\n")
+                    (run_dir / "memory.md").write_text(memory + "\n")
+                state.calls = len(log.files())
+                state.write(state_path)
+            quota = _scheduler.quota(number, records, config.round, prompts.mechanism_types)
+            accepted = [r for r in records if r.status == "accepted"]
+            context = self._context(records, state, reference, known, evaluator, accepted, recent_rounds, prompts)
+            directions, issues = researcher.plan(number, quota, context, [_feedback.accepted_label(r) for r in accepted])
+            proposals = researcher.propose(number, directions, context, gate, zoo, config.round.retries)
+            round_records = self._round(number, proposals, researcher, gate, zoo, evaluator, records)
             ledger.append(round_records)
             records += round_records
-            state.rounds, state.spent, state.calls = number, researcher.spent, len(log.files())
+            state.rounds, state.calls = number, len(log.files())
             state.log.append({
-                "round": number, "quota": quota, "plan_issues": issues, "cost": researcher.spent - spent_before,
+                "round": number, "quota": quota, "plan_issues": issues,
                 "accepted": sum(r.status == "accepted" for r in round_records),
             })
             state.write(state_path)
         state.stop = asdict(stop)
         state.write(state_path)
         return CampaignResult(
-            records=records, ledger_path=ledger.path, stop=stop, rounds=state.rounds, spent=state.spent,
+            records=records, ledger_path=ledger.path, stop=stop, rounds=state.rounds,
             memory=state.memory, not_covered=zoo.not_covered,
         )
 
@@ -367,8 +337,6 @@ class Campaign:
         recent = range(state.rounds - settings.patience + 1, state.rounds + 1)
         if state.rounds >= settings.patience and not any(r.status == "accepted" and r.round in recent for r in records):
             return Stop("patience", f"no candidate was accepted in the last {settings.patience} rounds")
-        if settings.budget_usd is not None and state.spent >= settings.budget_usd:
-            return Stop("budget", f"the LLM calls cost ${state.spent:.2f}, the budget is ${settings.budget_usd:.2f}")
         return None
 
     def _context(
