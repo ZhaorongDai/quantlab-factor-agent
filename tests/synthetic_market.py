@@ -32,7 +32,8 @@ import pandas as pd
 import polars as pl
 import xarray as xr
 
-from quantlab.dataset.config import ConstituentDatasetConfig, DatasetConfig
+from quantlab.dataset.config import ConstituentDatasetConfig, DatasetConfig, FactorStoreDatasetConfig
+from quantlab.dataset.factor_store import FactorStoreDataset
 from quantlab.dataset.raw import IndexConstituentDataset
 from quantlab.dataset.stock import StockDataset
 from quantlab.factor.config import FactorConfig
@@ -176,3 +177,32 @@ def build(root: Path) -> dict:
         "membership": membership.get_config(), "exposures": exposures.get_config(),
         "market_label": ret.get_config(),
     }
+
+
+#: The synthetic daily-statistics store's outputs: what a session statistic of minute bars would be.
+STATISTICS = ("rvol", "imbalance")
+#: Every this-many bars, no symbol has a statistic, as a session with too few trades leaves none.
+MISSING_EVERY = 3
+
+
+def statistics(root: Path, prefix: str = "") -> dict:
+    """Write a daily-statistics store under ``root`` and return the config of a dataset reading it.
+
+    The store holds ``STATISTICS`` on the synthetic bars' dates and symbols, positive noise, NaN
+    on every symbol on every ``MISSING_EVERY``-th bar; the dataset reads it under ``prefix``.
+    """
+    timestamps = pd.bdate_range(START, END)
+    rng = np.random.default_rng(SEED + 2)
+    missing = (np.arange(len(timestamps)) % MISSING_EVERY == 0)[:, None]
+    panel = xr.Dataset(
+        {
+            name: (["timestamp", "symbol"],
+                   np.where(missing, np.nan, np.exp(rng.normal(size=(len(timestamps), N_SYMBOLS)))))
+            for name in STATISTICS
+        },
+        coords={"timestamp": timestamps, "symbol": symbols()},
+    )
+    zarr_path = Path(root) / "factors" / "market" / "synthetic_stats" / "synthetic_stats.zarr"
+    zarr_path.parent.mkdir(parents=True)
+    panel.to_zarr(zarr_path, mode="w")
+    return FactorStoreDataset(FactorStoreDatasetConfig(zarr_file_path=str(zarr_path), prefix=prefix)).get_config()

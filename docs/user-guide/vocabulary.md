@@ -63,6 +63,64 @@ period_lag:
 The repository ships `sharadar_price_volume.yaml` (Sharadar SEP's adjusted bars) and
 `sharadar_fundamentals.yaml` (SF1 trailing-twelve-month items and DAILY valuations).
 
+## High-frequency families
+
+A **high-frequency family** is an input family whose fields are daily statistics of a
+minute dataset: one value per stock and session, such as the realized volatility of the
+session's minute returns or its order imbalance. The campaign computes nothing from minute
+bars; it reads a store of the statistics built beforehand, beside the daily prices, and
+candidate code applies its own windows to the daily values like to any other field.
+
+A new source takes two steps, and no change to factor-agent:
+
+1. **Build the daily statistics store.** Compute the statistics from the minute dataset with
+   quantlab's session-statistic factors (`IntradayStats`, `PriceVolumeIntradayStats`),
+   resampled to one value per day, and save them as a factor store.
+2. **Write a field file for it.** Add a quantlab `FactorStoreDataset` over the store to the
+   campaign's price dataset, merged with the daily bars, and write a field file whose
+   columns are the statistics' names in the merged panel, with `bar: false`:
+
+```yaml
+data:
+  prices:
+    name: quantlab.dataset.merged.MergedDataset
+    datasets:
+    - ...                                   # the daily bars, as before
+    - name: quantlab.dataset.factor_store.FactorStoreDataset
+      zarr_file_path: factors/session_stats/session_stats.zarr
+      prefix: 'trades_'                     # rvol is read as trades_rvol
+```
+
+```yaml
+family: session_statistics
+description: daily statistics of each session's minute trade bars
+bar: false                    # a missing statistic is a missing value, not a missing bar
+
+fields:
+  - name: rvol
+    column: trades_rvol
+    unit: 1
+    description: realized volatility of the session's minute returns
+```
+
+Two rules hold for every such store:
+
+- **A store's value for day t is known at day t's close.** The dataset shifts nothing: the
+  value stored at day t is read beside day t's prices, so the store must hold at day t only
+  what that day's session revealed by its close. Aligning the values is the store
+  builder's job.
+- **A missing statistic is a missing value.** A session with too few trades leaves its
+  statistics missing, and with `bar: false` that blanks only the candidates that read them;
+  the same day's prices keep their values and a price-only candidate is unaffected.
+
+The **prefix** keeps two sources apart. Two stores may hold an output of the same name
+(trade bars and quote bars both give an `rvol`); read each under its own prefix
+(`trades_rvol`, `quotes_rvol`) and give each field file its own field names. Two merged
+inputs that both hold a value of the same column for a stock on a day are refused when the
+panel is read, so a field never silently reads the wrong source. A field file naming a column the merged panel lacks (a
+stored name without its prefix, a typo) is refused at start, before any LLM call, with
+every other problem of the files.
+
 ## The operator file
 
 The operator file lists each operator candidate code may call: its KunQuant `class`, the
