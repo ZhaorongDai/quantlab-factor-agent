@@ -162,8 +162,8 @@
 | `Gate` | `check(candidate, zoo) -> Passed(graph, fingerprint, stats) \| Rejected(reasons)` | 隔离子进程、AST 白名单、算子注册表、规范化、各项图约束、量纲、机制绑定、公共子树、检查顺序 | 不读数据、确定性、坏候选返回 `Rejected` 不抛异常；local-substitutable（测试真起子进程） |
 | `Evaluator` | `for_segment(segment, reference)`；`.evaluate(graphs, admit) -> list[Metrics \| CompileFailure]`（`admit` 是 `Campaign` 的准入回调，按提案顺序调用，收下的候选当轮即进参考池） | 批量编译与二分定位、全市场读取与坏报价屏蔽、rank、中性化、成员屏蔽、标签对齐、IC/NW t/偏 IC/10 分组 | 唯一碰数据；segment 构造时固定、无换日期方法；测试用小型合成 Zarr store |
 | `Segments` | 日期、清洗（`scored`：至少 5 个交易日，标签读得更远则按 `lookahead_bars`）、保留期锁（`open_holdout`） | Q35、Q36 | `Evaluator` 与 `Acceptance` 共用 |
-| `Researcher` | `plan`、`propose(plan, gate)`、`review`、`distill` | prompt 模板、三段历史、JSON 解析与重试、Gate 失败重试、调用落盘 | 各角色后端由配置注入 |
-| `LLMBackend` | `complete(request) -> Reply(text, usage, cost, model_id)` | — | 真实 seam：claude_code / anthropic / openai_compatible / replay + 测试 fake |
+| `Researcher` | `plan`、`propose(plan, gate)`、`review`、`revise`、`distill` | prompt 模板、三段历史、JSON 解析与重试、Gate 失败重试、调用落盘；一轮的方向切成 `round.groups` 个 proposal group，提案/修复/审查/改写每组一次调用、同阶段各组并发，回复按槽位顺序过 Gate；同阶段有调用撞额度时抛 `ProviderQuotaExhausted`，否则抛按 prompt 顺序的第一个异常 | 各角色后端由配置注入 |
+| `LLMBackend` | `complete(request) -> Reply(text, usage, model_id)`；余额或额度耗尽抛 `ProviderQuotaExhausted` | 提供商的余额不足错误识别 | 真实 seam：claude_code / anthropic / openai_compatible / replay + 测试 fake |
 | `Ledger` | 追加与读取试验记录、轮次状态 | 文件格式 | 测试用临时目录 |
 | `Vocabulary` | `load(fields, operators)`、`namespace()`、`check(graph)`、`bind(hypothesis, graph)`、`columns(graph)`、`prompt()` | 类路径解析与模块白名单、单位与量纲规则、派生字段、周期滞后、绑定短语、启动校验 | 由字段文件与算子文件构建；沙箱子进程从快照重建同一份；`test_vocabulary` |
 | `Scoring` | `from_config(scoring, data)`、`apply(factor)`、`read(factor, start, end)`、`describe()` | 截面 rank、可选中性化、可选成员屏蔽、从 store 首日读 | Evaluator 与 Acceptance 共用，口径唯一 |

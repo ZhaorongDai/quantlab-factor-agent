@@ -453,6 +453,7 @@ class _Frame:
         columns = [v if isinstance(v, list) else self.daily_scores(v) for v in factors.values()]
         self.pool_names += list(factors)
         for d in range(len(self.rows)):
+            # The empty leading block keeps the stack (rows, 0) when no factors are added.
             added = np.column_stack([np.zeros((len(self.rows[d]), 0)), *(c[d] for c in columns)]).astype(np.float32)
             self.pool[d] = np.column_stack([self.pool[d], added])
             if self._basis is not None:
