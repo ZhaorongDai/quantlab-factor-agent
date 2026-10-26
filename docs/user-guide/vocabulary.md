@@ -117,9 +117,9 @@ The **prefix** keeps two sources apart. Two stores may hold an output of the sam
 (trade bars and quote bars both give an `rvol`); read each under its own prefix
 (`trades_rvol`, `quotes_rvol`) and give each field file its own field names. Two merged
 inputs that both hold a value of the same column for a stock on a day are refused when the
-panel is read, so a field never silently reads the wrong source. A field file naming a column the merged panel lacks (a
-stored name without its prefix, a typo) is refused at start, before any LLM call, with
-every other problem of the files.
+panel is read, so a field never silently reads the wrong source. A field file naming a
+column the merged panel lacks (a stored name without its prefix, a typo) is refused at
+start, before any LLM call, with every other problem of the files.
 
 ## The operator file
 

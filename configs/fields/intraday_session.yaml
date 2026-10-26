@@ -1,17 +1,16 @@
 # Session statistics of one-minute trade bars: the twenty daily outputs of quantlab's IntradayStats,
 # one value per stock and session, read from a store of them built beforehand with quantlab.
 #
-# - The price dataset reads the store through quantlab's FactorStoreDataset with the prefix trade_,
-#   so the output rvol is the panel's column trade_rvol; each field is named after its column.
+# The price dataset reads the store through quantlab's FactorStoreDataset with the prefix trade_ (the
+# output rvol is the panel's column trade_rvol), under the rules of the "High-frequency families"
+# section of docs/user-guide/vocabulary.md.
+#
 # - Each field is the session's own value, not a multi-day mean: candidate code applies its own
 #   windows (means, volatilities, trends) to the daily values.
 # - A minute return r is the log change of the last trade price from one bar to the next within the
 #   session (a bar without a trade returns 0; the first traded bar's return is measured from its
 #   open), so the session's returns sum to the move from the first trade to the last price and leave
 #   out the overnight move. RV is the sum of r^2 and N the number of minute returns.
-# - A session with too few bars with a trade has no statistics: every field is missing there. With
-#   `bar: false` that leaves the day's prices of the same stock alone.
-# - The value of a session is known at that session's close.
 #
 # See sharadar_price_volume.yaml for the keys of a field file.
 family: intraday_session
@@ -99,7 +98,7 @@ fields:
   - name: trade_amihud
     column: trade_amihud
     unit: 1/dollars
-    description: minute Amihud illiquidity, sum |r| per million dollars traded in the session (1e6 * sum |r| / dollar volume)
+    description: minute Amihud illiquidity per million dollars traded, 1e6 times the session's sum of |r| over its dollar volume (1e6 * sum |r| / dollar volume)
   - name: trade_trade_size
     column: trade_trade_size
     unit: '1'

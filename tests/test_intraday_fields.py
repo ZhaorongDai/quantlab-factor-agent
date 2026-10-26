@@ -89,11 +89,10 @@ def test_a_candidate_on_session_statistics_passes_the_gate_with_its_dimension(vo
 REAL_HF = CONFIGS / "us3000_hf_ret5.yaml"
 OTHER_EXAMPLES = (CONFIGS / "us3000_ret5.yaml", CONFIGS / "us3000_fund_ret5.yaml")
 FACTORS = "/data/quantlab/factors/market"
-#: The known factors: those of the earlier campaigns and the minute price-volume factors.
+#: The known factors: whole-market factor libraries and the minute price-volume factors.
 KNOWN = tuple(f"{FACTORS}/{name}" for name in (
     "alpha101_neutral", "alpha158_neutral", "fundamental_alpha_neutral", "daily_anomaly_neutral",
-    "short_horizon_neutral", "barra_style", "agent_fundamental_alpha_neutral", "agent_price_volume_alpha_neutral",
-    "price_volume_intraday_neutral",
+    "short_horizon_neutral", "barra_style", "price_volume_intraday_neutral",
 ))
 
 

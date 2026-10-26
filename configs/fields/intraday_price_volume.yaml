@@ -3,18 +3,17 @@
 # dispersions and the high-volume minutes), one value per stock and session, read from a store of
 # them built beforehand with quantlab.
 #
-# - The price dataset reads the store through quantlab's FactorStoreDataset with the prefix pv_, so
-#   the output AMP_MEAN is the panel's column pv_AMP_MEAN; each field is named after its column.
+# The price dataset reads the store through quantlab's FactorStoreDataset with the prefix pv_ (the
+# output AMP_MEAN is the panel's column pv_AMP_MEAN), under the rules of the "High-frequency families"
+# section of docs/user-guide/vocabulary.md.
+#
 # - Each field is the session's own value, not a multi-day mean: candidate code applies its own
 #   windows to the daily values.
 # - Per minute bar: r is the log return of intraday_session.yaml; the amplitude a is (high - low)
 #   over the previous bar's last price, on bars with a trade; the deviation d is the bar's close over
 #   the session's VWAP so far, less 1, on bars with a trade; v is the bar's volume. A high-volume
-#   minute has v above the session's mean plus one standard deviation of v.
-# - A session with too few bars with a trade has no statistics, and a statistic over no bar (no
-#   positive return on a high-volume minute, say) is missing. With `bar: false` that leaves the day's
-#   prices of the same stock alone.
-# - The value of a session is known at that session's close.
+#   minute has v above the session's mean plus one standard deviation of v. A statistic over no bar
+#   (no positive return on a high-volume minute, say) is missing.
 #
 # See sharadar_price_volume.yaml for the keys of a field file.
 family: intraday_price_volume
