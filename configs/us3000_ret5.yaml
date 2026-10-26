@@ -196,6 +196,7 @@ round:
   patience: 5
   memory_every: 5
   seed: 0
+  groups: 4          # proposal groups whose calls run side by side (Q86)
 
 context:
   recent_rounds: 5    # the planner lists the last 5 rounds' trials; older ones are counted (Q83)

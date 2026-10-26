@@ -11,11 +11,20 @@ What the prompts say comes from ``Prompts``: the templates (built in or
 replaced by the config), the market, the label's horizon, the scoring, the
 vocabulary and the mechanism types, which also set the plan's slots and
 the types a candidate may have.
+
+A round's directions are split into proposal groups: contiguous runs of
+near-equal size, in the plan's type order. Each group's first proposal,
+fixes, review, rewrite and second review are calls of their own, and every
+group's call of a stage is sent at once on threads and waited for; the
+parser and the Gate then run over the whole round in slot order, so the
+outcome does not depend on which reply lands first. The planner and the
+distiller make one call a round.
 """
 
 import dataclasses
 import json
 import re
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 
 from factor_agent.candidate import Candidate
@@ -87,7 +96,8 @@ class Proposal:
     ``checked`` is set when the last version passed the Gate; otherwise the
     slot is a failed trial and the last of ``attempts`` says why. ``item``
     is the last version the proposer wrote, ``candidate`` its parsed form
-    (None if it did not parse), and ``attempts`` every refused version in order.
+    (None if it did not parse), ``attempts`` every refused version in order,
+    and ``group`` the proposal group whose calls write, fix and review it.
     """
 
     direction: Direction
@@ -95,6 +105,7 @@ class Proposal:
     candidate: Candidate | None
     checked: Passed | None
     attempts: tuple[Attempt, ...]
+    group: int = 0
 
 
 def output_unit(checked: Passed) -> str:
@@ -115,11 +126,14 @@ class Researcher:
         ``distiller``) to its ``(backend, model)``.
     prompts : Prompts
         The templates and what fills them; its mechanism types are the plan's, in order.
+    groups : int, default 1
+        The proposal groups a round's directions are split into (at most one per direction).
     """
 
-    def __init__(self, roles: dict[str, tuple[LLMBackend, str]], prompts: Prompts):
+    def __init__(self, roles: dict[str, tuple[LLMBackend, str]], prompts: Prompts, groups: int = 1):
         self.roles = dict(roles)
         self.prompts = prompts
+        self.groups = groups
         self._types = prompts.mechanism_types
 
     def plan(
@@ -165,65 +179,85 @@ class Researcher:
     ) -> list[Proposal]:
         """Ask for one candidate per direction and return one ``Proposal`` per direction, in order.
 
-        A candidate must have its direction's mechanism type. Every
-        candidate the parser or ``gate`` (checking originality against
-        ``zoo``) refuses is sent back with its reasons, all of a round's in
-        one request, up to ``retries`` times.
+        Each proposal group's directions go in a request of their own, all
+        sent at once. A candidate must have its direction's mechanism type.
+        Every candidate the parser or ``gate`` (checking originality against
+        ``zoo``) refuses is sent back with its reasons, all of a group's in
+        one request, up to ``retries`` times; the candidates are checked in
+        slot order once every group's reply is back.
         """
-        prompt = self.prompts.render(
-            "propose", round=number, context=render_context(context, PROPOSER_SECTIONS), n=len(directions),
-            directions=json.dumps([{"number": i + 1, **d.to_dict()} for i, d in enumerate(directions)], indent=2),
-        )
-        items = _items(self._ask("proposer", prompt), [None] * len(directions))
+        groups = _split(len(directions), self.groups)
+        context = render_context(context, PROPOSER_SECTIONS)
+        replies = self._ask_all("proposer", [
+            self.prompts.render(
+                "propose", round=number, context=context, n=len(slots),
+                directions=json.dumps([{"number": i + 1, **directions[s].to_dict()} for i, s in enumerate(slots)], indent=2),
+            )
+            for slots in groups
+        ])
+        items: list = [None] * len(directions)
+        group_of = [0] * len(directions)
+        for group, (slots, text) in enumerate(zip(groups, replies)):
+            for slot, item in zip(slots, _items(text, [None] * len(slots))):
+                items[slot], group_of[slot] = item, group
         attempts: list[list[Attempt]] = [[] for _ in directions]
         proposals: list[Proposal | None] = [None] * len(directions)
         pending = list(range(len(directions)))
         for retry in range(retries + 1):
             for slot in pending:
-                proposals[slot] = self._check(directions[slot], items[slot], gate, zoo, attempts[slot])
+                proposals[slot] = self._check(directions[slot], items[slot], gate, zoo, attempts[slot], group_of[slot])
             pending = [slot for slot in pending if proposals[slot].checked is None]
             if not pending or retry == retries:
                 break
-            fixed = self._ask_to_fix(number, [(directions[slot], items[slot], attempts[slot][-1]) for slot in pending])
+            fixed = self._ask_to_fix(
+                number, [(directions[slot], items[slot], attempts[slot][-1]) for slot in pending],
+                [group_of[slot] for slot in pending],
+            )
             for slot, item in zip(pending, fixed):
                 items[slot] = item
         return proposals
 
     def review(self, number: int, proposals: list[Proposal]) -> list[Verdict]:
-        """Judge the consistency of each gated proposal's candidate, in one call.
+        """Judge the consistency of each gated proposal's candidate, one call per proposal group, all sent at once.
 
         Each candidate is listed with its output unit, as the Gate inferred
-        it (``output_unit``). A reply with no usable verdict at all is asked
-        for once more; a candidate still without a verdict is inconsistent.
+        it (``output_unit``). A group whose reply holds no usable verdict at
+        all is asked once more; a candidate still without a verdict is inconsistent.
         """
-        if not proposals:
-            return []
-        listed = [
-            {"number": i + 1, **p.candidate.to_dict(), "output_unit": output_unit(p.checked)}
-            for i, p in enumerate(proposals)
+        groups = _by_group([p.group for p in proposals])
+        prompts = [
+            self.prompts.render("review", round=number, candidates=json.dumps([
+                {"number": i + 1, **proposals[p].candidate.to_dict(), "output_unit": output_unit(proposals[p].checked)}
+                for i, p in enumerate(positions)
+            ], indent=2))
+            for positions in groups
         ]
-        prompt = self.prompts.render("review", round=number, candidates=json.dumps(listed, indent=2))
-        verdicts: dict[int, Verdict] = {}
+        verdicts: list[dict[int, Verdict]] = [{} for _ in groups]
+        asking = list(range(len(groups)))
         for _ in range(2):
-            try:
-                items = _json_array(self._ask("reviewer", prompt))
-            except ValueError:
-                items = []
-            for item in items:
-                if isinstance(item, dict) and isinstance(item.get("consistent"), bool) and isinstance(item.get("number"), int):
-                    verdicts.setdefault(item["number"], Verdict(item["consistent"], str(item.get("reason", ""))))
-            if verdicts:
-                break
+            for group, text in zip(asking, self._ask_all("reviewer", [prompts[g] for g in asking])):
+                try:
+                    items = _json_array(text)
+                except ValueError:
+                    items = []
+                for item in items:
+                    if isinstance(item, dict) and isinstance(item.get("consistent"), bool) and isinstance(item.get("number"), int):
+                        verdicts[group].setdefault(item["number"], Verdict(item["consistent"], str(item.get("reason", ""))))
+            asking = [group for group in asking if not verdicts[group]]
         missing = Verdict(False, "the reviewer gave no verdict on this candidate")
-        return [verdicts.get(i + 1, missing) for i in range(len(proposals))]
+        judged: list[Verdict] = [missing] * len(proposals)
+        for positions, found in zip(groups, verdicts):
+            for i, p in enumerate(positions):
+                judged[p] = found.get(i + 1, missing)
+        return judged
 
     def revise(
         self, number: int, inconsistent: list[tuple[Proposal, Verdict]], gate: Gate, zoo: Zoo,
     ) -> list[Proposal]:
         """Send each candidate the reviewer found inconsistent back to be rewritten once; return the rewrites, in order.
 
-        Every candidate goes, with the reviewer's reason and its output unit, in one rewrite request,
-        and its first review becomes an attempt of stage ``"review"``. Each
+        Every candidate goes, with the reviewer's reason and its output unit, in one rewrite request
+        per proposal group, all sent at once, and its first review becomes an attempt of stage ``"review"``. Each
         rewrite is checked by the parser and ``gate`` once, with no further
         retries: a refused rewrite is a proposal without ``checked``. The
         refused versions' graphs are withdrawn from ``gate`` first, so a
@@ -237,10 +271,11 @@ class Researcher:
             attempts.append([*proposal.attempts, Attempt(proposal.item, "review", (verdict.refusal,))])
         fixed = self._ask_to_fix(
             number, [(proposal.direction, proposal.item, tried[-1]) for (proposal, _), tried in zip(inconsistent, attempts)],
+            [proposal.group for proposal, _ in inconsistent],
             units=[output_unit(proposal.checked) for proposal, _ in inconsistent],
         )
         return [
-            self._check(proposal.direction, item, gate, zoo, tried)
+            self._check(proposal.direction, item, gate, zoo, tried, proposal.group)
             for (proposal, _), item, tried in zip(inconsistent, fixed, attempts)
         ]
 
@@ -257,11 +292,13 @@ class Researcher:
         ))
         return _memory(reply)
 
-    def _check(self, direction: Direction, item: object, gate: Gate, zoo: Zoo, attempts: list[Attempt]) -> Proposal:
-        """Parse and gate one item; a refusal is appended to ``attempts``."""
+    def _check(
+        self, direction: Direction, item: object, gate: Gate, zoo: Zoo, attempts: list[Attempt], group: int,
+    ) -> Proposal:
+        """Parse and gate one item of proposal group ``group``; a refusal is appended to ``attempts``."""
         def refused(stage, reasons, candidate=None, shown=item, hints=()):
             attempts.append(Attempt(shown, stage, tuple(reasons), tuple(hints)))
-            return Proposal(direction, shown, candidate, None, tuple(attempts))
+            return Proposal(direction, shown, candidate, None, tuple(attempts), group)
 
         if isinstance(item, _Missing):
             return refused("parse", [item.reason], shown=item.previous)
@@ -275,34 +312,74 @@ class Researcher:
             ])
         checked = gate.check(candidate, zoo)
         if isinstance(checked, Passed):
-            return Proposal(direction, item, candidate, checked, tuple(attempts))
+            return Proposal(direction, item, candidate, checked, tuple(attempts), group)
         return refused("gate", checked.reasons, candidate, hints=checked.hints)
 
     def _ask_to_fix(
-        self, number: int, failures: list[tuple[Direction, object, Attempt]], units: list[str] | None = None,
+        self, number: int, failures: list[tuple[Direction, object, Attempt]], groups: list[int],
+        units: list[str] | None = None,
     ) -> list:
-        """Send the refused items back; return one fixed item per failure, in order.
+        """Send the refused items back, one request per proposal group in ``groups``, all at once.
 
-        ``units`` gives each refused version's output unit, for versions that
-        passed the Gate (those the reviewer sent back); without it no entry has one.
+        Returns one fixed item per failure, in order. ``units`` gives each
+        refused version's output unit, for versions that passed the Gate
+        (those the reviewer sent back); without it no entry has one.
         """
         items = [item.previous if isinstance(item, _Missing) else item for _, item, _ in failures]
         units = units or [None] * len(failures)
         listed = [
             {
-                "number": i + 1, "direction": direction.to_dict(), "refused_version": item,
+                "direction": direction.to_dict(), "refused_version": item,
                 **({"output_unit": unit} if unit is not None else {}),
                 "refused_because": list(attempt.reasons), **({"how_to_write_it": list(attempt.hints)} if attempt.hints else {}),
             }
-            for i, ((direction, _, attempt), item, unit) in enumerate(zip(failures, items, units, strict=True))
+            for (direction, _, attempt), item, unit in zip(failures, items, units, strict=True)
         ]
-        prompt = self.prompts.render("retry", round=number, failures=json.dumps(listed, indent=2), n=len(failures))
-        return _items(self._ask("proposer", prompt), items)
+        positions = _by_group(groups)
+        replies = self._ask_all("proposer", [
+            self.prompts.render(
+                "retry", round=number, n=len(group),
+                failures=json.dumps([{"number": i + 1, **listed[p]} for i, p in enumerate(group)], indent=2),
+            )
+            for group in positions
+        ])
+        fixed: list = [None] * len(failures)
+        for group, text in zip(positions, replies):
+            for p, item in zip(group, _items(text, [items[p] for p in group])):
+                fixed[p] = item
+        return fixed
 
     def _ask(self, role: str, prompt: str) -> str:
         """Send ``prompt`` to ``role``'s backend and return the reply's text."""
         backend, model = self.roles[role]
         return backend.complete(Request(role=role, model=model, prompt=prompt)).text
+
+    def _ask_all(self, role: str, prompts: list[str]) -> list[str]:
+        """Send ``prompts`` to ``role``'s backend side by side, one thread each; return the replies' texts in order.
+
+        Every call is waited for, so each that succeeds is logged; then the
+        first error, in the order of ``prompts``, is raised.
+        """
+        if not prompts:
+            return []
+        with ThreadPoolExecutor(max_workers=len(prompts)) as pool:
+            calls = [pool.submit(self._ask, role, prompt) for prompt in prompts]
+        return [call.result() for call in calls]
+
+
+def _split(count: int, groups: int) -> list[list[int]]:
+    """The slots ``0..count-1`` cut into ``groups`` contiguous runs of near-equal size, the longer first; none empty."""
+    groups = min(groups, count)
+    if not groups:
+        return []
+    size, longer = divmod(count, groups)
+    starts = [g * size + min(g, longer) for g in range(groups + 1)]
+    return [list(range(a, b)) for a, b in zip(starts, starts[1:])]
+
+
+def _by_group(groups: list[int]) -> list[list[int]]:
+    """The positions of ``groups`` gathered by proposal group: the groups in order, each one's positions in order."""
+    return [[p for p, g in enumerate(groups) if g == group] for group in sorted(set(groups))]
 
 
 @dataclass(frozen=True)

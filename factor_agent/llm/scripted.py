@@ -1,6 +1,7 @@
 """A scripted backend: replies read from a file, in order. For tests and offline smoke runs."""
 
 import json
+import threading
 from pathlib import Path
 
 from factor_agent.llm.base import Reply, Request
@@ -9,7 +10,8 @@ from factor_agent.llm.base import Reply, Request
 class ScriptedBackend:
     """Answer each request with the next reply of a fixed list.
 
-    ``requests`` keeps every request received, in order.
+    ``requests`` keeps every request received, in order; calls from several
+    threads take the replies one at a time, in the order they arrive.
 
     Raises
     ------
@@ -20,6 +22,7 @@ class ScriptedBackend:
     def __init__(self, replies: list[str]):
         self._replies = list(replies)
         self.requests: list[Request] = []
+        self._taking = threading.Lock()
 
     @classmethod
     def from_config(cls, spec: dict) -> "ScriptedBackend":
@@ -28,8 +31,9 @@ class ScriptedBackend:
 
     def complete(self, request: Request) -> Reply:
         """Return the next scripted reply and keep ``request``."""
-        if len(self.requests) >= len(self._replies):
-            raise RuntimeError(f"ScriptedBackend: no reply left for request {len(self.requests) + 1}")
-        text = self._replies[len(self.requests)]
-        self.requests.append(request)
+        with self._taking:
+            if len(self.requests) >= len(self._replies):
+                raise RuntimeError(f"ScriptedBackend: no reply left for request {len(self.requests) + 1}")
+            text = self._replies[len(self.requests)]
+            self.requests.append(request)
         return Reply(text=text, usage={}, model_id="scripted")

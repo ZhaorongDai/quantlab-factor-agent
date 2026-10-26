@@ -5,11 +5,14 @@ an XML tag on lines of its own: ``<quota>`` (planner), ``<directions>``
 (proposer), ``<refused_candidates>`` (a fix request) or ``<candidates>``
 (reviewer). The fake reads that tag and the ``Round: N`` line, and answers
 through the test's functions, so a script holds whatever the quotas turn
-out to be. Every request is kept in ``requests``.
+out to be, and the replies do not depend on the order in which calls sent
+side by side arrive. Every request is kept in ``requests``, in arrival
+order; the fake is safe to call from several threads.
 """
 
 import json
 import re
+import threading
 from collections.abc import Callable
 
 from factor_agent.config import DEFAULT_MECHANISMS
@@ -91,6 +94,7 @@ class FakeLLM:
         self._distill = distill or memory
         self.requests: list[Request] = []
         self.distilled = 0
+        self._lock = threading.Lock()
 
     def backends(self) -> dict:
         """The backend of every role: this fake."""
@@ -101,7 +105,8 @@ class FakeLLM:
             raise Interrupted(request.role)
         if self._quota(request):
             raise ProviderQuotaExhausted(QUOTA_MESSAGE)
-        self.requests.append(request)
+        with self._lock:
+            self.requests.append(request)
         text = getattr(self, f"_{request.role}")(request.prompt)
         return Reply(text=text, usage={}, model_id=f"fake-{request.role}")
 
@@ -130,8 +135,10 @@ class FakeLLM:
         ])
 
     def _distiller(self, prompt: str) -> str:
-        self.distilled += 1
-        return self._distill(self.distilled)
+        with self._lock:
+            self.distilled += 1
+            call = self.distilled
+        return self._distill(call)
 
 
 class Interrupted(RuntimeError):

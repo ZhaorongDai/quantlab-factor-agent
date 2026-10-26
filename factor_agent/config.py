@@ -208,6 +208,13 @@ class RoundConfig:
     memory_every: int = 5
     #: Seed of the Thompson sampling; round n draws from ``(seed, n)``.
     seed: int = 0
+    #: Proposal groups a round's directions are split into, each written, fixed and reviewed by
+    #: calls of its own that run side by side; a resume may change it.
+    groups: int = 1
+
+    def __post_init__(self):
+        if self.groups < 1:
+            raise ValueError(f"round: groups is {self.groups}; a round needs at least one proposal group")
 
 
 @dataclass(frozen=True)

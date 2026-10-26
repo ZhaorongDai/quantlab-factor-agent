@@ -3,12 +3,14 @@
 A file ``<number>-<role>.json`` holds the request (role, model, prompt and
 the parameters sent) and the reply (text, usage, the model that
 answered and the provider's raw reply); the numbers count the calls of the
-run from 1, across every role; the calls of a round a resume dropped are
+run from 1, across every role, in the order they finish (calls sent side by
+side are written one at a time); the calls of a round a resume dropped are
 kept in ``dropped/``, out of the sequence. No key is ever part of a request
 or a reply, so none is written.
 """
 
 import json
+import threading
 from dataclasses import asdict
 from pathlib import Path
 
@@ -20,6 +22,7 @@ class LLMLog:
 
     def __init__(self, path: str | Path):
         self.path = Path(path)
+        self._writing = threading.Lock()
 
     def files(self) -> list[Path]:
         """The call files, in call order."""
@@ -36,17 +39,21 @@ class LLMLog:
         return [json.loads(file.read_text()) for file in self.files()]
 
     def write(self, request: Request, reply: Reply) -> Path:
-        """Write the next call file and return its path; the file appears whole or not at all."""
-        self.path.mkdir(parents=True, exist_ok=True)
-        number = len(self.files()) + 1
-        path = self.path / f"{number:06d}-{request.role}.json"
+        """Write the next call file and return its path; the file appears whole or not at all.
+
+        Safe to call from several threads: one call is written at a time, each under the next number.
+        """
         call = {
             "request": {**asdict(request), "params": {**request.params, **reply.params}},
             "reply": {k: v for k, v in asdict(reply).items() if k != "params"},
         }
-        tmp = path.with_suffix(".tmp")
-        tmp.write_text(json.dumps(call, indent=2, ensure_ascii=False) + "\n")
-        tmp.replace(path)
+        with self._writing:
+            self.path.mkdir(parents=True, exist_ok=True)
+            number = len(self.files()) + 1
+            path = self.path / f"{number:06d}-{request.role}.json"
+            tmp = path.with_suffix(".tmp")
+            tmp.write_text(json.dumps(call, indent=2, ensure_ascii=False) + "\n")
+            tmp.replace(path)
         return path
 
 
