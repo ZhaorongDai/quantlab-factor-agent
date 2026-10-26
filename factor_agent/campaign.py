@@ -14,7 +14,9 @@ One round:
    the inconsistent ones go back to the proposer once, all in one fix
    request with the reviewer's reasons; each rewrite passes the Gate once
    (a refusal fails it) and the reviewer judges the rewrites in one more
-   call: one still inconsistent is rejected without being evaluated;
+   call: one still inconsistent is rejected without being evaluated; with
+   ``round.groups`` above 1, steps 3 and 4 make these calls per proposal
+   group, the groups' calls of each stage side by side (``Researcher``);
 5. the Evaluator scores the rest on the training segment in one compile,
    admission decides (``_admission``) in proposal order, and an accepted
    candidate joins the zoo and the reference pool before the next is admitted;
@@ -228,6 +230,7 @@ class Campaign:
                 for role, backend in self._role_backends().items()
             },
             prompts,
+            groups=config.round.groups,
         )
         evaluator = Evaluator.for_segment(
             config.training,

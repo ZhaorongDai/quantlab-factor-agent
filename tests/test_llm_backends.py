@@ -91,6 +91,23 @@ def test_replaying_a_recorded_campaign_gives_an_identical_ledger(tmp_path, recor
     assert replayed == {p.name: p.read_text() for p in log.glob("*.json")}
 
 
+def test_replaying_a_campaign_recorded_with_four_groups_gives_an_identical_ledger(tmp_path, market):
+    # Each group of two directions is answered with the planted signal first, so the later groups'
+    # copies are same-round duplicates the Gate refuses and sends back to be fixed.
+    settings = {**SETTINGS, "candidates": 8, "groups": 4}
+    root = tmp_path / "recorded"
+    fake = FakeLLM(_propose, fix=_rewrite, consistent=_consistent)
+    run(write_config(root, market["components"], round=settings), fake, market["cache"])
+    assert len([r for r in fake.of_role("proposer") if round_of(r.prompt) == 1 and "<directions>" in r.prompt]) == 4
+    replayed = tmp_path / "replayed"
+    result = run(
+        write_config(replayed, market["components"], round=settings, llm=_replay_roles(root / "run" / "llm_log")),
+        None, market["cache"],
+    )
+    assert result.accepted and any(r.stage == "gate" for r in result.failed)
+    assert (replayed / "run" / "ledger.jsonl").read_text() == (root / "run" / "ledger.jsonl").read_text()
+
+
 def test_a_replay_that_runs_out_of_recorded_calls_fails_clearly(tmp_path, recorded, market):
     from factor_agent.llm.replay import ReplayExhausted
 
@@ -106,6 +123,20 @@ def test_a_replay_that_runs_out_of_recorded_calls_fails_clearly(tmp_path, record
 
 def _request(role="proposer", prompt="Write one factor.") -> Request:
     return Request(role=role, model="unused", prompt=prompt)
+
+
+def test_the_scripted_backend_gives_each_reply_once_to_calls_from_several_threads():
+    from concurrent.futures import ThreadPoolExecutor
+
+    from factor_agent.llm.scripted import ScriptedBackend
+
+    backend = ScriptedBackend([f"reply {i}" for i in range(200)])
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        texts = list(pool.map(lambda i: backend.complete(_request(prompt=f"call {i}")).text, range(200)))
+    assert sorted(texts) == sorted(f"reply {i}" for i in range(200))
+    assert len(backend.requests) == 200
+    with pytest.raises(RuntimeError, match="no reply left for request 201"):
+        backend.complete(_request())
 
 
 def test_the_claude_code_adapter_disables_every_tool():

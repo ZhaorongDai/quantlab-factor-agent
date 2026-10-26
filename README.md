@@ -38,6 +38,14 @@ leave a missing value missing (the scoring skips it) and to fill only when the m
 missing value means, stated in the description; the reviewer finds a fill without that reason
 inconsistent. An exported factor is turned to its direction: a higher value, a higher return.
 
+A round's directions are split into `round.groups` proposal groups (default 1; the configs in `configs/`
+use 4): contiguous runs of near-equal size in mechanism-type order. Each group's proposal, fixes, review,
+rewrite and second review are calls of their own, and every group's call of a stage is sent at once on
+threads; once all are back the parser and the Gate check the whole round in slot order, so the ledger
+does not depend on which reply lands first, and a duplicate written in another group is still refused.
+The planner and the distiller make one call a round. When a call fails, the stage's other calls finish
+and are logged before the first error is raised. `round.groups` may change on a resume.
+
 The planner and the proposer see the data, the seed `directions`, the reference factor families (then
 the known ones, marked as known), the memory, the last round's training statistics and rejection
 reasons, and the accepted factors with their marginal weight and residual IC in the accepted pool; the
