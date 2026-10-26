@@ -52,7 +52,11 @@ was written before.
 Before each round the stop conditions are checked: the round limit, the
 trial limit and ``patience`` rounds in a row without an acceptance; the
 first that holds ends the run and is recorded. The library counts no
-money: spending limits belong to the provider. Every call goes
+money: spending limits belong to the provider. When the provider refuses a
+call because the balance or quota is exhausted (``ProviderQuotaExhausted``),
+the round in progress is dropped, the stop is recorded as
+``provider_quota`` with the provider's message, and the run returns; a
+resume, once topped up, runs that round again. Every call goes
 to the run's LLM log (``llm.log``), which the ``replay`` backend serves
 back to reproduce the run without a provider; on a resume the calls of the
 dropped round are moved to ``llm_log/dropped/``, so the log holds exactly
@@ -77,7 +81,7 @@ from factor_agent.gate import Gate
 from factor_agent.gate.graph import Graph
 from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.ledger import Ledger, TrialRecord
-from factor_agent.llm.base import LLMBackend, make_backend
+from factor_agent.llm.base import LLMBackend, ProviderQuotaExhausted, make_backend
 from factor_agent.llm.log import LLMLog, RecordingBackend
 from factor_agent.prompts import Prompts, Templates
 from factor_agent.researcher import Proposal, Researcher
@@ -89,7 +93,7 @@ from factor_agent.zoo import Zoo
 
 @dataclass(frozen=True)
 class Stop:
-    """Why the campaign stopped: ``by`` is ``"max_rounds"``, ``"max_trials"`` or ``"patience"``."""
+    """Why the campaign stopped: ``by`` is ``"max_rounds"``, ``"max_trials"``, ``"patience"`` or ``"provider_quota"``."""
 
     by: str
     reason: str
@@ -248,28 +252,32 @@ class Campaign:
         _restore(records, zoo, evaluator, vocabulary)
         while (stop := self._stop(state, records)) is None:
             number = state.rounds + 1
-            if _feedback.distill_due(state.rounds, state.memory_round, config.round.memory_every):
-                since = [r for r in records if r.round > state.memory_through]
-                memory = researcher.distill(number, state.memory, _feedback.history(since, statistics=False))
-                state.memory_round = state.rounds
-                if memory is None:
-                    print(
-                        f"Campaign: the distiller's reply before round {number} is empty or not a memory in "
-                        f"its three parts; the previous memory is kept", flush=True,
-                    )
-                else:
-                    state.memory, state.memory_through = memory, state.rounds
-                    (run_dir / "memory").mkdir(parents=True, exist_ok=True)
-                    (run_dir / "memory" / f"round_{number:02d}.md").write_text(memory + "\n")
-                    (run_dir / "memory.md").write_text(memory + "\n")
-                state.calls = len(log.files())
-                state.write(state_path)
-            quota = _scheduler.quota(number, records, config.round, prompts.mechanism_types)
-            accepted = [r for r in records if r.status == "accepted"]
-            context = self._context(records, state, reference, known, evaluator, accepted, recent_rounds, prompts)
-            directions, issues = researcher.plan(number, quota, context, [_feedback.accepted_label(r) for r in accepted])
-            proposals = researcher.propose(number, directions, context, gate, zoo, config.round.retries)
-            round_records = self._round(number, proposals, researcher, gate, zoo, evaluator, records)
+            try:
+                if _feedback.distill_due(state.rounds, state.memory_round, config.round.memory_every):
+                    since = [r for r in records if r.round > state.memory_through]
+                    memory = researcher.distill(number, state.memory, _feedback.history(since, statistics=False))
+                    state.memory_round = state.rounds
+                    if memory is None:
+                        print(
+                            f"Campaign: the distiller's reply before round {number} is empty or not a memory in "
+                            f"its three parts; the previous memory is kept", flush=True,
+                        )
+                    else:
+                        state.memory, state.memory_through = memory, state.rounds
+                        (run_dir / "memory").mkdir(parents=True, exist_ok=True)
+                        (run_dir / "memory" / f"round_{number:02d}.md").write_text(memory + "\n")
+                        (run_dir / "memory.md").write_text(memory + "\n")
+                    state.calls = len(log.files())
+                    state.write(state_path)
+                quota = _scheduler.quota(number, records, config.round, prompts.mechanism_types)
+                accepted = [r for r in records if r.status == "accepted"]
+                context = self._context(records, state, reference, known, evaluator, accepted, recent_rounds, prompts)
+                directions, issues = researcher.plan(number, quota, context, [_feedback.accepted_label(r) for r in accepted])
+                proposals = researcher.propose(number, directions, context, gate, zoo, config.round.retries)
+                round_records = self._round(number, proposals, researcher, gate, zoo, evaluator, records)
+            except ProviderQuotaExhausted as exc:
+                stop = Stop("provider_quota", f"{exc}; round {number} was stopped and dropped")
+                break
             ledger.append(round_records)
             records += round_records
             state.rounds, state.calls = number, len(log.files())

@@ -18,7 +18,7 @@ import threading
 import pytest
 
 from factor_agent.config import ROLES
-from factor_agent.llm.base import Request, make_backend
+from factor_agent.llm.base import ProviderQuotaExhausted, Request, make_backend
 from factor_agent.llm.log import LLMLog, RecordingBackend
 from tests import synthetic_market
 from tests.campaign_runner import candidate, run, write_config
@@ -147,10 +147,11 @@ def test_the_claude_code_adapter_reads_the_json_reply_and_uses_the_local_login(t
 
 
 class _Provider:
-    """A local HTTP server answering every POST with ``reply`` and keeping what it was sent."""
+    """A local HTTP server answering every POST with ``reply`` and HTTP ``status``, and keeping what it was sent."""
 
-    def __init__(self, reply: dict):
+    def __init__(self, reply: dict, status: int = 200):
         self.reply = reply
+        self.status = status
         self.received: list[dict] = []
         provider = self
 
@@ -159,7 +160,7 @@ class _Provider:
                 body = self.rfile.read(int(self.headers["Content-Length"]))
                 provider.received.append({"path": self.path, "headers": {k.lower(): v for k, v in self.headers.items()}, "body": json.loads(body)})
                 data = json.dumps(provider.reply).encode()
-                self.send_response(200)
+                self.send_response(provider.status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(data)))
                 self.end_headers()
@@ -177,8 +178,8 @@ class _Provider:
 def provider():
     servers = []
 
-    def start(reply):
-        servers.append(_Provider(reply))
+    def start(reply, status=200):
+        servers.append(_Provider(reply, status))
         return servers[-1]
     yield start
     for server in servers:
@@ -245,6 +246,52 @@ def test_a_reasoning_model_takes_max_completion_tokens_and_reasoning_effort(prov
     assert sent["body"]["max_completion_tokens"] == 32000 and sent["body"]["reasoning_effort"] == "high"
     assert "max_tokens" not in sent["body"]
     assert answer.params == {"max_completion_tokens": 32000, "reasoning_effort": "high"}
+
+
+def _openai_compatible(server):
+    return make_backend({"backend": "openai_compatible", "model": "deepseek-chat", "base_url": server.url + "/v1"})
+
+
+def _anthropic(server, monkeypatch):
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-unused")
+    return make_backend({"backend": "anthropic", "model": "claude-opus-5-5", "base_url": server.url})
+
+
+def test_an_openai_compatible_402_is_the_providers_exhausted_quota_and_is_not_retried(provider):
+    server = provider({"error": {"message": "Insufficient Balance", "type": "unknown_error"}}, status=402)
+    with pytest.raises(ProviderQuotaExhausted, match="Insufficient Balance"):
+        _openai_compatible(server).complete(_request())
+    assert len(server.received) == 1
+
+
+def _anthropic_error(kind: str, message: str) -> dict:
+    return {"type": "error", "error": {"type": kind, "message": message}}
+
+
+@pytest.mark.parametrize(("status", "kind", "message"), [
+    (402, "billing_error", "There is an issue with your billing."),
+    (400, "invalid_request_error", "Your credit balance is too low to access the Anthropic API."),
+])
+def test_an_anthropic_billing_or_credit_error_is_the_providers_exhausted_quota(provider, monkeypatch, status, kind, message):
+    server = provider(_anthropic_error(kind, message), status=status)
+    with pytest.raises(ProviderQuotaExhausted, match=message.split(".")[0]):
+        _anthropic(server, monkeypatch).complete(_request())
+    assert len(server.received) == 1
+
+
+def test_other_provider_errors_are_raised_as_before(provider, monkeypatch):
+    import anthropic
+    import openai
+
+    server = provider({"error": {"message": "bad request", "type": "invalid_request_error"}}, status=400)
+    with pytest.raises(openai.BadRequestError):
+        _openai_compatible(server).complete(_request())
+    server = provider(_anthropic_error("invalid_request_error", "max_tokens is too large"), status=400)
+    with pytest.raises(anthropic.BadRequestError):
+        _anthropic(server, monkeypatch).complete(_request())
+    server = provider(_anthropic_error("authentication_error", "invalid x-api-key"), status=401)
+    with pytest.raises(anthropic.AuthenticationError):
+        _anthropic(server, monkeypatch).complete(_request())
 
 
 def test_max_tokens_and_max_completion_tokens_together_are_refused():

@@ -4,7 +4,7 @@ Gemini's compatible endpoint, a local vLLM or Ollama), the key from the environm
 import openai
 
 from factor_agent.llm._common import key_from_environment
-from factor_agent.llm.base import Reply, Request
+from factor_agent.llm.base import ProviderQuotaExhausted, Reply, Request
 
 
 class OpenAICompatibleBackend:
@@ -73,14 +73,21 @@ class OpenAICompatibleBackend:
 
         Raises
         ------
+        ProviderQuotaExhausted
+            If the provider answers HTTP 402 (Payment Required): the balance or quota is exhausted.
         openai.APIError
-            If the call fails after the SDK's retries.
+            If the call fails otherwise, after the SDK's retries (which never retry a 402).
         RuntimeError
             If the reply reports no token usage.
         """
-        response = self._client.chat.completions.create(
-            model=self.model, messages=[{"role": "user", "content": request.prompt}], **self.params,
-        )
+        try:
+            response = self._client.chat.completions.create(
+                model=self.model, messages=[{"role": "user", "content": request.prompt}], **self.params,
+            )
+        except openai.APIStatusError as exc:
+            if exc.status_code == 402:
+                raise ProviderQuotaExhausted(f"openai_compatible: {self.model}: {exc.message}") from exc
+            raise
         usage = response.usage
         if usage is None:
             raise RuntimeError(f"openai_compatible: {self.model} reported no token usage")

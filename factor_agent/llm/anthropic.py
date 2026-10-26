@@ -3,7 +3,7 @@
 import anthropic
 
 from factor_agent.llm._common import key_from_environment
-from factor_agent.llm.base import Reply, Request
+from factor_agent.llm.base import ProviderQuotaExhausted, Reply, Request
 
 
 class AnthropicBackend:
@@ -50,14 +50,23 @@ class AnthropicBackend:
 
         Raises
         ------
+        ProviderQuotaExhausted
+            If Anthropic refuses the call for billing: an error of type
+            ``billing_error`` (HTTP 402), or the request error saying the
+            credit balance is too low.
         anthropic.APIError
-            If the call fails after the SDK's retries.
+            If the call fails otherwise, after the SDK's retries.
         """
         extra = {"output_config": {"effort": self.effort}} if self.effort else {}
-        message = self._client.messages.create(
-            model=self.model, max_tokens=self.max_tokens,
-            messages=[{"role": "user", "content": request.prompt}], **extra,
-        )
+        try:
+            message = self._client.messages.create(
+                model=self.model, max_tokens=self.max_tokens,
+                messages=[{"role": "user", "content": request.prompt}], **extra,
+            )
+        except anthropic.APIStatusError as exc:
+            if _is_billing(exc):
+                raise ProviderQuotaExhausted(f"anthropic: {self.model}: {exc.message}") from exc
+            raise
         usage = message.usage
         input_tokens = usage.input_tokens + (usage.cache_creation_input_tokens or 0) + (usage.cache_read_input_tokens or 0)
         return Reply(
@@ -65,3 +74,10 @@ class AnthropicBackend:
             usage={"input_tokens": input_tokens, "output_tokens": usage.output_tokens},
             model_id=message.model, params=self.params, raw=message.to_json(indent=None),
         )
+
+
+def _is_billing(exc: "anthropic.APIStatusError") -> bool:
+    """Whether Anthropic refused the call for billing: a ``billing_error``, or a request error on the credit balance."""
+    error = exc.body.get("error", {}) if isinstance(exc.body, dict) else {}
+    kind, message = error.get("type"), str(error.get("message", ""))
+    return kind == "billing_error" or (kind == "invalid_request_error" and "credit balance" in message.lower())

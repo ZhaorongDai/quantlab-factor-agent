@@ -130,6 +130,10 @@ llm:
 - The library counts no money: spending limits belong to the provider (a prepaid balance or an
   account limit), and the token usage in the log is there for working out a cost. A config naming
   `round.budget_usd` or per-token prices (`input_usd_per_mtok`, `output_usd_per_mtok`) is refused.
+- When the provider refuses a call because the balance or quota is exhausted (HTTP 402 from an
+  OpenAI-compatible provider; Anthropic's billing error or too-low credit balance), the run drops the round in
+  progress, records the stop `provider_quota` with the provider's message in `state.json` and returns; `run()`
+  after topping up runs that round again. Every other provider error is raised.
 
 ## Acceptance
 
