@@ -74,8 +74,6 @@ import json
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-import xarray as xr
-
 from factor_agent import _admission, _feedback, _scheduler
 from factor_agent.config import ROLES, CampaignConfig
 from factor_agent.evaluator import CompileFailure, Evaluator, Metrics
@@ -484,15 +482,14 @@ def _restore(records: list[TrialRecord], zoo: Zoo, evaluator: Evaluator, vocabul
 
 
 def _columns(prices) -> set[str] | None:
-    """The variables of the stores the price dataset reads; None when it reads none (a panel held in memory)."""
-    stores = [path for path in prices.stores() if Path(path).exists()]
-    if not stores:
+    """The variables of the price dataset's panel; None when it reads no store (a panel held in memory).
+
+    The names are the panel's, as candidate code reads them: a merged or renaming input (a prefix, a
+    shared name) gives its columns under the names its panel holds, not its store's.
+    """
+    if not any(Path(path).exists() for path in prices.stores()):
         return None
-    columns: set[str] = set()
-    for path in stores:
-        with xr.open_zarr(path) as store:
-            columns |= set(store.data_vars)
-    return columns
+    return set(prices.head(0).collect_schema().names()) - {"timestamp", "symbol"}
 
 
 def _write_zoo(path: Path, zoo: Zoo) -> None:
