@@ -207,7 +207,7 @@ class Evaluator:
     def __init__(
         self, segment: Segment, prices, label, scoring: Scoring, reference: Sequence,
         warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS, period_lags: Mapping[str, Mapping] | None = None,
-        known: Sequence = (), cache_basis: bool = True,
+        known: Sequence = (),
     ):
         self._segment = segment
         self._period_lags = dict(period_lags or {})
@@ -219,14 +219,12 @@ class Evaluator:
         self._known = tuple(known)
         self._warmup_bars = warmup_bars
         self._njobs = njobs
-        self._cache_basis = cache_basis
         self._frame: _Frame | None = None
 
     @classmethod
     def for_segment(
         cls, segment: Segment, *, prices, label, scoring: Scoring, reference: Sequence = (), known: Sequence = (),
         warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS, period_lags: Mapping[str, Mapping] | None = None,
-        cache_basis: bool = True,
     ) -> "Evaluator":
         """Return an evaluator of ``segment``.
 
@@ -257,15 +255,8 @@ class Evaluator:
             How each lag column a graph may read is computed
             (``Vocabulary.lag_columns``); a lag reads the warm-up it needs
             when that is longer than ``warmup_bars``.
-        cache_basis : bool
-            Keep each date's orthonormal basis of the reference pool, extended
-            as factors join (faster, about the pool's size again in memory),
-            or build it from the pool on every evaluation; the metrics agree
-            to rounding.
         """
-        return cls(
-            segment, prices, label, scoring, reference, warmup_bars, njobs, purge_bars, period_lags, known, cache_basis,
-        )
+        return cls(segment, prices, label, scoring, reference, warmup_bars, njobs, purge_bars, period_lags, known)
 
     @property
     def segment(self) -> Segment:
@@ -339,7 +330,7 @@ class Evaluator:
             name = self._label.get_factor_names()[0]
             label = self._label.read(self._segment.start, self._segment.end)[name]
             keep = label.sizes["timestamp"] - purge(self._label.lookahead_bars(), self._purge_bars)
-            self._frame = _Frame(label.isel(timestamp=slice(0, max(keep, 0))), self._cache_basis)
+            self._frame = _Frame(label.isel(timestamp=slice(0, max(keep, 0))))
             self._frame.add_to_pool({
                 name: self._frame.daily_scores(values)
                 for factor in self._reference for name, values in self._read(factor, "reference")
@@ -400,30 +391,24 @@ class _Frame:
 
     The symbols are those with a label on some scored date. The pool is
     held per date on the symbols with a label that date (``rows``), as
-    each factor's normal scores (float32), one column per factor. With
-    ``cache_basis`` it also keeps an orthonormal basis of an intercept and
-    the pool's columns (float32, extended in float64), extended as factors
-    join; without it ``day_basis`` builds that basis from the pool. The
+    each factor's normal scores (float32), one column per factor. The
     known factors are held the same way, but only on the sampled dates
     (``sampled``, positions among the scored dates).
     """
 
-    def __init__(self, label: xr.DataArray, cache_basis: bool = True):
+    def __init__(self, label: xr.DataArray):
         self.label = label.isel(symbol=np.flatnonzero(np.isfinite(label.values).any(axis=0)))
         self.target = self.label.values.astype(np.float64)
         self.in_rows = np.isfinite(self.target)
         self.rows = [np.flatnonzero(row) for row in self.in_rows]
         self.pool_names: list[str] = []
         self.pool = [np.zeros((len(rows), 0), dtype=np.float32) for rows in self.rows]
-        self._basis = [_intercept(len(rows)).astype(np.float32) for rows in self.rows] if cache_basis else None
         self.sampled = np.arange(0, len(self.rows), KNOWN_SAMPLE_EVERY)
         self.known_names: list[str] = []
         self.known = [np.zeros((len(self.rows[d]), 0), dtype=np.float32) for d in self.sampled]
 
     def day_basis(self, d: int) -> np.ndarray:
         """Date ``d``'s orthonormal basis of an intercept and the pool's columns, in float64."""
-        if self._basis is not None:
-            return self._basis[d].astype(np.float64)
         return _extended(_intercept(len(self.rows[d])), self.pool[d].astype(np.float64))
 
     def on_axes(self, values: xr.DataArray) -> np.ndarray:
@@ -456,8 +441,6 @@ class _Frame:
             # The empty leading block keeps the stack (rows, 0) when no factors are added.
             added = np.column_stack([np.zeros((len(self.rows[d]), 0)), *(c[d] for c in columns)]).astype(np.float32)
             self.pool[d] = np.column_stack([self.pool[d], added])
-            if self._basis is not None:
-                self._basis[d] = _extended(self.day_basis(d), added.astype(np.float64)).astype(np.float32)
 
 
 class _Scores:

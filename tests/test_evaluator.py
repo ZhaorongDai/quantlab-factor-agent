@@ -55,11 +55,11 @@ def _scoring(market, neutralised=True, membership=True) -> Scoring:
     return Scoring(market["membership"] if membership else None, neutralization, njobs=4)
 
 
-def _evaluator(market, reference=(), scoring=None, label=None, cache_basis=True) -> Evaluator:
+def _evaluator(market, reference=(), scoring=None, label=None) -> Evaluator:
     return Evaluator.for_segment(
         Segment("training", *synthetic_market.TRAINING),
         prices=market["prices"], label=label or market["label"], scoring=scoring or _scoring(market),
-        reference=reference, warmup_bars=WARMUP, njobs=4, cache_basis=cache_basis,
+        reference=reference, warmup_bars=WARMUP, njobs=4,
     )
 
 
@@ -485,17 +485,3 @@ def test_admissions_across_and_within_batches_score_as_a_fresh_evaluator_with_th
     for after, expected in zip(grown, fresh):
         np.testing.assert_allclose(_numbers(after), _numbers(expected), rtol=0, atol=1e-6)
         assert after.nearest == expected.nearest.removesuffix(" (GraphFactor)")
-
-
-def test_without_the_basis_cache_admissions_score_as_with_it(market):
-    def scored(cache_basis):
-        evaluator = _evaluator(market, [_kmid(market)], cache_basis=cache_basis)
-        evaluator.evaluate(
-            [_graph("alpha = volume / WindowedAvg(volume, 20)"), _graph("alpha = (high - low) / close")],
-            lambda position, metrics, ran: f"admitted_{position}",
-        )
-        return evaluator.evaluate([_graph("alpha = (close - open) / (high - low)"), _graph("alpha = WindowedAvg(close / open, 5)")])
-
-    for cached, computed in zip(scored(True), scored(False)):
-        np.testing.assert_allclose(_numbers(computed), _numbers(cached), rtol=0, atol=1e-6)
-        assert computed.nearest == cached.nearest

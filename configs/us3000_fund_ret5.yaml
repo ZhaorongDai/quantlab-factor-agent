@@ -227,7 +227,6 @@ directions:
 evaluator:
   warmup_bars: 260
   njobs: 51            # KunQuant threads: at most 51 of Node 1's 64 cores
-  cache_basis: true    # keep the reference pool's per-date basis: faster, about the pool's size again in memory
 
 admission:
   t_threshold: 3.0
