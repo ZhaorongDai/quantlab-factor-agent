@@ -16,7 +16,7 @@ import pytest
 from factor_agent.config import DEFAULT_MECHANISMS
 from tests import synthetic_market
 from tests.campaign_runner import candidate, run, write_config
-from tests.fake_llm import FakeLLM, Interrupted, has_tag, round_of, tagged
+from tests.fake_llm import QUOTA_MESSAGE, FakeLLM, Interrupted, has_tag, round_of, tagged
 
 SETTINGS = {"candidates": 10, "min_per_type": 1, "retries": 1, "max_rounds": 2, "memory_every": 1}
 #: The groups of a round of 10 directions split four ways: contiguous runs of near-equal size.
@@ -105,7 +105,7 @@ def grouped(tmp_path_factory, market):
     return {"root": root, "result": result, "fake": fake}
 
 
-def _chunks(directions: list[dict]) -> list[list[dict]]:
+def _groups_of(directions: list[dict]) -> list[list[dict]]:
     """The round's directions cut into the groups of ``SIZES``."""
     starts = [sum(SIZES[:g]) for g in range(len(SIZES) + 1)]
     return [directions[a:b] for a, b in zip(starts, starts[1:])]
@@ -135,23 +135,23 @@ def test_four_groups_and_one_group_give_the_same_ledger(tmp_path, grouped, marke
 def test_each_grouped_request_carries_only_its_groups_directions_or_candidates(grouped):
     fake, by_round = grouped["fake"], _directions_by_round(grouped["result"])
     for number, directions in by_round.items():
-        chunks = _chunks(directions)
+        groups = _groups_of(directions)
         descriptions = [
-            {r.candidate.get("description") for r in grouped["result"].records if r.direction in chunk and r.round == number}
-            | {a["item"].get("description") for r in grouped["result"].records if r.direction in chunk and r.round == number
+            {r.candidate.get("description") for r in grouped["result"].records if r.direction in group and r.round == number}
+            | {a["item"].get("description") for r in grouped["result"].records if r.direction in group and r.round == number
                for a in r.attempts if isinstance(a["item"], dict)}
-            for chunk in chunks
+            for group in groups
         ]
         requests = [r for r in fake.requests if round_of(r.prompt) == number]
         proposals = [r for r in requests if r.role == "proposer" and has_tag(r.prompt, "directions")]
         asked = [[_plain(d) for d in tagged(r.prompt, "directions")] for r in proposals]
-        assert sorted(asked, key=lambda c: directions.index(c[0])) == chunks
+        assert sorted(asked, key=lambda c: directions.index(c[0])) == groups
         fixes = [r for r in requests if r.role == "proposer" and has_tag(r.prompt, "refused_candidates")]
         if number == 1:
             assert fixes
         for request in fixes:
             asked = [f["direction"] for f in tagged(request.prompt, "refused_candidates")]
-            assert any(all(d in chunk for d in asked) for chunk in chunks), asked
+            assert any(all(d in group for d in asked) for group in groups), asked
         reviews = [r for r in requests if r.role == "reviewer"]
         assert len(reviews) >= len(SIZES)
         for request in reviews:
@@ -183,3 +183,32 @@ def test_the_number_of_groups_may_change_on_resume(tmp_path, market):
     assert resumed.rounds == 2
     proposals = [r for r in fake.of_role("proposer") if has_tag(r.prompt, "directions")]
     assert [round_of(r.prompt) for r in proposals] == [2] * 4
+
+
+def _proposing(*slots):
+    """Whether a request is a first proposal whose group holds one of ``slots``."""
+    return lambda request: request.role == "proposer" and has_tag(request.prompt, "directions") and any(
+        _slot(d) in slots for d in tagged(request.prompt, "directions")
+    )
+
+
+def _logged(root) -> list[dict]:
+    return [json.loads(p.read_text())["request"] for p in sorted((root / "run" / "llm_log").glob("*.json"))]
+
+
+def test_a_grouped_call_hitting_the_quota_stops_the_campaign_and_drops_the_round(tmp_path, market):
+    result = _campaign(tmp_path, market, _fake(quota=_proposing((4, 0))), groups=4)
+    assert result.stop.by == "provider_quota" and QUOTA_MESSAGE in result.stop.reason
+    assert result.rounds == 0 and result.records == []
+    assert [c["role"] for c in _logged(tmp_path)] == ["planner", "proposer", "proposer", "proposer"]
+
+
+def test_the_quota_wins_over_another_groups_error_in_the_same_stage(tmp_path, market):
+    fake = _fake(interrupt=_proposing((0, 0)), quota=_proposing((4, 0)))
+    result = _campaign(tmp_path, market, fake, groups=4)
+    assert result.stop.by == "provider_quota" and QUOTA_MESSAGE in result.stop.reason
+    assert result.rounds == 0 and result.records == []
+    calls = _logged(tmp_path)
+    assert [c["role"] for c in calls] == ["planner", "proposer", "proposer"]
+    logged = [_slot(d) for c in calls[1:] for d in tagged(c["prompt"], "directions")]
+    assert (0, 0) not in logged and (4, 0) not in logged
