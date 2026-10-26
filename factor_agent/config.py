@@ -523,7 +523,7 @@ class CampaignConfig:
 
 
 def _refuse_money(raw: dict) -> None:
-    """Refuse a budget or per-token prices: spending limits belong to the provider (Q86).
+    """Refuse a budget or per-token prices: spending limits belong to the provider.
 
     Raises
     ------

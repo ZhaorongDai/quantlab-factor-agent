@@ -117,7 +117,7 @@ STARTUP_ERRORS = {
     "name of another field": (_field(1, name="close"), None, {}, "close"),
     "column of another field": (_field(1, column="adjClose"), None, {}, "adjClose"),
     "a field with neither column nor formula": (_add_field(name="spread", description="d"), None, {}, "spread"),
-    # The mechanism binding's keys are gone (Q81): a file that still has one is refused.
+    # The mechanism binding's keys are gone: a file that still has one is refused.
     "a field file's phrases": (lambda f: f.update(phrases={"volume": "volume"}), None, {}, "['phrases']"),
     "a field file's rules": (lambda f: f.update(rules=[{"phrase": "volume", "needs": ["volume"]}]), None, {},
                              "['rules']"),

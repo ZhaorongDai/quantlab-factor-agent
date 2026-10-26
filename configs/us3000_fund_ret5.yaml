@@ -1,10 +1,9 @@
-# The first fundamentals campaign (#19): us3000, the 5-day open-to-open label, against SEL0, with the
-# price-volume and the Sharadar fundamentals fields open (design Q40-Q53).
+# An example campaign with fundamentals: us3000_ret5.yaml with the Sharadar fundamentals fields open
+# beside price and volume.
 #
-# The same label, membership, scoring, reference, roles and acceptance as us3000_ret5.yaml (#8); its own
+# The same label, membership, scoring, reference, roles and acceptance as us3000_ret5.yaml; its own
 # run_dir. The price dataset is the merged SEP + DAILY + SF1 ART panel with bad prints masked, as
-# factors/market/fundamental_alpha reads it (without SF3A and SF2, which no field opens).
-# Run on the server bound to NUMA Node 1, in a checkout other than the running us3000_ret5 one (Q53).
+# quantlab's FundamentalAlpha reads it (without SF3A and SF2, which no field opens).
 run_dir: /data/quantlab/runs/factor_agent_us3000_fund_ret5
 
 # The data as the prompts describe it.
@@ -198,8 +197,8 @@ reference:
   - store: /data/quantlab/factors/market/short_horizon_neutral
     factor_names: [intraday_20, reversal_3, intraday_5]
 
-# Seed directions (Q50): two per mechanism type, aimed at what the fundamental families of the reference
-# (FundamentalAlpha, Barra's value, leverage and growth descriptors) lack. Approved by the user (2026-10-24).
+# Seed directions: two per mechanism type, aimed at what the fundamental families of the reference
+# (FundamentalAlpha, Barra's value, leverage and growth descriptors) lack.
 # Papers are cited without their year, so no prompt names a date after the training segment; the years
 # are in the comments.
 directions:
@@ -232,7 +231,7 @@ admission:
   t_threshold: 3.0
   max_correlation: 0.7
   min_monotonicity: 0.6
-  min_coverage: 0.5    # a statement field is missing until a firm's first report (Q49)
+  min_coverage: 0.5    # a statement field is missing until a firm's first report
 
 round:
   candidates: 20
@@ -243,15 +242,14 @@ round:
   patience: 5
   memory_every: 5
   seed: 0
-  groups: 4          # proposal groups whose calls run side by side (Q86)
+  groups: 4          # proposal groups whose calls run side by side
 
 context:
-  recent_rounds: 5    # the planner lists the last 5 rounds' trials; older ones are counted (Q83)
+  recent_rounds: 5    # the planner lists the last 5 rounds' trials; older ones are counted
 
 acceptance:
-  # The acceptance model: SEL0's xgb_deep (quantlab-experiment 2026-10-18-us3000-factor-selection-xgb),
-  # without its thread count; quantlab puts xgboost on CUDA when there is one. Its factors are the
-  # baseline: empty, the reference set (SEL0's 191 factors).
+  # The acceptance model: a deep xgboost on cross-sectional ranks; quantlab puts xgboost on CUDA when
+  # there is one. Its factors are the baseline: empty, the reference set.
   model:
     name: quantlab.model.predefined.xgb.XGBoostRegressor
     factors: []
@@ -262,8 +260,8 @@ acceptance:
   top_k: 100
   factor_root: /data/quantlab/factors/market   # exported stores, beside the other whole-market factors
 
-# All four roles: DeepSeek V4 Pro on DeepSeek's own API. The spending limit is the account's prepaid
-# balance (Q86): the library counts no money.
+# All four roles: DeepSeek V4 Pro on DeepSeek's own API. The library counts no money: the spending
+# limit is the provider's (a prepaid balance or an account limit).
 llm:
   planner:   &deepseek {backend: openai_compatible, model: deepseek-v4-pro,
                         base_url: "https://api.deepseek.com", api_key_env: DEEPSEEK_API_KEY,

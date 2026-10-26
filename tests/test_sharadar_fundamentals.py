@@ -38,7 +38,7 @@ FUNDAMENTALS = CONFIGS / "fields" / "sharadar_fundamentals.yaml"
 SEP_COLUMNS = ("open", "high", "low", "close", "volume", "adjOpen", "adjHigh", "adjLow", "adjClose", "adjVolume")
 PANEL_COLUMNS = (*SEP_COLUMNS, *DAILY_INDICATORS, *SF1_INDICATORS, "reportperiod", "release_date")
 
-#: SF1's per-share items and SEP's unadjusted prices: none may be a field (design Q47).
+#: SF1's per-share items and SEP's unadjusted prices: none may be a field.
 PER_SHARE = ("bvps", "dps", "eps", "epsdil", "epsusd", "fcfps", "price", "sps", "tbvps", "divyield", "sharefactor")
 UNADJUSTED = ("open", "high", "low", "close", "volume")
 
@@ -65,7 +65,7 @@ def _check(vocabulary: Vocabulary, code: str, hypothesis: str = "Cheap firms ear
 def test_the_field_file_loads_with_the_price_volume_file_on_vendor_columns(vocabulary):
     fundamentals = [f for f in vocabulary.fields.values() if f.family == "sharadar_fundamentals"]
     assert 35 <= len(fundamentals) <= 45
-    # Named after their vendor columns (design Q51), each with a unit and a description.
+    # Named after their vendor columns, each with a unit and a description.
     assert all(f.name == f.column and f.dimension is not None and f.description for f in fundamentals)
     assert {"netinc", "revenue", "assets", "marketcap", "ev", "pe"} <= {f.name for f in fundamentals}
     read = {f.column for f in fundamentals}

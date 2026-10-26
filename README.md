@@ -15,8 +15,6 @@ computes on the training segment, which is all the model is ever shown.
 
 - **Documentation:** built locally from `docs/` (see [docs/README.md](docs/README.md)):
   `uv sync --group docs && uv run sphinx-build -b html docs docs/_build/html`
-- **Glossary:** [GLOSSARY.md](GLOSSARY.md)
-- **Design record:** [docs/design.md](docs/design.md) (decisions Q1 onward, in Chinese)
 - **Example configs:** [configs/](configs/)
 
 ## The research loop

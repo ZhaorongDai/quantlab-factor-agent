@@ -23,7 +23,7 @@ extensions = [
     "sphinx_design",
 ]
 
-# docs/ also holds the design record (docs/design.md, in Chinese), which is not a page of the site.
+# Local notes kept beside the pages (design.md) are not part of the site.
 exclude_patterns = ["_build", "design.md", "README.md"]
 templates_path = ["_templates"]
 source_suffix = {".md": "markdown", ".rst": "restructuredtext"}

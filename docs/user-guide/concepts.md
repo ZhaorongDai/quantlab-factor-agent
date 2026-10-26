@@ -2,8 +2,6 @@
 
 The vocabulary the rest of the user guide assumes: the research loop and its roles, the
 factor sets a candidate is compared with, the segments, and what makes a factor accepted.
-The project's [glossary](https://github.com/ZhaorongDai/quantlab-factor-agent/blob/main/GLOSSARY.md)
-defines every term.
 
 ## Mechanism first
 

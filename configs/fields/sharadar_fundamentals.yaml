@@ -1,8 +1,7 @@
 # Sharadar fundamentals: SF1 as-reported trailing-twelve-month (ART) statement items and DAILY's
 # valuation metrics, on the merged SEP + DAILY + SF1 ART panel quantlab's FundamentalAlpha reads.
-# Reviewed and approved by the user for the first fundamentals campaign (2026-10-24; design Q44, Q52).
 #
-# - Fields are named after their vendor columns (design Q51), so the zoo recognises a rewrite of a
+# - Fields are named after their vendor columns, so the zoo recognises a rewrite of a
 #   FundamentalAlpha factor, which reads the same columns.
 # - Income-statement and cash-flow items are trailing-twelve-month totals; balance-sheet items are
 #   the period-end values of the report shown; the *avg items average the trailing four quarters.
@@ -14,7 +13,7 @@
 #   ev here are DAILY's daily values.
 # - Signs follow the cash-flow statement: capex, ncfdiv and ncfcommon are negative for outflows
 #   (investment, dividends paid, net buybacks).
-# - No per-share items (eps, bvps, dps, sps, ...) and no unadjusted prices (design Q47): an adjusted
+# - No per-share items (eps, bvps, dps, sps, ...) and no unadjusted prices: an adjusted
 #   price divided by an as-reported per-share number is wrong across a split. Valuations use totals
 #   (netinc / marketcap) or DAILY's ready ratios. No share count either: SF1's are as reported, not on
 #   adjVolume's split-adjusted basis; turnover is amount / marketcap.

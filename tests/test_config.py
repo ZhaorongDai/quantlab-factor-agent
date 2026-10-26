@@ -200,11 +200,11 @@ def test_a_config_without_field_or_operator_files_is_refused(tmp_path, missing):
         CampaignConfig.from_file(_minimal(tmp_path, **{missing: None}))
 
 
-#: The first real campaign's config (#8); its data is on the server only, so only its text is checked here.
+#: The example price-volume campaign's config; its data is not in the repository, so only its text is checked here.
 REAL = Path(__file__).parent.parent / "configs" / "us3000_ret5.yaml"
 
 
-def test_the_real_config_reads_with_sel0s_191_reference_factors_and_a_direction_per_mechanism_type():
+def test_the_real_config_reads_with_191_reference_factors_and_a_direction_per_mechanism_type():
     config = CampaignConfig.from_file(REAL)
     names = [name for entry in config.reference for name in entry["factor_names"]]
     assert len(names) == len(set(names)) == 191
@@ -216,7 +216,7 @@ def test_the_real_config_reads_with_sel0s_191_reference_factors_and_a_direction_
     assert config.fields == (str(PRICE_VOLUME),) and config.operators == str(EXAMPLE_OPERATORS)
 
 
-#: The first fundamentals campaign's config (#19), checked the same way.
+#: The example fundamentals campaign's config, checked the same way.
 REAL_FUNDAMENTALS = Path(__file__).parent.parent / "configs" / "us3000_fund_ret5.yaml"
 
 
@@ -232,20 +232,20 @@ def test_the_fundamentals_config_differs_from_the_first_only_in_its_run_dir_fiel
     assert config.admission.min_coverage == 0.5
     assert {role.model for role in config.roles.values()} == {"deepseek-v4-pro"}
     assert (config.data.label, config.data.membership, config.scoring) == (first.data.label, first.data.membership, first.scoring)
-    assert config.acceptance == first.acceptance and config.acceptance.model == SEL0_XGB_DEEP
+    assert config.acceptance == first.acceptance and config.acceptance.model == XGB_DEEP
     assert config.acceptance.factor_root == "/data/quantlab/factors/market"
 
-#: SEL0's xgb_deep (quantlab-experiment 2026-10-18-us3000-factor-selection-xgb), without its thread count, on the reference set.
-SEL0_XGB_DEEP = {"name": XGB, "factors": [], "hyperparameters": {
+#: The example acceptance model: a deep xgboost on cross-sectional ranks, on the reference set.
+XGB_DEEP = {"name": XGB, "factors": [], "hyperparameters": {
     "training_target": "cs_rank", "early_stopping": True, "early_stopping_patience": 100,
     "objective": "reg:squarederror", "num_boost_round": 2000, "eta": 0.03, "max_depth": 6,
     "min_child_weight": 1000, "subsample": 0.8, "colsample_bytree": 0.5,
 }}
 
 
-def test_the_real_config_names_sel0s_xgb_deep_as_the_acceptance_model_and_the_export_root_itself():
+def test_the_real_config_names_a_deep_xgb_as_the_acceptance_model_and_the_export_root_itself():
     acceptance = CampaignConfig.from_file(REAL).acceptance
-    assert acceptance.model == SEL0_XGB_DEEP
+    assert acceptance.model == XGB_DEEP
     assert acceptance.factor_root == "/data/quantlab/factors/market"
 
 

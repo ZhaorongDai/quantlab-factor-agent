@@ -1,10 +1,9 @@
-# The first real campaign (#8): us3000, the 5-day open-to-open label, against SEL0.
+# An example campaign on daily price and volume: US stocks, the 5-day open-to-open return, scored on
+# the members of a 3000-stock universe.
 #
 # Whole-market Sharadar SEP (domestic common stock) with bad prints masked; IC on the members of day t
-# of us3000 membership_estu; label labels/market/ret_5; reference = SEL0's 191 factors
-# (quantlab-experiment 2026-10-18-us3000-factor-selection-xgb results/selection.json, as the
-# us3000_sel0_mvo10 paper trading reads them: ear_252 is factors/market/alternative_alpha_ear252_neutral).
-# Run on the server bound to NUMA Node 1 (see README "First campaign").
+# of the us3000 membership; label labels/market/ret_5; the reference set is a selection of 191
+# existing factors. The paths are quantlab stores under one data root: point them at your own.
 run_dir: /data/quantlab/runs/factor_agent_us3000_ret5
 
 # The data as the prompts describe it.
@@ -162,9 +161,8 @@ reference:
   - store: /data/quantlab/factors/market/short_horizon_neutral
     factor_names: [intraday_20, reversal_3, intraday_5]
 
-# Seed directions (Q37): two per mechanism type, aimed at what the reference families lack on daily
-# price and volume; approved by the user 2026-10-24. Papers are cited without their year, so no
-# prompt names a date after the training segment.
+# Seed directions: two per mechanism type, aimed at what the reference families lack on daily price
+# and volume. Papers are cited without their year, so no prompt names a date after the training segment.
 directions:
   - "behavioural_bias: lottery demand. Investors overpay for stocks with extreme recent daily up-moves, so a high maximum daily return over the past month predicts lower returns; the extreme single-day return, not the high price level (Alpha158 MAX/HIGH) or volatility. Bali, Cakici and Whitelaw, Maxing out: stocks as lotteries, Journal of Financial Economics."
   - "behavioural_bias: disposition effect and capital gains overhang. Holders sell winners too early and keep losers, so the gap between the price and a volume-weighted reference price of past purchases predicts continuation; the reference price is a long volume-weighted average, not one day's vwap. Grinblatt and Han, Prospect theory, mental accounting, and momentum, Journal of Financial Economics."
@@ -195,15 +193,14 @@ round:
   patience: 5
   memory_every: 5
   seed: 0
-  groups: 4          # proposal groups whose calls run side by side (Q86)
+  groups: 4          # proposal groups whose calls run side by side
 
 context:
-  recent_rounds: 5    # the planner lists the last 5 rounds' trials; older ones are counted (Q83)
+  recent_rounds: 5    # the planner lists the last 5 rounds' trials; older ones are counted
 
 acceptance:
-  # The acceptance model: SEL0's xgb_deep (quantlab-experiment 2026-10-18-us3000-factor-selection-xgb),
-  # without its thread count; quantlab puts xgboost on CUDA when there is one. Its factors are the
-  # baseline: empty, the reference set (SEL0's 191 factors).
+  # The acceptance model: a deep xgboost on cross-sectional ranks; quantlab puts xgboost on CUDA when
+  # there is one. Its factors are the baseline: empty, the reference set.
   model:
     name: quantlab.model.predefined.xgb.XGBoostRegressor
     factors: []
@@ -214,8 +211,8 @@ acceptance:
   top_k: 100
   factor_root: /data/quantlab/factors/market   # exported stores, beside the other whole-market factors
 
-# All four roles: DeepSeek V4 Pro on DeepSeek's own API. The spending limit is the account's prepaid
-# balance (Q86): the library counts no money.
+# All four roles: DeepSeek V4 Pro on DeepSeek's own API. The library counts no money: the spending
+# limit is the provider's (a prepaid balance or an account limit).
 llm:
   planner:   &deepseek {backend: openai_compatible, model: deepseek-v4-pro,
                         base_url: "https://api.deepseek.com", api_key_env: DEEPSEEK_API_KEY,

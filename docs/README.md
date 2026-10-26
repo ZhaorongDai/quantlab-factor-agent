@@ -22,8 +22,6 @@ Open <http://localhost:8000>.
 - `reference/*.rst`: curated API topics and the complete module index.
 - Python docstrings: object descriptions, parameters, returns and examples.
 - `_templates/autosummary/`: generated class and module page layouts.
-- `design.md`: the design record (decisions Q1 onward, in Chinese). It is not part of the
-  site; the code and the site describe what the decisions produced.
 
 `reference/generated/` and `_build/` are generated and ignored by Git.
 
@@ -32,5 +30,5 @@ Open <http://localhost:8000>.
 Follow quantlab's conventions: explain the operation from the user's side, keep decision
 numbers and implementation history out of the user guide and the docstrings, use
 NumPy-style docstrings (`Parameters`, `Returns`, `Raises`, `Notes`, `Examples`), and state
-units, defaults and missing-value behaviour where they matter. Use the terms of
-[`GLOSSARY.md`](../GLOSSARY.md).
+units, defaults and missing-value behaviour where they matter. Use the terms
+[concepts](user-guide/concepts.md) defines.

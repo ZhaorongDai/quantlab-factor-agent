@@ -23,7 +23,7 @@ from pathlib import Path
 
 import pandas as pd
 
-#: Trading days dropped at the end of a segment at least (Q35).
+#: Trading days dropped at the end of a segment at least.
 PURGE_BARS = 5
 
 

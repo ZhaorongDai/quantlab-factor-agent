@@ -51,8 +51,10 @@ jobs:
 
       - name: Test suite
         # No test calls a language model: the LLM backends are faked or replayed, and the
-        # market is synthetic. KunQuant compiles with the runner's C++ compiler.
-        run: uv run pytest -n auto -q
+        # market is synthetic. KunQuant compiles with the runner's C++ compiler. macOS runs
+        # in one process: there, workers compiling the same graph at once race on quantlab's
+        # KunQuant cache entry and the loser cannot load the library.
+        run: uv run pytest -q ${{ runner.os == 'Linux' && '-n auto' || '' }}
 
   docs:
     name: docs

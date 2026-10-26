@@ -312,7 +312,7 @@ def test_a_fill_still_changes_the_scored_values(market):
     assert filled.ic_mean != pytest.approx(unfilled.ic_mean)
 
 
-#: Coverage, IC mean and IC t of the sparse graph, recorded before coverage was measured without fills (spec #28).
+#: Coverage, IC mean and IC t of the sparse graph, recorded before coverage was measured without fills.
 BEFORE_FILLS = (0.15613592233009707, 0.2830496958728959, 75.08359082679765)
 
 

@@ -35,11 +35,12 @@ Classes and functions: `Campaign`, `CampaignConfig`, `Gate`, `Evaluator`, `Accep
 and the LLM backends.
 :::
 
-:::{grid-item-card} Glossary
-:link: https://github.com/ZhaorongDai/quantlab-factor-agent/blob/main/GLOSSARY.md
+:::{grid-item-card} Concepts
+:link: user-guide/concepts
+:link-type: doc
 
-The project's terms: input family, field, vocabulary, proposal group, known factor and
-the rest.
+The terms the rest of the documentation uses: roles, mechanism types, the reference set,
+known factors, proposal groups, segments and what "accepted" means.
 :::
 ::::
 

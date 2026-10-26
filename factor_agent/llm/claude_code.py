@@ -2,7 +2,7 @@
 
 Every built-in tool, MCP server, skill, slash command and settings file is
 turned off and the call runs from an empty directory, so the model only
-writes text and cannot read the data (Q26). ``ANTHROPIC_API_KEY`` and
+writes text and cannot read the data. ``ANTHROPIC_API_KEY`` and
 ``ANTHROPIC_AUTH_TOKEN`` are kept out of the child's environment, so the
 call goes through the Claude Code login. Managed (enterprise) settings
 cannot be turned off from the command line.
