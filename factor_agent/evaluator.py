@@ -77,15 +77,12 @@ from factor_agent.zoo import Kind, factor_label, owner
 #: Groups the daily cross section is cut into for the decile returns.
 DECILES = 10
 
-#: Singular values below this fraction of the largest are dropped from a
-#: day's pool regression, so collinear pool factors do not blow it up.
-_RANK_TOLERANCE = 1e-6
-
 #: The known factors are kept on every this many of the scored dates, counting from the first.
 KNOWN_SAMPLE_EVERY = 5
 
-#: An admitted candidate whose residual norm on a day is below this adds no
-#: direction to that day's pool (it is already spanned).
+#: A pool factor (or an admitted candidate) whose residual norm on a day is
+#: below this adds no direction to that day's basis (it is already spanned),
+#: so collinear pool factors do not blow up the regression.
 _SPANNED_NORM = 1e-9
 
 
@@ -394,7 +391,9 @@ class _Frame:
 
     The symbols are those with a label on some scored date. The pool is
     held per date on the symbols with a label that date (``rows``), as
-    each factor's normal scores (float32), one column per factor. The
+    each factor's normal scores (float32), one column per factor, with an
+    orthonormal basis of an intercept and the pool's columns (``basis``,
+    float32, extended in float64), extended as factors join so it is never decomposed again. The
     known factors are held the same way, but only on the sampled dates
     (``sampled``, positions among the scored dates).
     """
@@ -406,6 +405,9 @@ class _Frame:
         self.rows = [np.flatnonzero(row) for row in self.in_rows]
         self.pool_names: list[str] = []
         self.pool = [np.zeros((len(rows), 0), dtype=np.float32) for rows in self.rows]
+        self.basis = [
+            np.full((len(rows), min(len(rows), 1)), 1 / np.sqrt(max(len(rows), 1)), dtype=np.float32) for rows in self.rows
+        ]
         self.sampled = np.arange(0, len(self.rows), KNOWN_SAMPLE_EVERY)
         self.known_names: list[str] = []
         self.known = [np.zeros((len(self.rows[d]), 0), dtype=np.float32) for d in self.sampled]
@@ -437,7 +439,9 @@ class _Frame:
         columns = [v if isinstance(v, list) else self.daily_scores(v) for v in factors.values()]
         self.pool_names += list(factors)
         for d in range(len(self.rows)):
-            self.pool[d] = np.column_stack([self.pool[d], *(c[d] for c in columns)]).astype(np.float32)
+            added = np.column_stack([np.zeros((len(self.rows[d]), 0)), *(c[d] for c in columns)]).astype(np.float32)
+            self.pool[d] = np.column_stack([self.pool[d], added])
+            self.basis[d] = _extended(self.basis[d].astype(np.float64), added.astype(np.float64)).astype(np.float32)
 
 
 class _Scores:
@@ -454,7 +458,7 @@ class _Scores:
             scores = np.column_stack([c[d] for c in candidates])
             daily_pool.append(_correlations(scores, frame.pool[d]))
             daily_batch.append(_correlations(scores, scores))
-            basis = _basis(frame.pool[d])
+            basis = frame.basis[d].astype(np.float64)
             self.residuals.append(scores - basis @ (basis.T @ scores))
         for i, d in enumerate(frame.sampled):
             daily_known.append(_correlations(np.column_stack([c[d] for c in candidates]), frame.known[i]))
@@ -532,13 +536,27 @@ def _correlations(a: np.ndarray, b: np.ndarray) -> np.ndarray:
         return np.where(norms > 0, (a.T @ b) / norms, np.nan)
 
 
-def _basis(pool: np.ndarray) -> np.ndarray:
-    """An orthonormal basis of an intercept and the pool's columns."""
-    design = np.column_stack([np.ones(len(pool)), pool])
-    if not len(design):
-        return design
-    u, s, _ = np.linalg.svd(design, full_matrices=False)
-    return u[:, s > s[0] * _RANK_TOLERANCE]
+def _extended(basis: np.ndarray, columns: np.ndarray) -> np.ndarray:
+    """``basis`` (orthonormal columns) with the directions ``columns`` add, in order.
+
+    Each column is orthogonalised against the basis and the columns before
+    it, and dropped when what is left has a norm below ``_SPANNED_NORM``.
+    The projection is done twice, so the basis stays orthonormal to rounding.
+    """
+    residual = columns
+    for _ in range(2):
+        residual = residual - basis @ (basis.T @ residual)
+    q, r = np.linalg.qr(residual)
+    if np.all(np.abs(np.diag(r)) > _SPANNED_NORM):
+        return np.column_stack([basis, q])
+    # A column is spanned: Householder's direction for it is arbitrary, so go one column at a time.
+    for column in residual.T:
+        for _ in range(2):
+            column = column - basis @ (basis.T @ column)
+        norm = np.linalg.norm(column)
+        if norm > _SPANNED_NORM:
+            basis = np.column_stack([basis, column / norm])
+    return basis
 
 
 def _mean_and_t(ic: np.ndarray, horizon: int) -> tuple[float, float]:
