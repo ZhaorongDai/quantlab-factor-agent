@@ -393,7 +393,7 @@ class _Frame:
     held per date on the symbols with a label that date (``rows``), as
     each factor's normal scores (float32), one column per factor, with an
     orthonormal basis of an intercept and the pool's columns (``basis``,
-    float64), extended as factors join so it is never decomposed again. The
+    float32, extended in float64), extended as factors join so it is never decomposed again. The
     known factors are held the same way, but only on the sampled dates
     (``sampled``, positions among the scored dates).
     """
@@ -405,7 +405,9 @@ class _Frame:
         self.rows = [np.flatnonzero(row) for row in self.in_rows]
         self.pool_names: list[str] = []
         self.pool = [np.zeros((len(rows), 0), dtype=np.float32) for rows in self.rows]
-        self.basis = [np.full((len(rows), min(len(rows), 1)), 1 / np.sqrt(max(len(rows), 1))) for rows in self.rows]
+        self.basis = [
+            np.full((len(rows), min(len(rows), 1)), 1 / np.sqrt(max(len(rows), 1)), dtype=np.float32) for rows in self.rows
+        ]
         self.sampled = np.arange(0, len(self.rows), KNOWN_SAMPLE_EVERY)
         self.known_names: list[str] = []
         self.known = [np.zeros((len(self.rows[d]), 0), dtype=np.float32) for d in self.sampled]
@@ -439,7 +441,7 @@ class _Frame:
         for d in range(len(self.rows)):
             added = np.column_stack([np.zeros((len(self.rows[d]), 0)), *(c[d] for c in columns)]).astype(np.float32)
             self.pool[d] = np.column_stack([self.pool[d], added])
-            self.basis[d] = _extended(self.basis[d], added.astype(np.float64))
+            self.basis[d] = _extended(self.basis[d].astype(np.float64), added.astype(np.float64)).astype(np.float32)
 
 
 class _Scores:
@@ -456,7 +458,7 @@ class _Scores:
             scores = np.column_stack([c[d] for c in candidates])
             daily_pool.append(_correlations(scores, frame.pool[d]))
             daily_batch.append(_correlations(scores, scores))
-            basis = frame.basis[d]
+            basis = frame.basis[d].astype(np.float64)
             self.residuals.append(scores - basis @ (basis.T @ scores))
         for i, d in enumerate(frame.sampled):
             daily_known.append(_correlations(np.column_stack([c[d] for c in candidates]), frame.known[i]))
