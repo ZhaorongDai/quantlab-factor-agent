@@ -27,6 +27,7 @@ from quantlab.model.evaluation import cross_sectional_rank_ic_series
 from factor_agent.candidate import Candidate
 from factor_agent.config import GateConfig
 from factor_agent.evaluator import CompileFailure, Evaluator, Metrics
+from factor_agent.exported import GraphFactor
 from factor_agent.gate import Gate
 from factor_agent.gate.graph import Graph
 from factor_agent.scoring import Neutralization, Scoring
@@ -442,3 +443,45 @@ def test_without_known_factors_there_is_no_nearest_known_factor(against_kmid):
     noisy = against_kmid["noisy copy"]
     assert noisy.nearest_known == ""
     assert np.isnan(noisy.nearest_known_correlation)
+
+
+def _as_reference(market, codes: dict[str, str]) -> GraphFactor:
+    """The graphs of ``codes`` (name to code) as one reference factor, ranked as a candidate is."""
+    graphs = {name: _graph(code).to_json() for name, code in codes.items()}
+    return GraphFactor(FactorConfig(
+        warmup_bars=WARMUP, dataset=market["prices"], mode="batch", data_columns=GraphFactor.data_columns(graphs),
+        njobs=4, kwargs={"graphs": graphs, "classes": price_volume().class_paths(list(graphs.values()))},
+    ))
+
+
+def _numbers(metrics: Metrics) -> np.ndarray:
+    """The metrics' statistics, without the factor names."""
+    return np.array([
+        metrics.ic_mean, metrics.ic_t, metrics.partial_ic_mean, metrics.partial_ic_t, metrics.nearest_correlation,
+        *metrics.decile_returns, metrics.coverage, metrics.n_days,
+    ])
+
+
+def test_admissions_across_and_within_batches_score_as_a_fresh_evaluator_with_them_in_its_reference_set(market):
+    admitted = {
+        "first_volume": "alpha = volume / WindowedAvg(volume, 20)",
+        "range": "alpha = (high - low) / close",
+        "averaged_intraday": "alpha = WindowedAvg(close / open, 5)",
+    }
+    later = [
+        _graph("alpha = volume / WindowedAvg(volume, 10)"),
+        _graph("alpha = (close - open) / (high - low)"),
+        _graph("alpha = WindowedAvg((high - low) / close, 10)"),
+    ]
+    names = list(admitted)
+    evaluator = _evaluator(market, [_kmid(market)])
+    evaluator.evaluate([_graph(admitted["first_volume"])], lambda position, metrics, ran: "first_volume")
+    # The second batch admits both graphs, so the second is scored against the first within the batch.
+    evaluator.evaluate([_graph(admitted[name]) for name in names[1:]], lambda position, metrics, ran: names[1 + position])
+    grown = evaluator.evaluate(later)
+
+    fresh = _evaluator(market, [_kmid(market), _as_reference(market, admitted)]).evaluate(later)
+
+    for after, expected in zip(grown, fresh):
+        np.testing.assert_allclose(_numbers(after), _numbers(expected), rtol=0, atol=1e-6)
+        assert after.nearest == expected.nearest.removesuffix(" (GraphFactor)")
