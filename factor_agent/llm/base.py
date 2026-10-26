@@ -30,6 +30,14 @@ class Reply:
     raw: str = ""
 
 
+class ProviderQuotaExhausted(RuntimeError):
+    """The provider refuses calls because the balance or quota is exhausted; its message says so in its words.
+
+    Each backend recognises its own provider's refusal. A campaign stops on
+    it cleanly, dropping the round in progress, and resumes once topped up.
+    """
+
+
 class LLMBackend(Protocol):
     """Anything that completes a request."""
 

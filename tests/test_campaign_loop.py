@@ -16,7 +16,7 @@ import pytest
 from factor_agent.config import DEFAULT_MECHANISMS
 from tests import synthetic_market
 from tests.campaign_runner import candidate, run, write_config
-from tests.fake_llm import FakeLLM, Interrupted, has_tag, round_of, tagged
+from tests.fake_llm import QUOTA_MESSAGE, FakeLLM, Interrupted, has_tag, round_of, tagged
 
 SIGNALS = [
     candidate("intraday move", "alpha = close / open"),
@@ -302,6 +302,27 @@ def test_an_interrupted_campaign_resumes_from_the_last_written_round(tmp_path_fa
     assert result.rounds == 4 and result.stop.by == "max_rounds"
     assert {round_of(r.prompt) for r in fresh.requests} == {3, 4}
     assert (resumed / "run" / "ledger.jsonl").read_text() == (straight / "run" / "ledger.jsonl").read_text()
+
+
+def test_a_campaign_stopped_by_the_providers_quota_drops_the_round_and_resumes_from_it(tmp_path_factory, market):
+    settings = {"candidates": 7, "max_rounds": 4}
+    straight = tmp_path_factory.mktemp("straight")
+    _campaign(straight, market, make_fake(), **settings)
+
+    stopped = tmp_path_factory.mktemp("stopped")
+    exhausted = make_fake(quota=lambda r: r.role == "reviewer" and round_of(r.prompt) == 3)
+    result = _campaign(stopped, market, exhausted, **settings)
+    assert result.stop.by == "provider_quota" and QUOTA_MESSAGE in result.stop.reason
+    assert result.rounds == 2 and {r.round for r in result.records} == {1, 2}
+    state = json.loads((stopped / "run" / "state.json").read_text())
+    assert state["rounds"] == 2 and state["stop"] == {"by": "provider_quota", "reason": result.stop.reason}
+    assert {json.loads(line)["round"] for line in (stopped / "run" / "ledger.jsonl").read_text().splitlines()} == {1, 2}
+
+    topped_up = make_fake()
+    result = _campaign(stopped, market, topped_up, **settings)
+    assert result.rounds == 4 and result.stop.by == "max_rounds"
+    assert {round_of(r.prompt) for r in topped_up.requests} == {3, 4}
+    assert (stopped / "run" / "ledger.jsonl").read_text() == (straight / "run" / "ledger.jsonl").read_text()
 
 
 SLOPE = candidate("price slope", "alpha = WindowedLinearRegressionSlope(close, 20)")
