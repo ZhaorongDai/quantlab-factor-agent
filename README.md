@@ -1,275 +1,111 @@
 # quantlab-factor-agent
 
-LLM-driven, mechanism-first formulaic factor research on [quantlab](https://github.com/ZhaorongDai/quantlab).
-An LLM proposes economic-mechanism hypotheses and writes each factor as KunQuant code; candidates pass
-deterministic gates (sandboxed graph build, originality, complexity) and an LLM reviewer's consistency check
-(whether the code computes what the hypothesis says the factor is built from), are evaluated on
-quantlab's whole-market panels for incremental value over the existing factor set, and only the training
-segment is ever shown to the model.
+<p>
+  <a href="https://www.python.org/downloads/"><img alt="Python 3.13+" src="https://img.shields.io/badge/python-3.13%2B-3776ab?logo=python&logoColor=white"></a>
+  <a href="https://github.com/ZhaorongDai/quantlab"><img alt="Built on quantlab" src="https://img.shields.io/badge/built%20on-quantlab-3776ab"></a>
+  <a href="https://github.com/Menooker/KunQuant"><img alt="Factors: KunQuant" src="https://img.shields.io/badge/factors-KunQuant-0ea5e9"></a>
+</p>
 
-Status: the multi-round research loop (#5) and acceptance (#7, see below). `Campaign(CampaignConfig.from_file(path)).run()` runs
-rounds until a stop condition holds. Each round, every mechanism type gets `min_per_type` slots and
-the rest go by Thompson sampling on each type's admission rate; the planner plans one direction per
-slot (a new mechanism, an orthogonal mutation of an accepted factor, or a refinement of one); the
-proposer writes one candidate per direction; the `Gate` builds each in a sandboxed subprocess and refuses
-rewrites of the reference set, the known factors and the accepted factors (compared by their KunQuant
-graphs), parameter-only variants of them and large subtrees shared with them, sending the refused ones
-back to be fixed; the reviewer, in its own call (possibly another backend) and with the data section's
-field descriptions, judges each candidate's hypothesis, description and code for consistency, the inputs
-and transformations the hypothesis says the factor is built from included; it is told each candidate's
-output unit as the Gate infers it, and a factor whose value carries a unit (a price, a dollar amount, a
-share count) needs a hypothesis about that level. An inconsistent candidate is sent back once to be
-rewritten, with the reviewer's reason and its output unit; the rewrite passes the Gate once (a refusal
-fails it) and is reviewed once more, and one still inconsistent is rejected unevaluated. The `Evaluator`
-compiles the rest as one KunQuant graph and scores them on the training segment, as the config's
-`scoring` says (ranked over the whole market; neutralised against `scoring.neutralize`'s exposures, size
-and industry columns, or not when it is null; masked to the day-t members of `data.membership`, or on
-every symbol without one), against the label (rank IC, partial IC residualised on the reference and
-accepted factors, correlation with each, deciles), and records the nearest known factor and its
-correlation on a fixed sample of the dates. A candidate states no direction: its direction is the sign of
-its training IC, and the statistics are read in it. Admission requires a direction, correlation at most
-0.7 (with every factor of the reference set and every accepted factor, and sampled with every known
-factor), a partial-IC Newey-West t above a threshold that rises with the evaluated trials (each counted
-in both directions), monotone deciles, and coverage (the mean daily share of the members with a value) of
-at least `admission.min_coverage` (default 0.5). Coverage is measured before any fill: on the candidate's
-graph with every `SetInfOrNanToValue` replaced by its input, so filling a sparse field with 0 leaves the
-coverage of the field; the scored values still come from the graph as written. The proposer is told to
-leave a missing value missing (the scoring skips it) and to fill only when the mechanism says what a
-missing value means, stated in the description; the reviewer finds a fill without that reason
-inconsistent. An exported factor is turned to its direction: a higher value, a higher return.
+quantlab-factor-agent mines daily stock factors with language models, mechanism first. A
+model states an economic mechanism and writes the factor it implies as KunQuant code; a
+fixed pipeline decides whether the factor is new and adds to the factors you already have.
+The language model only proposes and reviews. Every decision to accept is made by
+deterministic checks and by statistics that [quantlab](https://github.com/ZhaorongDai/quantlab)
+computes on the training segment, which is all the model is ever shown.
 
-A round's directions are split into `round.groups` proposal groups (default 1; the configs in `configs/`
-use 4): contiguous runs of near-equal size in mechanism-type order. Each group's proposal, fixes, review,
-rewrite and second review are calls of their own, and every group's call of a stage is sent at once on
-threads; once all are back the parser and the Gate check the whole round in slot order, so the ledger
-does not depend on which reply lands first, and a duplicate written in another group is still refused.
-The planner and the distiller make one call a round. When a call fails, the stage's other calls finish
-and are logged before the first error is raised. `round.groups` may change on a resume.
+- **Documentation:** built locally from `docs/` (see [docs/README.md](docs/README.md)):
+  `uv sync --group docs && uv run sphinx-build -b html docs docs/_build/html`
+- **Glossary:** [GLOSSARY.md](GLOSSARY.md)
+- **Design record:** [docs/design.md](docs/design.md) (decisions Q1 onward, in Chinese)
+- **Example configs:** [configs/](configs/)
 
-The planner and the proposer see the data, the seed `directions`, the reference factor families (then
-the known ones, marked as known), the memory, the last round's training statistics and rejection
-reasons, and the accepted factors with their marginal weight and residual IC in the accepted pool; the
-planner also sees the trials of the last `context.recent_rounds` rounds (default 5) one line each and the
-older ones counted by mechanism type and outcome; never a return, a date or a held-out metric. Every `memory_every` rounds the
-distiller folds the trials since the last memory into `memory.md` (each version is kept in `memory/`). The run
-stops at `max_rounds`, `max_trials` or `patience` rounds without an acceptance, and
-records why in `state.json`; `ledger.jsonl` holds every candidate, and `run()` on the same run
-directory resumes from the last written round. A first start copies the field, operator and replaced template files into
-`<run_dir>/snapshot/` with their hashes (`snapshot.json`); the run, its Acceptance and its replays read
-those copies. A resume whose files differ from the snapshot fails (a new search space needs a new run
-directory); a resume on other commits of factor_agent or quantlab only warns, and `state.json` lists the
-commits of every start and resume. See [docs/design.md](docs/design.md).
+## The research loop
 
-## Vocabulary
-
-What candidates may write with comes from files the config names, not from the framework:
-
-```yaml
-fields: [fields/sharadar_price_volume.yaml]   # one field file per input family, relative to the config
-operators: operators/kunquant_example.yaml    # the operator file
-operator_modules: []                          # modules besides KunQuant and quantlab.factor operators may come from
+```text
+            +-----------+   directions   +-----------+   candidates   +--------+
+ ledger --> |  planner  | -------------> |  proposer | -------------> |  Gate  | -- refused: fix and retry
+ memory     +-----------+                +-----------+                +--------+
+                                                                          |
+                    accepted <-- admission <-- Evaluator <-- reviewer <---+
+                       |                       (training     (hypothesis,
+                       +--> zoo, pool, ledger    segment)     code agree?)
 ```
 
-- A field file lists its family's fields: each with the price dataset's `column` it reads and its `unit`
-  (a product of powers of `dollars` and `shares`: a price is `dollars/shares`, volume `shares`), or a
-  derived field's `formula` over the family's earlier fields (under candidate code's syntax rules), and a
-  description, which the prompts and the reviewer read. `bar: true` makes a missing value in the family's
-  columns a missing bar, which quantlab's NaN-preserving stand-ins keep NaN.
-- The operator file lists each operator's KunQuant `class`, the `call` candidate code uses (such as
-  `quantlab.factor.kunquant_nan.Max`), its signature, argument and parameter kinds, dimension rule
-  and description, plus the parameter value sets. The repository's example file also
-  lists every other KunQuant and quantlab operator class under `excluded` with a reason, which a guard
-  test checks; a user's own file needs no such section.
-- An operator file may list `fixes`: each a `match` (a regular expression a refusal's text matches when
-  KunQuant turns code down) and a `hint` (how to write it instead); the Gate gives a writing error the
-  hints it matches, in file order, and they go with the reasons into the proposer's fix request only. Candidate code and derived formulas may write `-x`
-  (`MulConst(x, -1)`) and `x ** c` (`Pow(x, ConstantOp(c))`, when the file registers `Pow`).
-- At start every field and operator is checked and every problem reported at once, before any LLM call:
-  a column missing from the price dataset, a malformed unit, a name clash, a class that is not a KunQuant
-  operator, a class or callable from a module not listed, a formula outside the syntax rules.
+A campaign runs in rounds. Each round:
 
-## Prompts
+| Step | Who | What it decides | Main classes |
+|------|-----|-----------------|--------------|
+| 1. Plan | planner (LLM) | one research direction per slot: a new mechanism, a mutation or a refinement of an accepted factor | `Campaign`, `Researcher` |
+| 2. Propose | proposer (LLM) | a hypothesis, a description and KunQuant code per direction, in parallel proposal groups | `Researcher`, `Candidate` |
+| 3. Gate | code | the code builds in a sandbox, reads only the vocabulary, and is not a rewrite of an existing factor | `Gate`, `Vocabulary`, `Zoo` |
+| 4. Review | reviewer (LLM) | the hypothesis, the description and the code describe the same factor | `Researcher` |
+| 5. Evaluate | code | IC, partial IC, correlations, deciles and coverage on the training segment | `Evaluator`, `Scoring` |
+| 6. Admit | code | correlation, partial-IC t (Bonferroni over the trials), monotonicity and coverage thresholds | `Campaign` |
 
-The prompts describe the config's data and research, not one market:
+After the campaign, `Acceptance` trains a quantlab return model with and without the
+accepted factors on the validation segment, opens the hold-out once, and exports the chosen
+factors as quantlab factors and whole-market stores.
 
-```yaml
-market: adjusted daily bars of every US common stock   # required: the data, as the prompts say it
-mechanisms:                                             # optional: the default is the five types below
-  - {name: behavioural_bias, description: investors' systematic errors that prices correct later}
-prompts:                                                # optional: templates replaced from files
-  review: prompts/review.txt
+## Why quantlab-factor-agent
+
+- **Mechanisms, not formula search.** The agent is asked for economic mechanisms by
+  mechanism type, and the Gate refuses rewrites, parameter-only variants and large shared
+  subtrees of every reference, known and accepted factor, compared by their KunQuant graphs.
+- **The model never sees the future.** Prompts carry training-segment statistics only: no
+  return, no date, no validation or hold-out metric. The hold-out opens once, behind a lock.
+- **Deterministic judges.** The reviewer can send a candidate back, but only code accepts:
+  the Evaluator scores every candidate on quantlab's whole-market panels, masked to the
+  day's members, against the reference pool, and admission's thresholds tighten with every
+  evaluated trial.
+- **Nothing hard-coded about the market.** Fields, operators, parameter sets, prompt
+  templates, mechanism types and the scoring all come from the config's files, so a new
+  input family is a new field file.
+- **Any model, any provider.** Each role picks its backend: OpenAI-compatible endpoints
+  (DeepSeek, OpenAI, vLLM, ...), Anthropic, or Claude Code. Every call is logged in full, and
+  the `replay` backend reproduces a run byte for byte without a provider.
+- **Resumable runs.** A run directory holds the ledger, the state, the LLM log and a
+  snapshot of the search files; `run()` resumes after a crash or an exhausted balance.
+
+## Install
+
+```bash
+# next to a quantlab checkout: projects/quantlab and projects/quantlab-factor-agent
+uv sync              # quantlab is an editable dependency at ../quantlab
+uv run pytest -n auto
 ```
 
-- The prediction horizon is the label's `span_bars()`; the data section is the market, each field of
-  the opened families with its unit and description, and the scoring's sentence.
-- `mechanisms` are the types the planner allocates slots to and a candidate may have, each with a
-  one-line description the planner reads; `round.min_per_type` times their number must fit in
-  `round.candidates`. The default is `behavioural_bias`, `risk_compensation`, `liquidity`,
-  `microstructure` and `information_diffusion`.
-- `prompts` may replace the templates `plan`, `propose`, `retry` (the proposer's fix request), `review`,
-  `distill` and `data` (the data section), each a Python format string. At start each replaced template
-  is checked for the placeholders its role needs (and for any it may not use), before anything is
-  written; a replaced template is snapshotted like the field and operator files, so changing it needs a
-  new run directory. The placeholders are listed in `factor_agent/prompts.py` (`PLACEHOLDERS`).
+Credentials come from environment variables only: `ANTHROPIC_API_KEY`, or the variable a
+role's `api_key_env` names for an OpenAI-compatible provider; the `claude_code` backend uses
+the local Claude Code login. A config that holds a key is refused.
 
-## LLM backends
+## Run a campaign
 
-Each role under `llm` picks its backend and model; the other keys are the backend's settings.
+```python
+from factor_agent.acceptance import Acceptance
+from factor_agent.campaign import Campaign
+from factor_agent.config import CampaignConfig
 
-```yaml
-llm:
-  planner:  {backend: claude_code, model: claude-opus-5-5, effort: high}
-  proposer: {backend: anthropic, model: claude-opus-5-5, max_tokens: 16000}
-  reviewer: {backend: openai_compatible, model: deepseek-chat, base_url: https://api.deepseek.com/v1,
-             api_key_env: DEEPSEEK_API_KEY}
-  distiller: {backend: claude_code, model: claude-opus-5-5}
+config = CampaignConfig.from_file("configs/us3000_ret5.yaml")
+result = Campaign(config).run()          # resumes when run_dir already holds a state
+print(result.stop, len(result.accepted), "accepted of", len(result.records))
+
+report = Acceptance(config).validate()   # baseline vs baseline + accepted, on validation
+print(report.markdown())
 ```
 
-- `claude_code` runs `claude -p --output-format json` with every tool, MCP server, skill and settings
-  file off, from an empty directory, through the local Claude Code login.
-- `anthropic` reads `ANTHROPIC_API_KEY`; `openai_compatible` (OpenAI, DeepSeek, DashScope, Gemini's
-  compatible endpoint, vLLM, Ollama) reads the variable `api_key_env` names, or none for a local server;
-  for a reasoning model give `max_completion_tokens` (in place of `max_tokens`) and `reasoning_effort`.
-  A key in the config is refused.
-- Every call is written in full to `<run_dir>/llm_log/` (prompt, model, parameters, reply, token usage,
-  the raw reply). `replay` (every role `{backend: replay, model: ..., log: <run_dir>/llm_log}`) serves such a log back, matched on role and prompt, so the campaign
-  reproduces byte for byte without calling a provider; a request the log has no reply for fails.
-  A replay searches with the snapshot of the run whose log it replays, not the config's files.
-- The library counts no money: spending limits belong to the provider (a prepaid balance or an
-  account limit), and the token usage in the log is there for working out a cost. A config naming
-  `round.budget_usd` or per-token prices (`input_usd_per_mtok`, `output_usd_per_mtok`) is refused.
-- When the provider refuses a call because the balance or quota is exhausted (HTTP 402 from an
-  OpenAI-compatible provider; Anthropic's billing error or too-low credit balance), the run drops the round in
-  progress, records the stop `provider_quota` with the provider's message in `state.json` and returns; `run()`
-  after topping up runs that round again. Every other provider error is raised.
+A campaign runs for hours, most of it waiting for the language model, and uses no GPU;
+`Acceptance` trains quantlab models, which use CUDA when it is available. The configs in
+`configs/` are complete examples; point their data paths at your own quantlab stores.
 
-## Acceptance
+## Documentation
 
-After the campaign, `Acceptance(config)` judges the accepted factors by what they add to the acceptance
-model, which the config must name:
-
-```yaml
-segments:
-  training:   {start: 2000-02-02, end: 2014-12-31}
-  validation: {start: 2015-01-02, end: 2019-12-31}
-  holdout:    {start: 2020-01-02, end: 2026-10-23}
-  purge_bars: 5          # at least; a label that reads further purges more (ret_5: 6)
-acceptance:
-  model:                 # required: the get_config() of any quantlab BaseModel or ModelEnsemble
-    name: quantlab.model.predefined.xgb.XGBoostRegressor
-    factors: []          # the baseline, as reference entries; empty: the reference set
-    hyperparameters: {...}   # us3000_ret5.yaml names SEL0's xgb_deep
-  seeds: [0, 1, 2]       # each replaces every model's (every member's) random_seed
-  contribution: none     # per-factor contribution in validate(): none, drop_one, add_one or both
-  top_k: 100
-  factor_root: /data/quantlab/factors/market   # where export() writes the stores; an export needs it
-```
-
-- The model is a template. A `ModelEnsemble` is `{name: ...ModelEnsemble, members: [<model>, ...]}`, each
-  member with its own `factors` (its baseline; empty: the reference set) and hyperparameters. Acceptance
-  fills in the label, the windows, `val_size`, the read strategies and the seed, and appends the accepted
-  factors to every member; what a template says of those is replaced, so a trained run's `config.json`
-  serves as one. A `SeedEnsemble` is refused (the seeds are `acceptance.seeds`); the removed
-  `acceptance.hyperparameters` and `acceptance.features` fail to load.
-- `validate(selection=None)` trains the model per seed on its baseline and on its baseline plus a
-  selection of the accepted factors, named as `export` names them (description, or
-  `description (accepted in round n)`), every accepted factor by default (through the same `scoring` the Evaluator admitted with), up to the
-  purged end of training, and predicts the purged validation segment. It reports, per seed and on
-  average, rank IC, IC, decile monotonicity, D10−D1, and the fee-free plain TopK return and excess
-  (`<run_dir>/acceptance/validation.{json,md}`; a selection of fewer goes to
-  `validation_<digest>.{json,md}`, the digest over its members' labels, and each report lists its members).
-  An unknown or ambiguous name raises `KeyError`.
-- With `contribution`, `validate()` also measures each factor of the selection, with the same seeds:
-  drop-one trains the model without it (the whole selection against the selection without it), add-one on
-  the baseline plus only it (against the baseline); a feature set equal to another is trained once. The
-  reports gain a contribution table, one row per factor and mode, sorted by the rank IC difference: the
-  seed-averaged difference of every statistic and, per statistic, how many seeds have the mean's sign (the
-  Markdown shows rank IC difference, seeds agreeing and TopK excess difference). No threshold. The
-  hold-out never measures contribution.
-- Every trained model's result is cached under `<run_dir>/acceptance/<segment>/cache/`, keyed by its
-  filled-in config (template, features, label, windows, seed; paths under the run directory relative to it, so a
-  moved run directory keeps its cache), the code version (the factor_agent and quantlab commits) and the TopK
-  size and scoring; a re-run,
-  after an interruption say, reads what is cached and trains the rest. Every selection reads its factors
-  from one store of all accepted factors (one per predicted segment), so equal feature sets, a narrowed
-  selection's add-one and the whole set's say, share their models. Before training, `validate()` and
-  `open_holdout()` print how many models they will train, how many are cached and, once some models of the same template have
-  finished, an estimated duration from their times. The print never waits for an answer.
-- `open_holdout(selection, force=False)` needs `validate`'s report of exactly that selection, then writes
-  `<run_dir>/holdout.lock` (when, with which commits) and makes the same comparison on the hold-out for the
-  selection only, trained through validation (`holdout[_<digest>].{json,md}`). A second open, of any
-  selection, raises `HoldoutLocked`; `force=True` runs it, appends to the lock, and the report says the
-  hold-out was opened again.
-- `export({"<description>": "<name>"})`, the keys being the selection, writes `factor_agent/accepted/<name>.py` (a `GraphFactor`, i.e.
-  `FactorKunQuant`, subclass fixing the scored graph) and the whole-market store
-  `<factor_root>/<name>/` (`NeutralizedFactor` of the ranked graph) with `README.md` and `component.json`;
-  the README quotes `validate`'s report of the exported selection, when there is one.
-
-## Setup
-
-```
-uv sync          # quantlab is an editable dependency at ../quantlab
-uv run pytest
-```
-
-Credentials come from environment variables only (`ANTHROPIC_API_KEY`, or the variable named in the
-config for an OpenAI-compatible provider); the `claude_code` backend uses the local Claude Code login.
-
-## First campaign
-
-[`configs/us3000_ret5.yaml`](configs/us3000_ret5.yaml): whole-market Sharadar SEP with bad prints masked, IC on
-the members of day t of us3000 `membership_estu`, the label `labels/market/ret_5`, and SEL0's 191 factors as
-the reference set. A reference entry is a component (`get_config()` dict or store folder) or
-`{store: <folder>, factor_names: [...]}`, the store's factor pinned to those outputs. The Gate compares a
-candidate with the graph of the factor a `*_neutral` store neutralises; every stored reference or baseline
-factor is read from its store's first bar (the intraday stores start in 2016, so they are empty on training).
-
-A reference or known entry given as a component (a `get_config()` dict without a store) is scored as a
-candidate is, through the campaign's `scoring` (neutralised when it neutralises, so it should output
-ranked values, as candidates do), and then masked to the day's members; an entry given as a store (a
-store folder, a store entry, or a component whose store exists, such as a `*_neutral` store) is read as
-stored and masked. Both lists are read by this one rule.
-
-`known` (optional, default none) lists the known factors besides the reference set: every other existing
-factor a candidate is checked against for novelty. Its entries are written as `reference`'s; an output a
-reference factor of the same class already shows is dropped from `known`, so whole classes can be listed
-without subtracting the reference outputs, and a malformed entry fails when the config is read. The Gate
-refuses a rewrite, a parameter-only variant or a large shared subtree of a known factor, naming it as
-`STD20 (Alpha158Stock, a known factor)`; `zoo.json` lists the known factors it covers and those without a
-KunQuant graph it cannot; the families section lists the known classes after the reference families, marked
-"known, not in the reference set, refused when rewritten". Known factors never enter the partial IC. Like
-`reference`, `known` is read from the config on every start, a resume included, and is not snapshotted.
-
-On each start or resume the `Evaluator` reads the known factors as it reads the reference set and keeps
-only their normal scores on one scored training date in `KNOWN_SAMPLE_EVERY` (5), counting from the
-first, in a panel of its own (float32, one column per output). Each
-evaluated candidate's correlation with every known output is averaged over those dates; the nearest one and
-its correlation are in the ledger's metrics (`nearest_known`, `nearest_known_correlation`; empty and NaN
-without `known`) and in the next round's feedback, and admission's correlation step refuses an absolute
-sampled correlation above `max_correlation`, naming the factor and saying the correlation is sampled.
-The panel costs 4 bytes per known output per sampled member-day: measured on the synthetic test market
-(Alpha158's 169 outputs, 103 sampled dates of 100 members) it is 6.6 MiB, exactly that. Estimated, not
-measured, for us3000 (training 2000-02 to 2014-12, about 750 sampled dates of about 3,000 members) it is
-about 9 MB per known output: about 1.8 GB for 200 outputs beyond the reference set, 2.7 GB for 300. While it
-is built, one known factor's panel at a time is read whole, as a reference factor's is.
-
-```yaml
-known:
-  - /data/quantlab/factors/market/alpha158_neutral   # a store folder: every output
-  - {store: /data/quantlab/factors/market/alpha101_neutral, factor_names: [alpha001, alpha002]}
-```
-
-On the server (`~/projects/quantlab-factor-agent`, next to `~/projects/quantlab`), on NUMA Node 1 (Node 0's
-memory bandwidth is degraded); KunQuant runs `evaluator.njobs` = 51 threads; set no thread variables:
-
-```
-uv sync
-numactl --cpunodebind=1 --membind=1 uv run pytest -n 16 -q              # includes the offline replay smoke test
-nohup numactl --cpunodebind=1 --preferred=1 uv run python -c \
-  "from factor_agent.campaign import Campaign; from factor_agent.config import CampaignConfig; \
-   Campaign(CampaignConfig.from_file('configs/us3000_ret5.yaml')).run()" > campaign.log 2>&1 &
-```
-
-After the campaign, the same way: `Acceptance(CampaignConfig.from_file('configs/us3000_ret5.yaml')).validate()`.
-The campaign uses no GPU. `Acceptance` trains SEL0's xgb on the GPU (quantlab picks CUDA); start it only when it
-ends before 06:00 US Eastern on a weekday, when the GPU must be free.
+| Page | Covers |
+|------|--------|
+| [Installation](docs/getting-started/installation.md), [first campaign](docs/getting-started/quickstart.md) | setup, credentials, running and reading a campaign |
+| [Concepts](docs/user-guide/concepts.md) | roles, factor sets, segments, direction, what "accepted" means |
+| [The campaign config](docs/user-guide/campaign.md) | every section and default, stopping, resuming, the run directory |
+| [The vocabulary](docs/user-guide/vocabulary.md) | field files, the operator file, fixes, what code may write |
+| [Prompts](docs/user-guide/prompts.md) | mechanism types, templates and their placeholders |
+| [LLM backends](docs/user-guide/llm-backends.md) | backends, the LLM log, replay, cost and quota |
+| [Gate, review and evaluation](docs/user-guide/evaluation.md) | the Gate's checks, the review, the statistics, admission |
+| [Acceptance](docs/user-guide/acceptance.md) | validation, contribution, the hold-out, export |

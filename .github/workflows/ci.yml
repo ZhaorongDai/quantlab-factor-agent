@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# quantlab is an editable path dependency (../quantlab), so every job checks out both
+# repositories side by side: quantlab-factor-agent/ and quantlab/.
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    defaults:
+      run:
+        working-directory: quantlab-factor-agent
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: quantlab-factor-agent
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ZhaorongDai/quantlab
+          path: quantlab
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+          cache-dependency-glob: quantlab-factor-agent/uv.lock
+
+      - name: Install libomp (macOS)
+        # xgboost's macOS wheel links Homebrew's libomp.dylib and does not bundle it.
+        if: runner.os == 'macOS'
+        run: brew install libomp
+
+      - name: Install
+        # Not --locked: the lock records quantlab's dependencies as of the last lock, and
+        # quantlab's main may have moved since.
+        run: uv sync --dev
+
+      - name: Test suite
+        # No test calls a language model: the LLM backends are faked or replayed, and the
+        # market is synthetic. KunQuant compiles with the runner's C++ compiler.
+        run: uv run pytest -n auto -q
+
+  docs:
+    name: docs
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: quantlab-factor-agent
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: quantlab-factor-agent
+
+      - uses: actions/checkout@v4
+        with:
+          repository: ZhaorongDai/quantlab
+          path: quantlab
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+          enable-cache: true
+          cache-dependency-glob: quantlab-factor-agent/uv.lock
+
+      - name: Install
+        run: uv sync --group docs
+
+      - name: Build
+        # autodoc imports every module; a warning fails the build.
+        run: uv run sphinx-build -W --keep-going -b html docs docs/_build/html
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: docs-html
+          path: quantlab-factor-agent/docs/_build/html
