@@ -238,6 +238,7 @@ class Campaign:
             known=known,
             warmup_bars=config.evaluator.warmup_bars,
             njobs=config.evaluator.njobs,
+            cache_basis=config.evaluator.cache_basis,
             purge_bars=config.segments.purge_bars,
             period_lags=vocabulary.lag_columns,
         )

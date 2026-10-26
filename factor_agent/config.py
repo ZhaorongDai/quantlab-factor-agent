@@ -149,6 +149,9 @@ class EvaluatorConfig:
     warmup_bars: int = 260
     #: KunQuant executor threads.
     njobs: int = 51
+    #: Keep each training date's orthonormal basis of the reference pool between evaluations (a few
+    #: minutes less a round, about the pool's size again in memory) instead of building it every evaluation.
+    cache_basis: bool = True
 
 
 @dataclass(frozen=True)
