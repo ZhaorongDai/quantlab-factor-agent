@@ -40,6 +40,11 @@ One planned slot of a round: a mechanism type, an action (a new mechanism, or a 
 of an accepted factor) and the idea the proposer is to write a candidate for.
 _Avoid_: plan item, slot (for the idea itself)
 
+**Proposal group**:
+A contiguous run of a round's research directions that one chain of LLM calls writes, fixes and
+reviews together; a round's groups run side by side and meet at the Gate in slot order.
+_Avoid_: batch, chunk, shard
+
 **Scoring**:
 How a factor's raw values become the values that are judged: ranked across the market each day, then
 optionally neutralised and kept on the members of the day.
