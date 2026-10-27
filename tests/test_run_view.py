@@ -8,7 +8,9 @@ crashed before its first round was written. ``resumed`` is ``finished``
 resumed with a higher round limit, crashed in its fourth round: its state
 file still holds the stop of the first open. ``ahead`` is ``finished`` as a
 crash leaves it between the ledger's append of round 2 and the state's
-rewrite: the ledger is a round ahead of the state.
+rewrite: the ledger is a round ahead of the state. Every run asks the
+distiller before each round after the first, so ``finished`` holds one
+version of the memory and ``resumed`` three.
 """
 
 import json
@@ -43,7 +45,7 @@ def propose(number, directions):
     return ROUND_1 if number == 1 else later_round(number, directions)
 
 
-ROUND = {"candidates": 4, "min_per_type": 0, "retries": 1}
+ROUND = {"candidates": 4, "min_per_type": 0, "retries": 1, "memory_every": 1}
 
 
 @pytest.fixture(scope="module")
@@ -96,7 +98,8 @@ def test_a_finished_run_reads_as_its_rounds_trials_accepted_factors_and_stop(run
     assert summary.code_version == snapshot["versions"][-1]["factor_agent"]
     assert (summary.rounds, summary.trials, summary.accepted) == (2, 8, 1)
     assert summary.stop.by == "max_rounds"
-    assert summary.updated.timestamp() >= (runs / "finished" / "run" / "state.json").stat().st_mtime
+    # A datetime keeps microseconds only, so the file's time may round a microsecond either way.
+    assert summary.updated.timestamp() >= (runs / "finished" / "run" / "state.json").stat().st_mtime - 1e-6
     assert [(t.round, t.slot, t.status, t.stage) for t in view.trials if t.round == 1] == [
         (1, 0, "accepted", "admission"), (1, 1, "rejected", "admission"),
         (1, 2, "failed", "gate"), (1, 3, "rejected", "review"),
@@ -123,3 +126,28 @@ def test_a_resumed_run_that_has_not_stopped_again_has_no_stop_although_its_state
     assert state["rounds"] == 3 and state["stop"]["by"] == "max_rounds"
     summary = RunView.read(runs / "resumed" / "run").summary
     assert (summary.rounds, summary.trials, summary.stop) == (3, 12, None)
+
+
+def test_a_run_with_no_memory_yet_has_no_versions(runs):
+    assert RunView.read(runs / "fresh" / "run").memory == ()
+
+
+def test_the_first_version_of_the_memory_has_its_text_and_no_changes(runs):
+    (version,) = RunView.read(runs / "finished" / "run").memory
+    assert version.round == 1
+    assert version.text == (runs / "finished" / "run" / "memory.md").read_text().rstrip("\n")
+    assert version.changes is None
+
+
+def test_every_version_after_the_first_says_what_changed_from_the_one_before(runs):
+    versions = RunView.read(runs / "resumed" / "run").memory
+    assert [v.round for v in versions] == [1, 2, 3]
+    # The fake distiller numbers its memories by its calls, and the resume started a new fake: the
+    # versions after rounds 1 and 2 are both its first memory, the one after round 3 its second.
+    assert {c.change for c in versions[1].changes} == {"kept"}
+    changes = versions[2].changes
+    assert [(c.change, c.line) for c in changes if c.change != "kept"] == [
+        ("removed", "- Distilled memory number 1: volume surprises keep working."),
+        ("added", "- Distilled memory number 2: volume surprises keep working."),
+    ]
+    assert [c.line for c in changes if c.change != "removed"] == versions[2].text.splitlines()

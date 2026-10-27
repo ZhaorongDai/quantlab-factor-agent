@@ -2,6 +2,7 @@
 import { useEffect, useState } from 'react'
 import * as api from './api'
 import type { Run, RunSummary } from './api'
+import Memory from './Memory'
 
 function useRunParam(): [string, (name: string) => void] {
   const [name, setName] = useState(new URLSearchParams(location.search).get('run') ?? '')
@@ -15,6 +16,43 @@ function useRunParam(): [string, (name: string) => void] {
     setName(next)
   }
   return [name, open]
+}
+
+// A run's page (&page=<page>): its trials by default.
+const PAGES = ['trials', 'memory'] as const
+type Page = (typeof PAGES)[number]
+
+const pageParam = (): Page => (new URLSearchParams(location.search).get('page') as Page | null) ?? 'trials'
+
+function usePageParam(): [Page, (page: Page) => void] {
+  const [page, setPage] = useState<Page>(pageParam)
+  useEffect(() => {
+    const back = () => setPage(pageParam())
+    addEventListener('popstate', back)
+    return () => removeEventListener('popstate', back)
+  }, [])
+  const open = (next: Page) => {
+    history.pushState(null, '', pageHref(next))
+    setPage(next)
+  }
+  return [page, open]
+}
+
+function pageHref(page: Page): string {
+  const params = new URLSearchParams(location.search)
+  if (page === 'trials') params.delete('page')
+  else params.set('page', page)
+  return `?${params}`
+}
+
+function Pages({ page, open }: { page: Page; open: (page: Page) => void }) {
+  return (
+    <nav className="pages">
+      {PAGES.map(p => (
+        <a key={p} href={pageHref(p)} className={p === page ? 'here' : ''} onClick={e => { e.preventDefault(); open(p) }}>{p}</a>
+      ))}
+    </nav>
+  )
 }
 
 function ago(iso: string): string {
@@ -60,9 +98,19 @@ function RunList({ open }: { open: (name: string) => void }) {
 function RunPage({ name }: { name: string }) {
   const [run, setRun] = useState<Run | null>(null)
   const [error, setError] = useState('')
+  const [page, openPage] = usePageParam()
   useEffect(() => { setRun(null); api.run(name).then(setRun, e => setError(String(e))) }, [name])
   if (error) return <p className="error">{error}</p>
   if (!run) return <p className="muted">Loading…</p>
+  return (
+    <>
+      <Pages page={page} open={openPage} />
+      {page === 'memory' ? <Memory versions={run.memory} /> : <Trials run={run} />}
+    </>
+  )
+}
+
+function Trials({ run }: { run: Run }) {
   const s = run.summary
   return (
     <>
