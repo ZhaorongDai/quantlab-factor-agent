@@ -23,8 +23,6 @@ data:
       end_date: '2100-01-01'
       symbols: null
       kwargs: null
-      resample_freq: null
-      resample_how: null
       name: quantlab.dataset.sharadar.stock.SharadarStockDataset
       raw_data_dir_path: /data/quantlab/downloads/sharadar
       market: us_equity
@@ -53,8 +51,6 @@ data:
           end_date: '2100-01-01'
           symbols: null
           kwargs: null
-          resample_freq: null
-          resample_how: null
           name: quantlab.dataset.sharadar.stock.SharadarStockDataset
           raw_data_dir_path: /data/quantlab/downloads/sharadar
           market: us_equity
@@ -88,8 +84,6 @@ data:
       end_date: '2100-01-01'
       symbols: null
       kwargs: {barra_store: /data/quantlab/factors/market/barra_style/barra_style.zarr}
-      resample_freq: null
-      resample_how: null
       name: quantlab.dataset.estu.EstuConstituentDataset
       as_of: null
     name: quantlab.label.predefined.membership_mask.MembershipMaskedLabel
