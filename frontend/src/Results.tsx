@@ -157,7 +157,7 @@ function WriteUp({ f, limit }: { f: Factor; limit: number | null }) {
   )
 }
 
-export default function Results({ run }: { run: Run }) {
+export default function Results({ run, select }: { run: Run; select: () => void }) {
   // The cards rank by their drop-one contribution when Acceptance measured it.
   const ranked = run.factors.some(f => dropOne(run, f.label) != null)
   const [chosen, setSort] = useState<Sort | null>(null)
@@ -182,6 +182,7 @@ export default function Results({ run }: { run: Run }) {
             {sorts.map(s => (
               <button key={s} className={sort === s ? 'on' : ''} onClick={() => setSort(s)}>{SORTS[s]}</button>
             ))}
+            <button className="select" onClick={select}>select factors for Acceptance →</button>
           </div>
           <p className="muted small">
             Each threshold is the one admission quoted in the round's refusals, carried over from the round before when

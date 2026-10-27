@@ -15,7 +15,8 @@ uv sync --extra web
 
 The page itself is built and kept in the package, so no Node is needed to serve it. Only
 changing the page needs Node 18 or newer: edit `frontend/`, then run
-`npm ci && npm run build` there and commit the rebuilt `factor_agent/web/static/`.
+`npm ci && npm run build` there and commit the rebuilt `factor_agent/web/static/`. Its tests, `npm test`, need Node 22.6 or
+newer.
 
 ## Start it
 
@@ -116,6 +117,23 @@ its versions met the problem. A collision is a trial refused for being too like 
 existing factor (see {doc}`concepts`): by the Gate as a rewrite, the same graph with
 other parameters, or a too large shared subtree, or by admission as a correlation above
 the limit. A repeat of one of the run's own earlier candidates is not a collision.
+
+## The selection view
+
+The results page's *select factors for Acceptance* opens a table of the accepted factors,
+one row each with a tick box: its round, factor direction, partial-IC t and how far over
+its threshold, decile monotonicity, closest reference or accepted factor and closest known
+factor with their correlations, coverage, and, when validation measured them, its drop-one
+and add-one rank IC contributions with the seeds agreeing on their sign. A row opens to the
+factor's hypothesis and code. Every accepted factor starts ticked.
+
+Beside the table are the {doc}`acceptance` calls for the ticked factors, to copy into Python
+on the machine that holds the run: validate the selection, open the hold-out on it, and
+export it. Factors are named by their labels; each export name is the description's first
+words, to replace with your own. The config path is a placeholder, since the run directory
+does not record it. When the hold-out lock records an open, the view says the hold-out is no
+longer untouched, so a selection judged on it now was chosen knowing an earlier result, and
+the call opens it with `force=True`. The page runs none of these calls.
 
 ## The trials page
 

@@ -4,6 +4,7 @@ import * as api from './api'
 import type { Run, RunSummary } from './api'
 import Memory from './Memory'
 import Results from './Results'
+import Selection from './Selection'
 import Trials from './Trials'
 
 function useRunParam(): [string, (name: string) => void] {
@@ -20,8 +21,8 @@ function useRunParam(): [string, (name: string) => void] {
   return [name, open]
 }
 
-// A run's page (&page=<page>): its results by default.
-const PAGES = ['results', 'trials', 'memory'] as const
+// A run's page (&page=<page>): its results by default. The selection view is reached from the results.
+const PAGES = ['results', 'selection', 'trials', 'memory'] as const
 type Page = (typeof PAGES)[number]
 
 const pageParam = (): Page => {
@@ -53,8 +54,8 @@ function pageHref(page: Page): string {
 function Pages({ page, open }: { page: Page; open: (page: Page) => void }) {
   return (
     <nav className="pages">
-      {PAGES.map(p => (
-        <a key={p} href={pageHref(p)} className={p === page ? 'here' : ''} onClick={e => { e.preventDefault(); open(p) }}>{p}</a>
+      {PAGES.filter(p => p !== 'selection').map(p => (
+        <a key={p} href={pageHref(p)} className={p === page || (p === 'results' && page === 'selection') ? 'here' : ''} onClick={e => { e.preventDefault(); open(p) }}>{p}</a>
       ))}
     </nav>
   )
@@ -110,7 +111,8 @@ function RunPage({ name }: { name: string }) {
   return (
     <>
       <Pages page={page} open={openPage} />
-      {page === 'memory' ? <Memory versions={run.memory} /> : page === 'trials' ? <Trials run={run} /> : <Results run={run} />}
+      {page === 'memory' ? <Memory versions={run.memory} /> : page === 'trials' ? <Trials run={run} />
+        : page === 'selection' ? <Selection run={run} /> : <Results run={run} select={() => openPage('selection')} />}
     </>
   )
 }
