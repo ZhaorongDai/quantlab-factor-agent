@@ -153,8 +153,11 @@ reference:
     factor_names: [intraday_20, reversal_3, intraday_5]
 
 # Known factors besides the reference set: a candidate rewriting one of them is refused. Whole-market
-# factor libraries of quantlab's factor families, and the minute price-volume factors that average the
-# PriceVolumeIntradayStats statistics over several horizons.
+# factor libraries of quantlab's factor families; the minute price-volume factors that average the
+# PriceVolumeIntradayStats statistics over several horizons; the 20-day means of every IntradayStats
+# statistic, of which the reference holds four; and HfShortHorizonAlpha, 32 short-horizon factors from
+# the same session statistics (stored raw: their correlation with a candidate is of normal scores
+# per date, unneutralised).
 known:
   - /data/quantlab/factors/market/alpha101_neutral
   - /data/quantlab/factors/market/alpha158_neutral
@@ -163,38 +166,40 @@ known:
   - /data/quantlab/factors/market/short_horizon_neutral
   - /data/quantlab/factors/market/barra_style
   - /data/quantlab/factors/market/price_volume_intraday_neutral
+  - /data/quantlab/factors/market/intraday_stats_20d_neutral
+  - /data/quantlab/factors/market/hf_short_horizon
 
-# Seed directions: two per mechanism type, aimed at what the high-frequency factors of the reference
-# lack. Those (intraday_low_corr, intraday_signals, intraday_stats_20d_neutral, intraday_vol_liquidity)
-# are cross-sectional ranks of 10- to 120-day means or variabilities of the minute volatility, Amihud
-# ratio, price-volume and return-volume correlations, trade size, off-exchange and auction shares,
-# closing volume share, VWAP deviation, return autocorrelation, signed jump variation and the
-# overnight, opening and intraday returns. None reads realized skewness or kurtosis, the jump share,
-# order imbalance, the closing half hour's return, the shape of the volume over the session, a
-# change of a statistic against the stock's own history, or any PriceVolumeIntradayStats statistic.
-# Papers are cited without their year, so no prompt names a date after the training segment; the
-# years are in the comments.
+# Seed directions: two per mechanism type, aimed at mechanisms the known high-frequency factors have
+# not tried. Those are means and variabilities of every session statistic over 1 to 120 days, and
+# HfShortHorizonAlpha's tests of the obvious mechanisms on us3000, most of which failed: weekly
+# realized skewness and signed jump variation, jump continuation and jump drift, downside semibeta,
+# weekly order imbalance and opening and closing order-flow reversal, volatility and visibility
+# shocks, high- and low-volume minute moves, the off-exchange share shock, closing-time periodicity
+# and many reversals; its liquidity shock passed. So no direction below is a mean of one statistic,
+# a shock of one against its own history, or one of those mechanisms: each is a relation between
+# statistics that a paper prices. Papers are cited without their year, so no prompt names a date
+# after the training segment; the years are in the comments.
 directions:
-  # Amaya, Christoffersen, Jacobs and Vasquez (2015), JFE.
-  - "behavioural_bias: lottery demand in realized skewness. Investors overpay for stocks whose returns are right-skewed, so stocks with a high realized skewness of their minute returns over the past week earn less the following week; the third moment of the minute returns (trade_rskew), averaged over a few sessions, not the volatility (rvol) or the signed jump variation (rsj) the reference already ranks. Amaya, Christoffersen, Jacobs and Vasquez, Does realized skewness predict the cross-section of equity returns?, Journal of Financial Economics."
-  # Berkman, Koch, Tuttle and Zhang (2012), JFQA.
-  - "behavioural_bias: attention-driven buying at the open. Individual investors buy attention-grabbing stocks at the open, pushing the opening price up, and the pressure reverses during the day; the overnight return on days of unusual attention (session volume, or the session's volume peaks pv_VOL_UP_NUM, against the stock's own recent level), not the plain mean of overnight returns the reference holds. Berkman, Koch, Tuttle and Zhang, Paying attention: overnight returns and the hidden cost of buying at the open, Journal of Financial and Quantitative Analysis."
-  # Jiang and Yao (2013), JFQA.
-  - "risk_compensation: jump risk. The part of a stock's return variation that comes from discontinuous jumps rather than diffusive moves is a risk investors are compensated for; the share of realized variance not explained by bipower variation (trade_jump) over weeks to months, not the total volatility (rvol) or the signed asymmetry of the semivariances (rsj). Jiang and Yao, Stock price jumps and cross-sectional return predictability, Journal of Financial and Quantitative Analysis."
-  # Ang, Chen and Xing (2006), RFS; Bollerslev, Li and Zhao (2020), JFQA.
-  - "risk_compensation: downside risk within the day. Investors demand compensation for losses more than they value gains, so the asymmetry between the downside and the upside semi-deviation of the minute returns (pv_DOWN_RET_STD against pv_UP_RET_STD), or the size of the losses on the session's high-volume minutes (pv_VOL_UP_RET_NEG_MEAN), is priced; a short-window downside measure from the dispersion statistics, not the 120-day signed jump variation inside the reference's composites. Ang, Chen and Xing, Downside risk, Review of Financial Studies; Bollerslev, Li and Zhao, Good volatility, bad volatility, and the cross section of stock returns, Journal of Financial and Quantitative Analysis."
-  # Chordia and Subrahmanyam (2004), JFE.
-  - "liquidity: order imbalance pressure. Buy-initiated minus sell-initiated volume that market makers absorb moves prices, and because large orders are split over days, imbalances persist and predict the next days' returns, positively at short lags and with a reversal once the price pressure is controlled for; the tick-rule order imbalance (trade_oib) and its persistence over the last few sessions, which no reference factor reads. Chordia and Subrahmanyam, Order imbalance and individual stock returns: theory and evidence, Journal of Financial Economics."
-  # Bali, Peng, Shen and Tang (2014), RFS.
-  - "liquidity: liquidity shocks. Investors underreact to changes in a stock's liquidity, so a stock whose illiquidity has just risen above its own past level keeps earning less for weeks; the change of the minute Amihud ratio (trade_amihud) over the last weeks against its mean over the past year, a shock to the stock's own liquidity, not the level of illiquidity or its variability (the reference's amihud means and coefficients of variation). Bali, Peng, Shen and Tang, Liquidity shocks and stock market reactions, Review of Financial Studies."
-  # Bogousslavsky (2021), JFE.
-  - "microstructure: end-of-day pressure. Institutions that must close positions or rebalance before the close move prices in the last half hour, and the move reverses overnight and over the next days; the return of the closing 30 minutes (trade_ret_close30), alone or against the session's return, not the opening half hour's return, the close's volume share or the auction share the reference ranks. Bogousslavsky, The cross-section of intraday and overnight returns, Journal of Financial Economics."
+  # Boehmer, Jones, Zhang and Zhang (2021), JF; Kelley and Tetlock (2013), JF.
+  - "behavioural_bias: retail order flow on off-exchange sessions. Most retail marketable orders are filled off exchange, and the net direction of retail order flow predicts returns over the following weeks with the sign of the flow, as retail investors trade on information prices absorb slowly; the tick-rule order imbalance (trade_oib) weighted by the session's off-exchange share (trade_offexchange_share), summed over one to two weeks, not the plain imbalance or a shock to the off-exchange share. Boehmer, Jones, Zhang and Zhang, Tracking retail investor activity, Journal of Finance; Kelley and Tetlock, How wise are crowds? Insights from retail orders and stock returns, Journal of Finance."
+  # Kumar (2009), JF; Bali, Cakici and Whitelaw (2011), JFE.
+  - "behavioural_bias: lottery features of the trading day. Investors who gamble overpay for stocks whose payoffs look like lotteries, cheap stocks with rare large upward bursts, so those stocks earn less; the upward moves on the session's high-volume minutes (pv_VOL_UP_RET_POS_MEAN) against the downward ones (pv_VOL_UP_RET_NEG_MEAN), in stocks traded in small trades (trade_trade_size), over a few weeks, not the realized skewness of all minutes or the mean of one statistic. Kumar, Who gambles in the stock market?, Journal of Finance; Bali, Cakici and Whitelaw, Maxing out: stocks as lotteries and the cross-section of expected returns, Journal of Financial Economics."
+  # Hendershott, Livdan and Rosch (2020), JFE.
+  - "risk_compensation: overnight risk. Risk borne while the market is closed cannot be traded away, and the risk premium of stocks is earned over the night rather than during the day; the share of a stock's return variance that arises overnight, the squared overnight return (trade_ret_overnight) against it plus the session's realized variance (trade_rvol squared), over one to three months, not the mean overnight return or the total volatility. Hendershott, Livdan and Rosch, Asset pricing: a tale of night and day, Journal of Financial Economics."
+  # Acharya and Pedersen (2005), JFE.
+  - "risk_compensation: liquidity risk of the stock's own returns. A stock whose illiquidity rises when its price falls is hard to sell exactly when its holders need to, and investors demand a premium for that; the rolling correlation over two to six months between the daily change of the minute Amihud ratio (trade_amihud) and the daily return, not the level of illiquidity, its variability or its shock against the past. Acharya and Pedersen, Asset pricing with liquidity risk, Journal of Financial Economics."
+  # Brennan, Huh and Subrahmanyam (2013), RAPS.
+  - "liquidity: the cost of selling. Only the illiquidity of down days, the price impact of selling, carries the Amihud premium; the minute Amihud ratio (trade_amihud) averaged over the sessions with a negative intraday return (trade_ret_intraday) against its average over the sessions with a positive one, over one to three months, not the illiquidity of all days. Brennan, Huh and Subrahmanyam, An analysis of the Amihud illiquidity premium, Review of Asset Pricing Studies."
+  # Kyle (1985), Econometrica; Brennan and Subrahmanyam (1996), JFE.
+  - "liquidity: price impact of order flow. Market makers move the price against informed order flow, and the price moved per unit of net order flow, Kyle's lambda, is an illiquidity investors are paid to bear; the slope of the session's return (trade_ret_intraday) on its order imbalance (trade_oib) over the last one to three months, a sensitivity rather than the imbalance itself or its persistence. Kyle, Continuous auctions and insider trading, Econometrica; Brennan and Subrahmanyam, Market microstructure and asset pricing: on the compensation for illiquidity in stock returns, Journal of Financial Economics."
   # Corwin and Schultz (2012), JF; Amihud and Mendelson (1986), JFE.
-  - "microstructure: the spread in minute ranges. A minute's high-low range holds both the volatility and the bid-ask spread, so the mean minute amplitude (pv_AMP_MEAN) in excess of what the minute return volatility (pv_RET_STD) implies estimates the effective spread, and stocks with wider spreads earn a premium for their trading cost; the amplitude statistics, which no reference factor reads, not the volatility alone. Corwin and Schultz, A simple way to estimate bid-ask spreads from daily high and low prices, Journal of Finance; Amihud and Mendelson, Asset pricing and the bid-ask spread, Journal of Financial Economics."
+  - "microstructure: the spread in minute ranges. A minute's high-low range holds both the volatility and the bid-ask spread, so the mean minute amplitude (pv_AMP_MEAN) in excess of what the minute return volatility (pv_RET_STD) implies estimates the effective spread, and stocks with wider spreads earn a premium for their trading cost; the amplitude against the volatility, not either alone. Corwin and Schultz, A simple way to estimate bid-ask spreads from daily high and low prices, Journal of Finance; Amihud and Mendelson, Asset pricing and the bid-ask spread, Journal of Financial Economics."
+  # Chan and Lakonishok (1995), JF; Barclay and Warner (1993), JFE.
+  - "microstructure: unfinished institutional orders. Institutions split large orders over the day and over several days, and prices keep moving in the direction of an order package until it is filled; a session with many separate volume peaks (pv_VOL_UP_NUM) and an intraday return in the direction of its order imbalance (trade_oib) marks a package being worked, whose move continues over the next days, not the number of peaks or the imbalance alone. Chan and Lakonishok, The behavior of stock prices around institutional trades, Journal of Finance; Barclay and Warner, Stealth trading and volatility: which trades move prices?, Journal of Financial Economics."
   # Da, Gurun and Warachka (2014), RFS.
-  - "information_diffusion: continuous versus discrete information. Investors underreact to information that arrives in many small moves more than to the same news in a few large jumps, so a past return earned with a low jump share of the minute variance persists longer; the past month's return (from the daily closes) conditioned on the mean jump share (trade_jump) or the realized kurtosis (trade_rkurt) of its sessions, not the size of the past return alone. Da, Gurun and Warachka, Frog in the pan: continuous information and momentum, Review of Financial Studies."
-  # Gervais, Kaniel and Mingelgrin (2001), JF.
-  - "information_diffusion: the high-volume return premium. A day of unusually high trading activity draws investors' attention to a stock, which widens its investor base and raises its price over the following weeks; the session's volume against the stock's own past, distinguishing sustained interest (many volume peaks, pv_VOL_UP_NUM, and an even volume profile, trade_volume_cv) from one block, not the turnover level or the closing volume share the reference ranks. Gervais, Kaniel and Mingelgrin, The high-volume return premium, Journal of Finance."
+  - "information_diffusion: continuous versus discrete information. Investors underreact to information that arrives in many small moves more than to the same news in a few large jumps, so a past return earned with a low jump share of the minute variance persists longer; the past month's return (from the daily closes) conditioned on the mean jump share (trade_jump) or the realized kurtosis (trade_rkurt) of its sessions, not the size of the past return alone or the sign count of daily returns. Da, Gurun and Warachka, Frog in the pan: continuous information and momentum, Review of Financial Studies."
+  # Hou and Moskowitz (2005), RFS.
+  - "information_diffusion: delayed price discovery. Prices that absorb information slowly underreact to it, so a past return of a stock whose price adjusts with a delay continues longer; the past month's return (from the daily closes) conditioned on the first-order autocorrelation of its minute returns (trade_ret_autocorr, positive when moves are absorbed over several minutes), not the size of the past return or the autocorrelation alone. Hou and Moskowitz, Market frictions, price delay, and the cross-section of expected returns, Review of Financial Studies."
 
 evaluator:
   warmup_bars: 260

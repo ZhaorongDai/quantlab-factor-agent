@@ -11,10 +11,12 @@
 #   session (a bar without a trade returns 0; the first traded bar's return is measured from its
 #   open), so the session's returns sum to the move from the first trade to the last price and leave
 #   out the overnight move. RV is the sum of r^2 and N the number of minute returns.
+# - A session with fewer than 60 minute bars that traded (IntradayStats' min_returns) is missing in
+#   every field, so thinly traded stocks have gaps; the family's description tells the prompts.
 #
 # See sharadar_price_volume.yaml for the keys of a field file.
 family: intraday_session
-description: daily statistics of each session's one-minute trade bars
+description: daily statistics of each session's one-minute trade bars; every field is missing on a session with fewer than 60 minute bars that traded
 bar: false
 
 fields:
@@ -63,7 +65,7 @@ fields:
   - name: trade_vwap_dev
     column: trade_vwap_dev
     unit: '1'
-    description: log of the session's last price over its volume-weighted average price
+    description: log of the session's last price over its volume-weighted average price (the continuous session's, without the closing auction)
   # Order flow and the price-volume relation.
   - name: trade_oib
     column: trade_oib

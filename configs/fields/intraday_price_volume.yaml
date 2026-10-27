@@ -13,11 +13,12 @@
 #   over the previous bar's last price, on bars with a trade; the deviation d is the bar's close over
 #   the session's VWAP so far, less 1, on bars with a trade; v is the bar's volume. A high-volume
 #   minute has v above the session's mean plus one standard deviation of v. A statistic over no bar
-#   (no positive return on a high-volume minute, say) is missing.
+#   (no positive return on a high-volume minute, say) is missing, and so is every statistic of a
+#   session with fewer than 60 minute bars that traded (PriceVolumeIntradayStats' min_returns).
 #
 # See sharadar_price_volume.yaml for the keys of a field file.
 family: intraday_price_volume
-description: amplitude, VWAP-deviation and high-volume statistics of each session's one-minute trade bars
+description: amplitude, VWAP-deviation and high-volume statistics of each session's one-minute trade bars; every field is missing on a session with fewer than 60 minute bars that traded
 bar: false
 
 fields:
@@ -46,7 +47,7 @@ fields:
   - name: pv_PRICE_DEV_STD
     column: pv_PRICE_DEV_STD
     unit: '1'
-    description: sample standard deviation of the minute close's deviation from the session's VWAP so far
+    description: sample standard deviation of the minute close's deviation from the session's VWAP so far (the continuous session's)
   - name: pv_PRICE_DEV_STR
     column: pv_PRICE_DEV_STR
     unit: '1'

@@ -89,10 +89,12 @@ def test_a_candidate_on_session_statistics_passes_the_gate_with_its_dimension(vo
 REAL_HF = CONFIGS / "us3000_hf_ret5.yaml"
 OTHER_EXAMPLES = (CONFIGS / "us3000_ret5.yaml", CONFIGS / "us3000_fund_ret5.yaml")
 FACTORS = "/data/quantlab/factors/market"
-#: The known factors: whole-market factor libraries and the minute price-volume factors.
+#: The known factors: whole-market factor libraries, the minute price-volume factors, the 20-day means
+#: of every session statistic and the short-horizon factors built on them.
 KNOWN = tuple(f"{FACTORS}/{name}" for name in (
     "alpha101_neutral", "alpha158_neutral", "fundamental_alpha_neutral", "daily_anomaly_neutral",
-    "short_horizon_neutral", "barra_style", "price_volume_intraday_neutral",
+    "short_horizon_neutral", "barra_style", "price_volume_intraday_neutral", "intraday_stats_20d_neutral",
+    "hf_short_horizon",
 ))
 
 
@@ -126,7 +128,7 @@ def test_the_price_dataset_merges_masked_sep_with_both_stores_under_the_field_fi
     }
 
 
-def test_the_known_factors_are_the_earlier_campaigns_and_the_minute_price_volume_factors(hf):
+def test_the_known_factors_are_the_factor_libraries_and_every_stored_minute_factor(hf):
     assert hf.known == KNOWN
 
 
