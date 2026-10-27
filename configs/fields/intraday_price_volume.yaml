@@ -30,7 +30,7 @@ fields:
   - name: pv_AMP_MMR
     column: pv_AMP_MMR
     unit: '1'
-    description: mean over median of the session's minute amplitudes, how much a few wide minutes dominate
+    description: mean over median of the session's minute amplitudes, how much a few wide minutes dominate; missing when the median minute has its high at its low, about a fifth of member sessions
   - name: pv_AMP_SKEW
     column: pv_AMP_SKEW
     unit: '1'
