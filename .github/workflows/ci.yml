@@ -73,6 +73,10 @@ jobs:
         working-directory: frontend
         run: npm ci && npm run build
 
+      - name: Test
+        working-directory: frontend
+        run: npm test
+
       - name: Compare with the committed page
         run: |
           git status --porcelain -- factor_agent/web/static
