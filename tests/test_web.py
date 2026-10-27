@@ -1,8 +1,8 @@
 """The frontend's HTTP routes over a run a real campaign wrote, and its console script.
 
-The JSON of the run list and of a run's accepted factors is compared with
-stored snapshots (``tests/snapshots/web_runs.json``,
-``tests/snapshots/web_run_factors.json``), with the values that change from
+The JSON of the run list, of a run's accepted factors and of its health is
+compared with stored snapshots (``tests/snapshots/web_runs.json``,
+``tests/snapshots/web_run_factors.json``, ``tests/snapshots/web_run_health.json``), with the values that change from
 run to run or machine to machine (the code version, the time, statistics)
 replaced. After a deliberate change of the
 JSON's shape, rewrite the snapshot with ``FACTOR_AGENT_UPDATE_SNAPSHOTS=1``.
@@ -27,6 +27,7 @@ from tests.fake_llm import FakeLLM  # noqa: E402
 
 SNAPSHOT = Path(__file__).parent / "snapshots" / "web_runs.json"
 FACTORS = Path(__file__).parent / "snapshots" / "web_run_factors.json"
+HEALTH = Path(__file__).parent / "snapshots" / "web_run_health.json"
 
 ROUND = [
     candidate("planted", "alpha = close / open"),
@@ -45,7 +46,9 @@ def client(tmp_path_factory):
     config = write_config(root / "runs" / "example", components, known=[klen.get_config()],
                           round={"candidates": 2, "min_per_type": 0, "retries": 0, "max_rounds": 1})
     run(config, FakeLLM(lambda number, directions: ROUND), root / "kunquant_cache")
-    return TestClient(create_app(root / "runs"))
+    client = TestClient(create_app(root / "runs"))
+    client.runs = root / "runs"
+    return client
 
 
 def _stable(runs: list[dict]) -> list[dict]:
@@ -85,6 +88,29 @@ def test_a_runs_accepted_factors_answer_with_the_snapshot_json(client):
     if os.environ.get("FACTOR_AGENT_UPDATE_SNAPSHOTS"):
         FACTORS.write_text(json.dumps(factors, indent=2) + "\n")
     assert factors == json.loads(FACTORS.read_text())
+
+
+def test_a_runs_health_answers_with_the_snapshot_json(client):
+    health = client.get("/api/run", params={"name": "example/run"}).json()["health"]
+    assert health["last_call"] is not None
+    health = _shape({**health, "last_call": "<time>"})
+    if os.environ.get("FACTOR_AGENT_UPDATE_SNAPSHOTS"):
+        HEALTH.write_text(json.dumps(health, indent=2) + "\n")
+    assert health == json.loads(HEALTH.read_text())
+
+
+def test_a_runs_version_changes_when_the_run_writes_and_not_otherwise(client, tmp_path):
+    def version():
+        response = client.get("/api/run/version", params={"name": "example/run"})
+        assert response.status_code == 200
+        return response.json()
+
+    before = version()
+    assert version() == before
+    state = client.runs / "example" / "run" / "state.json"
+    os.utime(state, ns=(state.stat().st_atime_ns, state.stat().st_mtime_ns + 1_000_000))
+    assert version() != before
+    assert client.get("/api/run/version", params={"name": "elsewhere"}).status_code == 404
 
 
 def test_a_run_whose_distiller_has_written_nothing_answers_with_no_memory_versions(client):

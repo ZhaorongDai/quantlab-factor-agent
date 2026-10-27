@@ -68,15 +68,26 @@ crash left half written is dropped and run again, and the zoo, the pool and
 the graphs the Gate compares duplicates with are restored from the ledger.
 The reference set and the known factors are read from the config on every
 start, a resume included; neither is snapshotted.
+
+As it goes, the campaign appends what it does to the run's events file
+(``factor_agent.events``): every start and resume, plan, LLM call, Gate
+check, verdict, evaluation, admission, round end and stop. It never reads
+the file, so a resume, a replay and the snapshot do not depend on it.
 """
 
 import json
+import os
+import socket
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from factor_agent import _admission, _feedback, _scheduler
 from factor_agent.config import ROLES, CampaignConfig
 from factor_agent.evaluator import CompileFailure, Evaluator, Metrics
+from factor_agent.events import FILE as EVENTS_FILE
+from factor_agent.events import (
+    AdmissionOutcome, EvaluationStart, Events, Plan, Resume, RoundEnd, Start, Stopped,
+)
 from factor_agent.gate import Gate
 from factor_agent.gate.graph import Graph
 from factor_agent.gate.vocabulary import Vocabulary
@@ -221,11 +232,15 @@ class Campaign:
         state = _State.read(state_path)
         state.versions = snapshot.versions
         ledger = Ledger(run_dir / "ledger.jsonl")
+        log = LLMLog(run_dir / "llm_log")
+        written = (ledger.path.read_text() if ledger.path.exists() else "", len(log.files()))
         ledger.keep(state.rounds)
         records = ledger.records()
         reference, known = config.load_factors()
-        log = LLMLog(run_dir / "llm_log")
         log.drop_after(state.calls)
+        events = Events(run_dir / EVENTS_FILE)
+        dropped = (ledger.path.read_text() if ledger.path.exists() else "", len(log.files())) != written
+        events.write(self._opened(snapshot, state, dropped))
         researcher = Researcher(
             {
                 role: (RecordingBackend(backend, log), config.roles[role].model)
@@ -233,6 +248,7 @@ class Campaign:
             },
             prompts,
             groups=config.round.groups,
+            events=events,
         )
         evaluator = Evaluator.for_segment(
             config.training,
@@ -273,21 +289,22 @@ class Campaign:
                 accepted = [r for r in records if r.status == "accepted"]
                 context = self._context(records, state, reference, known, evaluator, accepted, recent_rounds, prompts)
                 directions, issues = researcher.plan(number, quota, context, [_feedback.accepted_label(r) for r in accepted])
+                events.write(Plan(round=number, directions=[d.to_dict() for d in directions], quota=quota, issues=issues))
                 proposals = researcher.propose(number, directions, context, gate, zoo, config.round.retries)
-                round_records = self._round(number, proposals, researcher, gate, zoo, evaluator, records)
+                round_records = self._round(number, proposals, researcher, gate, zoo, evaluator, records, events)
             except ProviderQuotaExhausted as exc:
                 stop = Stop("provider_quota", f"{exc}; round {number} was stopped and dropped")
                 break
             ledger.append(round_records)
             records += round_records
             state.rounds, state.calls = number, len(log.files())
-            state.log.append({
-                "round": number, "quota": quota, "plan_issues": issues,
-                "accepted": sum(r.status == "accepted" for r in round_records),
-            })
+            accepted_now = sum(r.status == "accepted" for r in round_records)
+            state.log.append({"round": number, "quota": quota, "plan_issues": issues, "accepted": accepted_now})
             state.write(state_path)
+            events.write(RoundEnd(round=number, trials=len(round_records), accepted=accepted_now))
         state.stop = asdict(stop)
         state.write(state_path)
+        events.write(Stopped(by=stop.by, reason=stop.reason))
         return CampaignResult(
             records=records, ledger_path=ledger.path, stop=stop, rounds=state.rounds,
             memory=state.memory, not_covered=zoo.not_covered,
@@ -332,6 +349,19 @@ class Campaign:
         self.config.vocabulary(columns, files)
         return RunSnapshot.open(run_dir, files, code_version(), settings)
 
+    def _opened(self, snapshot: RunSnapshot, state: _State, dropped: bool) -> Start:
+        """The events file's record of this opening: a start, or a resume naming the round it ``dropped``."""
+        settings, admission = self.config.round, self.config.admission
+        opened = dict(
+            pid=os.getpid(), host=socket.gethostname(), versions=snapshot.versions[-1], rounds=state.rounds,
+            candidates=settings.candidates, max_rounds=settings.max_rounds, max_trials=settings.max_trials,
+            patience=settings.patience, t_threshold=admission.t_threshold, max_correlation=admission.max_correlation,
+            min_coverage=admission.min_coverage, min_monotonicity=admission.min_monotonicity,
+        )
+        if len(snapshot.versions) == 1:
+            return Start(**opened)
+        return Resume(**opened, dropped=state.rounds + 1 if dropped else None)
+
     def _stop(self, state: _State, records: list[TrialRecord]) -> Stop | None:
         """The first stop condition that holds before the next round, or None."""
         settings = self.config.round
@@ -374,7 +404,7 @@ class Campaign:
 
     def _round(
         self, number: int, proposals: list[Proposal], researcher: Researcher, gate: Gate, zoo: Zoo, evaluator: Evaluator,
-        earlier: list[TrialRecord],
+        earlier: list[TrialRecord], events: Events,
     ) -> list[TrialRecord]:
         """Review, evaluate and admit one round's proposals; return its records in proposal order.
 
@@ -385,7 +415,8 @@ class Campaign:
         each is judged at the evaluated-trial count after the round: the
         earlier rounds' plus every candidate of the round that ran, whatever
         its place in the proposal order. They are admitted in that order,
-        and the accepted ones are added to ``zoo``.
+        and the accepted ones are added to ``zoo``. The evaluation's start
+        and each outcome go to ``events``.
         """
         evaluated = sum(r.evaluated for r in earlier)
         records = [self._failed(number, p) if p.checked is None else None for p in proposals]
@@ -414,16 +445,26 @@ class Campaign:
             proposal = proposals[passed[position]]
             record = self._admit(number, proposal, metrics, evaluated + ran)
             records[passed[position]] = record
+            events.write(AdmissionOutcome(
+                round=number, slot=passed[position], status=record.status, stage=record.stage,
+                reasons=list(record.reasons), threshold=_admission.t_threshold(self.config.admission, evaluated + ran),
+                metrics=record.metrics,
+            ))
             if record.status != "accepted":
                 return None
             return zoo.add(proposal.candidate.description, _feedback.accepted_source(number), proposal.checked.graph).label
 
+        events.write(EvaluationStart(round=number, slots=list(passed)))
         results = evaluator.evaluate([proposals[i].checked.graph for i in passed], admit)
         for i, result in zip(passed, results):
             if isinstance(result, CompileFailure):
                 records[i] = TrialRecord(
                     status="failed", stage="evaluate", reasons=[result.error], **self._common(number, proposals[i]),
                 )
+                events.write(AdmissionOutcome(
+                    round=number, slot=i, status="failed", stage="evaluate", reasons=[result.error], threshold=None,
+                    metrics=None,
+                ))
         return records
 
     @staticmethod

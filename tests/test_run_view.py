@@ -128,6 +128,15 @@ def test_a_resumed_run_that_has_not_stopped_again_has_no_stop_although_its_state
     assert (summary.rounds, summary.trials, summary.stop) == (3, 12, None)
 
 
+def test_without_events_a_resumed_run_that_has_not_stopped_again_has_no_stop_either(runs, tmp_path):
+    shutil.copytree(runs / "resumed" / "run", tmp_path / "run")
+    (tmp_path / "run" / "events.jsonl").unlink()
+    assert RunView.read(tmp_path / "run").summary.stop is None
+    shutil.copytree(runs / "finished" / "run", tmp_path / "finished")
+    (tmp_path / "finished" / "events.jsonl").unlink()
+    assert RunView.read(tmp_path / "finished").summary.stop.by == "max_rounds"
+
+
 def test_a_run_with_no_memory_yet_has_no_versions(runs):
     assert RunView.read(runs / "fresh" / "run").memory == ()
 

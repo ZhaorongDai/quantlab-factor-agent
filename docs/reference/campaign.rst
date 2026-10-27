@@ -44,6 +44,8 @@ Records and run state
 
    factor_agent.ledger.Ledger
    factor_agent.ledger.TrialRecord
+   factor_agent.events.Events
+   factor_agent.events.read
    factor_agent.snapshot.RunSnapshot
    factor_agent.snapshot.SnapshotMismatch
    factor_agent.snapshot.CodeVersionChanged

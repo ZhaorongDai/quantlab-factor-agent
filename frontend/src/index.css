@@ -64,3 +64,11 @@ dl.trust dd { margin: 0; overflow-wrap: anywhere }
 .write-up [title] { text-decoration: underline dotted; cursor: help }
 pre.code { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; margin: 0 }
 .factor .margin, .factor dl.trust { max-width: 420px }
+/* The health line */
+.health { margin: 0 0 12px; padding: 6px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--card) }
+.health p { margin: 2px 0 }
+.health .warn, .health b.warn { color: var(--bad) }
+.health details summary { cursor: pointer; color: var(--mut) }
+table.tokens { border-collapse: collapse; margin: 4px 0 }
+table.tokens th, table.tokens td { text-align: right; padding: 1px 8px; border-bottom: 1px solid var(--line) }
+table.tokens th { color: var(--mut); font-weight: 500 }

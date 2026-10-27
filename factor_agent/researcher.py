@@ -24,10 +24,12 @@ distiller make one call a round.
 import dataclasses
 import json
 import re
+import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 
+from factor_agent import events as ev
 from factor_agent.candidate import Candidate
 from factor_agent.gate import Gate, Passed
 from factor_agent.llm.base import LLMBackend, ProviderQuotaExhausted, Request
@@ -98,7 +100,8 @@ class Proposal:
     slot is a failed trial and the last of ``attempts`` says why. ``item``
     is the last version the proposer wrote, ``candidate`` its parsed form
     (None if it did not parse), ``attempts`` every refused version in order,
-    and ``group`` the proposal group whose calls write, fix and review it.
+    ``group`` the proposal group whose calls write, fix and review it, and
+    ``slot`` its place in the round, from 0.
     """
 
     direction: Direction
@@ -107,6 +110,7 @@ class Proposal:
     checked: Passed | None
     attempts: tuple[Attempt, ...]
     group: int
+    slot: int = 0
 
 
 def output_unit(checked: Passed) -> str:
@@ -129,12 +133,19 @@ class Researcher:
         The templates and what fills them; its mechanism types are the plan's, in order.
     groups : int, default 1
         The proposal groups a round's directions are split into (at most one per direction).
+    events : Events, optional
+        The run's events file, which every call, every check of a version
+        and every verdict is written to (``factor_agent.events``).
     """
 
-    def __init__(self, roles: dict[str, tuple[LLMBackend, str]], prompts: Prompts, groups: int = 1):
+    def __init__(
+        self, roles: dict[str, tuple[LLMBackend, str]], prompts: Prompts, groups: int = 1,
+        events: ev.Events | None = None,
+    ):
         self.roles = dict(roles)
         self.prompts = prompts
         self.groups = groups
+        self.events = events
         self._types = prompts.mechanism_types
 
     def plan(
@@ -152,7 +163,7 @@ class Researcher:
         )
         issues, by_type = [], {kind: [] for kind in self._types}
         try:
-            items = _json_array(self._ask("planner", prompt))
+            items = _json_array(self._ask("planner", prompt, number))
         except ValueError as exc:
             items, issues = [], [f"planner: {exc}"]
         for i, item in enumerate(items, 1):
@@ -190,7 +201,7 @@ class Researcher:
         directions_by_group = _split(len(directions), self.groups)
         context = render_context(context, PROPOSER_SECTIONS)
         items = self._ask_groups(
-            "proposer", directions_by_group,
+            "proposer", number, dict(enumerate(directions_by_group)), list(range(len(directions))),
             lambda slots: self.prompts.render(
                 "propose", round=number, context=context, n=len(slots),
                 directions=json.dumps([{"number": i + 1, **directions[s].to_dict()} for i, s in enumerate(slots)], indent=2),
@@ -203,7 +214,10 @@ class Researcher:
         pending = list(range(len(directions)))
         for retry in range(retries + 1):
             for slot in pending:
-                proposals[slot] = self._check(directions[slot], items[slot], gate, zoo, attempts[slot], group_of[slot])
+                proposals[slot] = self._check(
+                    number, slot, "fixed" if retry else "proposed", directions[slot], items[slot], gate, zoo,
+                    attempts[slot], group_of[slot],
+                )
             pending = [slot for slot in pending if proposals[slot].checked is None]
             if not pending or retry == retries:
                 break
@@ -237,11 +251,18 @@ class Researcher:
 
         judged: dict[int, Verdict | None] = {}
         asking = _positions_by_group([p.group for p in proposals])
+        slots = [p.slot for p in proposals]
         for _ in range(2):
-            judged |= self._ask_groups("reviewer", asking, render, read)
-            asking = [positions for positions in asking if all(judged[p] is None for p in positions)]
+            judged |= self._ask_groups("reviewer", number, asking, slots, render, read)
+            asking = {group: positions for group, positions in asking.items() if all(judged[p] is None for p in positions)}
         missing = Verdict(False, "the reviewer gave no verdict on this candidate")
-        return [judged[p] or missing for p in range(len(proposals))]
+        verdicts = [judged[p] or missing for p in range(len(proposals))]
+        for proposal, verdict in zip(proposals, verdicts):
+            self._event(ev.ReviewVerdict(
+                round=number, slot=proposal.slot, consistent=verdict.consistent, reason=verdict.reason,
+                rewrite=any(attempt.stage == "review" for attempt in proposal.attempts),
+            ))
+        return verdicts
 
     def revise(
         self, number: int, inconsistent: list[tuple[Proposal, Verdict]], gate: Gate, zoo: Zoo,
@@ -263,7 +284,10 @@ class Researcher:
             review = Attempt(proposal.item, "review", (verdict.refusal,))
             sent_back.append(dataclasses.replace(proposal, attempts=(*proposal.attempts, review)))
         return [
-            self._check(proposal.direction, item, gate, zoo, list(proposal.attempts), proposal.group)
+            self._check(
+                number, proposal.slot, "rewritten", proposal.direction, item, gate, zoo, list(proposal.attempts),
+                proposal.group,
+            )
             for proposal, item in zip(sent_back, self._ask_to_fix(number, sent_back))
         ]
 
@@ -277,16 +301,25 @@ class Researcher:
         """
         reply = self._ask("distiller", self.prompts.render(
             "distill", round=number, memory=memory or "(none: this is the first memory)", history=history,
-        ))
+        ), number)
         return _memory(reply)
 
     def _check(
-        self, direction: Direction, item: object, gate: Gate, zoo: Zoo, attempts: list[Attempt], group: int,
+        self, number: int, slot: int, step: str, direction: Direction, item: object, gate: Gate, zoo: Zoo,
+        attempts: list[Attempt], group: int,
     ) -> Proposal:
-        """Parse and gate one item of proposal group ``group``; a refusal is appended to ``attempts``."""
+        """Parse and gate one item, of ``slot`` in proposal group ``group``; a refusal is appended to ``attempts``.
+
+        ``step`` says which version of the slot's candidate it is, as the
+        events file names it: ``"proposed"``, ``"fixed"`` or ``"rewritten"``.
+        """
         def refused(stage, reasons, candidate=None, shown=item, hints=()):
             attempts.append(Attempt(shown, stage, tuple(reasons), tuple(hints)))
-            return Proposal(direction, shown, candidate, None, tuple(attempts), group)
+            self._event(ev.GateOutcome(
+                round=number, slot=slot, step=step, item=shown, passed=False, stage=stage,
+                reasons=list(reasons), hints=list(hints),
+            ))
+            return Proposal(direction, shown, candidate, None, tuple(attempts), group, slot)
 
         if isinstance(item, _Missing):
             return refused("parse", [item.reason], shown=item.previous)
@@ -300,7 +333,8 @@ class Researcher:
             ])
         checked = gate.check(candidate, zoo)
         if isinstance(checked, Passed):
-            return Proposal(direction, item, candidate, checked, tuple(attempts), group)
+            self._event(ev.GateOutcome(round=number, slot=slot, step=step, item=item, passed=True))
+            return Proposal(direction, item, candidate, checked, tuple(attempts), group, slot)
         return refused("gate", checked.reasons, candidate, hints=checked.hints)
 
     def _ask_to_fix(self, number: int, refused: list[Proposal]) -> list:
@@ -319,7 +353,8 @@ class Researcher:
             for attempt in [proposal.attempts[-1]]
         ]
         fixed = self._ask_groups(
-            "proposer", _positions_by_group([proposal.group for proposal in refused]),
+            "proposer", number, _positions_by_group([proposal.group for proposal in refused]),
+            [proposal.slot for proposal in refused],
             lambda positions: self.prompts.render(
                 "retry", round=number, n=len(positions),
                 failures=json.dumps([{"number": i + 1, **listed[p]} for i, p in enumerate(positions)], indent=2),
@@ -328,38 +363,67 @@ class Researcher:
         )
         return [fixed[p] for p in range(len(refused))]
 
-    def _ask(self, role: str, prompt: str) -> str:
-        """Send ``prompt`` to ``role``'s backend and return the reply's text."""
+    def _ask(self, role: str, prompt: str, number: int, group: int | None = None, slots: list[int] = ()) -> str:
+        """Send ``prompt`` to ``role``'s backend and return the reply's text.
+
+        The call belongs to round ``number``, proposal ``group`` and
+        ``slots``, as its start and end in the events file say.
+        """
         backend, model = self.roles[role]
-        return backend.complete(Request(role=role, model=model, prompt=prompt)).text
+        request = Request(role=role, model=model, prompt=prompt)
+        if self.events is None:
+            return backend.complete(request).text
+        call = dict(call=self.events.next_call(), round=number, role=role, model=model, group=group, slots=list(slots))
+        self.events.write(ev.CallStart(**call))
+        started = time.monotonic()
+        try:
+            # A recording backend says which call file it wrote; any other backend writes none.
+            reply, path = backend.record(request) if hasattr(backend, "record") else (backend.complete(request), None)
+        except BaseException as exc:
+            self.events.write(ev.CallEnd(**call, seconds=time.monotonic() - started, error=f"{type(exc).__name__}: {exc}"))
+            raise
+        self.events.write(ev.CallEnd(
+            **call, file=path.name if path else None, seconds=time.monotonic() - started, **ev.reply_facts(reply),
+        ))
+        return reply.text
+
+    def _event(self, event: ev.Event) -> None:
+        if self.events is not None:
+            self.events.write(event)
 
     def _ask_groups(
-        self, role: str, positions_by_group: list[list[int]],
+        self, role: str, number: int, positions_by_group: dict[int, list[int]], slots: list[int],
         render: Callable[[list[int]], str], read: Callable[[list[int], str], list],
     ) -> dict[int, object]:
-        """Ask ``role`` one call per proposal group, all at once, and scatter the replies back to their positions.
+        """Ask ``role`` one call of round ``number`` per proposal group, all at once; scatter the replies to their positions.
 
-        ``positions_by_group`` holds each group's positions; ``render(positions)``
-        is the group's prompt and ``read(positions, text)`` one value per position from its reply.
+        ``positions_by_group`` holds each group's positions by its number and
+        ``slots`` each position's slot; ``render(positions)`` is the group's
+        prompt and ``read(positions, text)`` one value per position from its reply.
         """
-        replies = self._ask_all(role, [render(positions) for positions in positions_by_group])
+        groups = list(positions_by_group.items())
+        replies = self._ask_all(role, [
+            (render(positions), number, group, [slots[p] for p in positions]) for group, positions in groups
+        ])
         return {
             p: value
-            for positions, text in zip(positions_by_group, replies)
+            for (_, positions), text in zip(groups, replies)
             for p, value in zip(positions, read(positions, text), strict=True)
         }
 
-    def _ask_all(self, role: str, prompts: list[str]) -> list[str]:
-        """Send ``prompts`` to ``role``'s backend side by side, one thread each; return the replies' texts in order.
+    def _ask_all(self, role: str, asked: list[tuple]) -> list[str]:
+        """Make ``asked`` calls to ``role`` side by side, one thread each; return the replies' texts in order.
 
-        Every call is waited for, so each that succeeds is logged; then a
-        ``ProviderQuotaExhausted`` among the errors is raised, so the campaign
-        stops for the quota, and otherwise the first error in the order of ``prompts``.
+        Each call is ``_ask``'s arguments after the role: its prompt, round,
+        group and slots. Every call is waited for, so each that succeeds is
+        logged; then a ``ProviderQuotaExhausted`` among the errors is raised,
+        so the campaign stops for the quota, and otherwise the first error in
+        the order of ``asked``.
         """
-        if not prompts:
+        if not asked:
             return []
-        with ThreadPoolExecutor(max_workers=len(prompts)) as pool:
-            calls = [pool.submit(self._ask, role, prompt) for prompt in prompts]
+        with ThreadPoolExecutor(max_workers=len(asked)) as pool:
+            calls = [pool.submit(self._ask, role, *call) for call in asked]
         errors = [call.exception() for call in calls if call.exception() is not None]
         if errors:
             raise next((error for error in errors if isinstance(error, ProviderQuotaExhausted)), errors[0])
@@ -376,9 +440,9 @@ def _split(count: int, parts: int) -> list[list[int]]:
     return [list(range(a, b)) for a, b in zip(starts, starts[1:])]
 
 
-def _positions_by_group(group_ids: list[int]) -> list[list[int]]:
-    """The positions of ``group_ids`` gathered by proposal group: the groups in order, each one's positions in order."""
-    return [[p for p, g in enumerate(group_ids) if g == group] for group in sorted(set(group_ids))]
+def _positions_by_group(group_ids: list[int]) -> dict[int, list[int]]:
+    """The positions of ``group_ids`` by proposal group: the groups in order, each one's positions in order."""
+    return {group: [p for p, g in enumerate(group_ids) if g == group] for group in sorted(set(group_ids))}
 
 
 @dataclass(frozen=True)

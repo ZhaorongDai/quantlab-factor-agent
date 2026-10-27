@@ -1,7 +1,7 @@
-// The results page: a health line and one card per accepted factor with what decides how far to trust it;
+// The results page: one card per accepted factor with what decides how far to trust it;
 // a card opens to the factor written up. Every IC and t is in the factor's direction, the raw value on hover.
 import { useState } from 'react'
-import type { Factor, Neighbour, Run, RunSummary } from './api'
+import type { Factor, Neighbour, Run } from './api'
 
 const SORTS = {
   round: 'round',
@@ -31,17 +31,6 @@ function sortKey(f: Factor, sort: Sort): number {
   if (sort === 't') return f.partial_ic_t ?? -Infinity
   if (sort === 'limit') return -(closest(f) ?? 0)
   return f.coverage ?? -Infinity
-}
-
-function Health({ summary }: { summary: RunSummary }) {
-  const s = summary
-  return (
-    <p className="facts">
-      {s.stop ? <>Stopped: {s.stop.reason}.</> : <>Not stopped.</>}{' '}
-      {s.rounds} round{s.rounds === 1 ? '' : 's'} written, {s.trials} trial{s.trials === 1 ? '' : 's'},{' '}
-      {s.accepted} accepted.
-    </p>
-  )
 }
 
 function Deciles({ values }: { values: (number | null)[] }) {
@@ -158,7 +147,6 @@ export default function Results({ run }: { run: Run }) {
   const factors = [...run.factors].sort((a, b) => sortKey(b, sort) - sortKey(a, sort))
   return (
     <>
-      <Health summary={run.summary} />
       {!factors.length ? (
         <p className="muted">
           {run.summary.stop ? 'The run accepted no factor.' : 'No factor accepted yet.'}
@@ -173,10 +161,10 @@ export default function Results({ run }: { run: Run }) {
             ))}
           </div>
           <p className="muted small">
-            Each threshold is the one admission quoted in the round's refusals, carried over from the round before when
-            a round quotes none. The correlation limit {run.correlation_limit != null
-              ? <>({run.correlation_limit}) is the one a refusal quoted.</>
-              : <>is unknown: no refusal of this run quoted it.</>}{' '}
+            Each threshold is the partial-IC t admission required in the factor's round. The correlation limit{' '}
+            {run.correlation_limit != null
+              ? <>is {run.correlation_limit}.</>
+              : <>is unknown: the run does not record it and no refusal of it quoted it.</>}{' '}
             Hover an IC or t for its raw value.
           </p>
           <div className="factors">

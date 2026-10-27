@@ -66,6 +66,9 @@ class RecordingBackend:
 
     def complete(self, request: Request) -> Reply:
         """Pass ``request`` on and write the call once its reply is back."""
+        return self.record(request)[0]
+
+    def record(self, request: Request) -> tuple[Reply, Path]:
+        """Pass ``request`` on, write the call once its reply is back, and return the reply and the call file."""
         reply = self.backend.complete(request)
-        self.log.write(request, reply)
-        return reply
+        return reply, self.log.write(request, reply)

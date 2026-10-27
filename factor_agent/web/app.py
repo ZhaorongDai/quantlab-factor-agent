@@ -9,6 +9,8 @@ Routes:
 
 - ``GET /api/runs``: every run under the folder (``list_runs``), the latest written first;
 - ``GET /api/run?name=<name>``: one run (``RunView.read``) by its name in the list, 404 for any other name;
+- ``GET /api/run/version?name=<name>``: a text that changes whenever the run writes (``run_version``),
+  which the page polls before reading the run again;
 - ``GET /``: the page, built from ``frontend/`` into ``factor_agent/web/static``.
 
 FastAPI and uvicorn come with the ``web`` extra and are imported only when
@@ -18,7 +20,7 @@ the app is made, so the module imports without them.
 import argparse
 from pathlib import Path
 
-from factor_agent.web.run_view import RunView, list_runs
+from factor_agent.web.run_view import RunView, find_run, list_runs, run_version
 
 #: The built page: ``npm run build`` in ``frontend/`` writes it, and it is committed.
 STATIC = Path(__file__).parent / "static"
@@ -54,12 +56,20 @@ def create_app(root: str | Path):
     def runs():
         return list_runs(root)
 
+    def run_dir(name: str) -> Path:
+        # Only a listed name is read: a name never reaches the file system unchecked.
+        found = find_run(root, name)
+        if found is None:
+            raise HTTPException(404, f"no run named {name!r} under {root}")
+        return found
+
     @app.get("/api/run")
     def run(name: str):
-        # Only a listed name is read: a name never reaches the file system unchecked.
-        if name not in {summary.name for summary in list_runs(root)}:
-            raise HTTPException(404, f"no run named {name!r} under {root}")
-        return RunView.read(root if (root / "snapshot.json").is_file() else root / name, name=name)
+        return RunView.read(run_dir(name), name=name)
+
+    @app.get("/api/run/version")
+    def version(name: str):
+        return run_version(run_dir(name))
 
     app.mount("/", StaticFiles(directory=STATIC, html=True), name="page")
     return app

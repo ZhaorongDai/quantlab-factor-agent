@@ -1,0 +1,28 @@
+{
+  "phase": null,
+  "round": null,
+  "max_rounds": 1,
+  "process": "running",
+  "crashed": false,
+  "last_call": "<time>",
+  "stalled": false,
+  "calls": {},
+  "time_left": null,
+  "tokens": {
+    "input": null,
+    "output": null,
+    "cache_hits": null,
+    "reasoning": null
+  },
+  "round_tokens": [
+    {
+      "round": 1,
+      "tokens": {
+        "input": null,
+        "output": null,
+        "cache_hits": null,
+        "reasoning": null
+      }
+    }
+  ]
+}

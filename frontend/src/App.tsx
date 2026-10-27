@@ -2,6 +2,8 @@
 import { useEffect, useState } from 'react'
 import * as api from './api'
 import type { Run, RunSummary } from './api'
+import Health from './Health'
+import { useLiveRun, useTabTitle } from './live'
 import Memory from './Memory'
 import Results from './Results'
 
@@ -100,15 +102,15 @@ function RunList({ open }: { open: (name: string) => void }) {
 }
 
 function RunPage({ name }: { name: string }) {
-  const [run, setRun] = useState<Run | null>(null)
-  const [error, setError] = useState('')
+  const { run, error, clock } = useLiveRun(name)
   const [page, openPage] = usePageParam()
-  useEffect(() => { setRun(null); api.run(name).then(setRun, e => setError(String(e))) }, [name])
-  if (error) return <p className="error">{error}</p>
-  if (!run) return <p className="muted">Loading…</p>
+  useTabTitle(name, run)
+  if (!run) return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>
   return (
     <>
       <Pages page={page} open={openPage} />
+      <Health run={run} clock={clock} />
+      {error && <p className="error small">{error}</p>}
       {page === 'memory' ? <Memory versions={run.memory} /> : page === 'trials' ? <Trials run={run} /> : <Results run={run} />}
     </>
   )

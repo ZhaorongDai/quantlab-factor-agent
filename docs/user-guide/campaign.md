@@ -130,6 +130,7 @@ The reference set and the known factors are read from the config on every start.
 | `ledger.jsonl` | one line per candidate: round, candidate, status, stage, reasons, the Gate's statistics, the graph, the metrics, refused attempts |
 | `state.json` | rounds written, the stop, the memory's round, the code versions of every start |
 | `llm_log/` | every LLM call in full: prompt, parameters, reply, token usage, the raw reply |
+| `events.jsonl` | what the campaign did, one event per line as it happened (see [The events file](#the-events-file)) |
 | `memory.md`, `memory/round_NN.md` | the distilled memory and every version of it |
 | `snapshot/`, `snapshot.json` | the search files of the first start and their hashes |
 | `zoo.json` | the reference and known factors the Gate covers, and those without a graph it cannot |
@@ -140,6 +141,39 @@ A trial's `status` is `accepted`, `rejected` (by the reviewer, or by admission a
 evaluation) or `failed` (refused by the parser or the Gate after every retry, or its
 graph did not compile). Its `stage` is where it ended: `parse`, `gate`, `review`,
 `evaluate` or `admission`.
+
+## The events file
+
+The ledger and the state are written at a round's end. To show the round in progress, the
+campaign also appends to `events.jsonl` as it goes: one JSON object per line, never
+rewritten. The campaign itself never reads the file, so it takes no part in a resume, a
+replay or the run's snapshot; deleting it loses the record of the run's progress and
+changes no result. A resume that drops a round a crash left half written does not remove
+that round's events: it writes a `resume` event naming the dropped round, and the round's
+events from the new start follow it.
+
+Every line has `schema` (the format's version, now 1), `type`, `time` (UTC, ISO 8601) and
+the event's fields. A slot is a candidate's place in its round, from 0, in the order of the
+round's research directions and of the round's lines in the ledger. A value the campaign
+holds as NaN is written as `null`.
+
+| `type` | When | Fields |
+|---|---|---|
+| `start`, `resume` | the campaign opens the run directory, before its first call | `pid`, `host`, `versions` (the code versions), `rounds` (written so far), `candidates`, `max_rounds`, `max_trials`, `patience`, `t_threshold`, `max_correlation`, `min_coverage`, `min_monotonicity`; a `resume` also has `dropped`, the round it drops or `null` |
+| `plan` | the planner's directions are set | `round`, `directions` (in slot order: `mechanism_type`, `action`, `parent`, `direction`), `quota`, `issues` |
+| `call_start` | an LLM call is sent | `call` (a number unique since the latest `start` or `resume`), `round`, `role`, `model`, `group` (the proposal group, `null` for the planner and the distiller), `slots` |
+| `call_end` | an LLM call comes back or fails | the fields of its `call_start`, and `file` (the call file in `llm_log/`, `null` when the call failed), `seconds`, `input_tokens`, `output_tokens`, `cache_hits`, `reasoning`, `truncated` (cut off at the output limit), `empty`, `error` |
+| `gate` | the parser and the Gate check one version of a slot's candidate | `round`, `slot`, `step` (`proposed`, `fixed` after a refusal, or `rewritten` after the reviewer), `item` (the version), `passed`, `stage` (`parse` or `gate` when refused), `reasons`, `hints` |
+| `review` | the reviewer judges a slot's candidate | `round`, `slot`, `consistent`, `reason`, `rewrite` (whether it judged a rewrite) |
+| `evaluation` | the Evaluator starts on the round | `round`, `slots` (those the reviewer found consistent) |
+| `admission` | a slot's outcome after evaluation | `round`, `slot`, `status`, `stage` (`admission`, or `evaluate` when its graph did not compile), `reasons`, `threshold` (the partial-IC t in force), `metrics` |
+| `round_end` | the round's trials are written to the ledger and the state | `round`, `trials`, `accepted` |
+| `stop` | the run stops | `by`, `reason`, as `state.json` records them |
+
+A token count is `null` when the provider's reply does not report it: `cache_hits` are input
+tokens read from the provider's cache and `reasoning` output tokens the model spent
+reasoning. A crash writes nothing: a run whose process has gone without a `stop` crashed.
+`factor_agent.events.read` reads the file back into the event classes.
 
 ## Memory and context
 

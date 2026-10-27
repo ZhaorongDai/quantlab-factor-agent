@@ -12,16 +12,24 @@ reads them while a campaign may be writing them:
   and a ledger line a crash cut short is skipped.
 - NaN and infinite values in the ledger (a correlation with an empty pool,
   say) read as ``None``, so a view converts to strict JSON.
+- The events file (``factor_agent.events``) tells what the run is doing:
+  its phase, its calls and their tokens, its process, and the settings it
+  was opened with. A run a campaign without events wrote has none of this
+  but the calls of its round in progress, counted from its call files.
 - A resumed run keeps the stop of its previous open in its state file until
-  it stops again. A stop counts only when the state file was written after
-  the run's latest open and no LLM call ended after it: a resumed run that
-  has asked the LLM since, or has written no state since it was opened, has
-  not stopped.
-- The admission settings are not in the run directory: an accepted factor's
-  t threshold is the one its round's refusals quote (one per round, since a
-  round's candidates are judged at the same trial count), carried over from
-  the round before when the round quotes none, and the correlation limit is
-  the one a refusal quotes. Either is ``None`` while no refusal quotes it.
+  it stops again. With events, a stop counts only when a stop event follows
+  the latest start or resume. Without, it counts only when the state file
+  was written after the run's latest open and no LLM call ended after it: a
+  resumed run that has asked the LLM since, or has written no state since
+  it was opened, has not stopped.
+- A round's t threshold (one per round, since a round's candidates are
+  judged at the same trial count) is the one its admission events give.
+  Without them it is the one its refusals quote, carried over from the
+  round before when the round quotes none. The correlation limit is the
+  one the run was last opened with, or without events the one a refusal
+  quotes. Either is ``None`` while nothing gives it.
+- The process that opened the run last is looked for only on the host it
+  ran on; on another host it is unknown, never gone.
 - The memory's versions are the distiller's files ``memory/round_NN.md``,
   each written before round ``NN``, so after round ``NN - 1``. A version
   after the first is compared with the one before it line by line.
@@ -30,9 +38,14 @@ reads them while a campaign may be writing them:
 import difflib
 import json
 import re
+import socket
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import psutil
+
+from factor_agent import events
 
 
 @dataclass(frozen=True)
@@ -170,17 +183,81 @@ class RunSummary:
 
 
 @dataclass(frozen=True)
+class Health:
+    """What a run is doing now, as its events file and its process tell.
+
+    ``phase`` is ``"planning"`` (a round is written, or the run was just
+    opened, and no call of the next round has been sent), ``"asking"`` (the
+    LLM is being asked for the round in progress) or ``"evaluating"`` (the
+    Evaluator scores the round's candidates); ``None`` when the run has
+    stopped or crashed, or has no events file. ``round`` is the round in
+    progress and ``max_rounds`` the round limit, ``None`` when the run has
+    stopped or the limit is unknown. ``process`` is ``"running"`` or
+    ``"gone"`` when the campaign's process is checked on this host, and
+    ``"unknown"`` when the campaign ran on another host or the run has no
+    events file; ``crashed`` is true when the process is gone and the run
+    recorded no stop. ``last_call`` is when the latest LLM call came back
+    (UTC). ``stalled`` is true when the run looks stuck: no call was sent
+    or came back for ``STALL_ASKING`` while asking, or the evaluation has
+    lasted ``STALL_EVALUATING``. ``calls`` counts the calls of the round in
+    progress by role, since the run was last opened; a run without an
+    events file has only these counts, from its call files. ``tokens`` are
+    the tokens of every call of the run, a round a resume dropped
+    included, and ``round_tokens`` the same by round; ``None`` and empty
+    without an events file. ``time_left`` estimates the seconds until the
+    round or trial limit stops the run, from the mean length of its last
+    ``RECENT_ROUNDS`` rounds; ``None`` while no round was timed, and once
+    the run has stopped or crashed.
+    """
+
+    phase: str | None
+    round: int | None
+    max_rounds: int | None
+    process: str
+    crashed: bool
+    last_call: datetime | None
+    stalled: bool
+    calls: dict[str, int]
+    time_left: float | None
+    tokens: "Tokens | None"
+    round_tokens: tuple["RoundTokens", ...]
+
+
+@dataclass(frozen=True)
+class Tokens:
+    """Tokens of LLM calls as the providers report them; a count no reply reported is ``None``.
+
+    ``cache_hits`` are input tokens the provider read from its cache, and
+    ``reasoning`` output tokens the model spent reasoning.
+    """
+
+    input: int | None
+    output: int | None
+    cache_hits: int | None
+    reasoning: int | None
+
+
+@dataclass(frozen=True)
+class RoundTokens:
+    """The tokens of a round's calls."""
+
+    round: int
+    tokens: Tokens
+
+
+@dataclass(frozen=True)
 class RunView:
     """A read-only snapshot of one run: its summary, the trials of its written rounds, its accepted factors and its memory.
 
     ``factors`` holds the accepted factors in the order they were accepted
     (by round, then slot). ``correlation_limit`` is the largest absolute
-    correlation with an existing factor that admission allows, as the run's
-    latest refusal for it quotes it, ``None`` while no refusal quotes it: the
-    run directory does not record the campaign's admission settings.
+    correlation with an existing factor that admission allows: the one the
+    run was last opened with, or for a run without events the one its
+    latest refusal for it quotes, ``None`` while nothing gives it.
     ``memory`` holds the versions of the memory by the round after which
     they were written, the earliest first; it is empty while the distiller
-    has written none. ``now`` is the time the view describes (UTC).
+    has written none. ``health`` is what the run is doing now. ``now`` is
+    the time the view describes (UTC).
     """
 
     summary: RunSummary
@@ -188,6 +265,7 @@ class RunView:
     factors: tuple[Factor, ...]
     correlation_limit: float | None
     memory: tuple[MemoryVersion, ...]
+    health: Health
     now: datetime
 
     @classmethod
@@ -215,22 +293,43 @@ class RunView:
         run_dir = Path(run_dir)
         if not (run_dir / "snapshot.json").is_file():
             raise FileNotFoundError(f"web: {run_dir} is not a run directory: it holds no snapshot.json")
+        now = now or datetime.now(timezone.utc)
         state = _json(run_dir / "state.json") or {}
         rounds = state.get("rounds", 0)
         trials = tuple(_trials(run_dir / "ledger.jsonl", rounds))
         versions = (_json(run_dir / "snapshot.json") or {}).get("versions") or [{}]
+        replayed = _Events(events.read(run_dir / events.FILE))
         summary = RunSummary(
             name=name or run_dir.name,
             code_version=versions[-1].get("factor_agent") or "unknown",
             rounds=rounds,
             trials=len(trials),
             accepted=sum(t.status == "accepted" for t in trials),
-            stop=_stop(run_dir, state, versions[-1].get("opened_at")),
+            stop=_stop(run_dir, state, versions[-1].get("opened_at"), replayed),
             updated=_time(max(p.stat().st_mtime for p in _written(run_dir))),
         )
-        return cls(summary=summary, trials=trials, factors=_factors(trials), correlation_limit=_correlation_limit(trials),
-                   memory=_memory(run_dir / "memory"),
-                   now=now or datetime.now(timezone.utc))
+        return cls(summary=summary, trials=trials, factors=_factors(trials, replayed),
+                   correlation_limit=_correlation_limit(trials, replayed),
+                   memory=_memory(run_dir / "memory"), health=_health(run_dir, state, summary, replayed, now),
+                   now=now)
+
+
+def run_version(run_dir: str | Path) -> str:
+    """A text that changes whenever the run in ``run_dir`` writes, cheap to read: a page polls it before reading the run.
+
+    It is made of the modification times and sizes of the files a campaign
+    writes while it runs, and the number of its call files.
+    """
+    run_dir = Path(run_dir)
+    parts = []
+    for name in ("snapshot.json", "state.json", "ledger.jsonl", events.FILE, "llm_log", "memory"):
+        try:
+            stat = (run_dir / name).stat()
+        except FileNotFoundError:
+            parts.append("-")
+            continue
+        parts.append(f"{stat.st_mtime_ns}:{stat.st_size}")
+    return " ".join(parts)
 
 
 def list_runs(root: str | Path) -> list[RunSummary]:
@@ -247,9 +346,19 @@ def list_runs(root: str | Path) -> list[RunSummary]:
         One per run directory, named by its path relative to ``root``.
     """
     root = Path(root)
-    found = sorted({p.parent for p in root.rglob("snapshot.json") if p.is_file()})
-    summaries = [RunView.read(d, name=d.relative_to(root).as_posix() if d != root else root.name).summary for d in found]
+    summaries = [RunView.read(d, name=name).summary for name, d in _run_dirs(root).items()]
     return sorted(summaries, key=lambda s: s.updated, reverse=True)
+
+
+def find_run(root: str | Path, name: str) -> Path | None:
+    """The run directory ``list_runs(root)`` names ``name``, ``None`` when it names none so."""
+    return _run_dirs(Path(root)).get(name)
+
+
+def _run_dirs(root: Path) -> dict[str, Path]:
+    """The run directories under ``root`` by their names."""
+    found = sorted({p.parent for p in root.rglob("snapshot.json") if p.is_file()})
+    return {d.relative_to(root).as_posix() if d != root else root.name: d for d in found}
 
 
 def _loads(text: str):
@@ -295,19 +404,28 @@ _THRESHOLD = re.compile(r"is below the threshold ([\d.]+) at \d+ evaluated trial
 _LIMIT = re.compile(r"^cross-sectional correlation .* is above ([\d.]+) in absolute value$", re.DOTALL)
 
 
-def _correlation_limit(trials: tuple[Trial, ...]) -> float | None:
-    """The correlation limit the latest refusal quoting it gives, ``None`` when none does."""
+def _correlation_limit(trials: tuple[Trial, ...], replayed: "_Events") -> float | None:
+    """The correlation limit the run was last opened with, else the latest refusal quoting it, else ``None``."""
+    if replayed.opened is not None:
+        return replayed.opened.max_correlation
     quoted = [found.group(1) for trial in trials for reason in trial.reasons if (found := _LIMIT.match(reason))]
     return float(quoted[-1]) if quoted else None
 
 
-def _thresholds(trials: tuple[Trial, ...]) -> dict[int, float | None]:
-    """Each round's threshold as its refusals quote it, the previous round's when it quotes none."""
+def _thresholds(trials: tuple[Trial, ...], replayed: "_Events") -> dict[int, float | None]:
+    """Each round's threshold as its admission events give it, else as its refusals quote it, else the previous round's.
+
+    The admission events of a round a resume dropped come before those of
+    the round run again under the same number, so the later ones count.
+    """
     quoted = {}
     for trial in trials:
         for reason in trial.reasons:
             if found := _THRESHOLD.search(reason):
                 quoted[trial.round] = float(found.group(1))
+    for event in replayed.all:
+        if isinstance(event, events.AdmissionOutcome) and event.threshold is not None:
+            quoted[event.round] = event.threshold
     thresholds, last = {}, None
     for number in sorted({trial.round for trial in trials}):
         thresholds[number] = last = quoted.get(number, last)
@@ -358,8 +476,8 @@ def _monotonicity(deciles: tuple[float | None, ...], sign: int) -> float | None:
     return sign * sum((r - mean) * (i + 1 - mean) for i, r in enumerate(ranks)) / spread ** 0.5
 
 
-def _factors(trials: tuple[Trial, ...]) -> tuple[Factor, ...]:
-    thresholds = _thresholds(trials)
+def _factors(trials: tuple[Trial, ...], replayed: "_Events") -> tuple[Factor, ...]:
+    thresholds = _thresholds(trials, replayed)
     factors = []
     for trial in trials:
         if trial.status != "accepted":
@@ -413,14 +531,131 @@ def _calls(run_dir: Path) -> list[Path]:
 
 def _written(run_dir: Path) -> list[Path]:
     """The run's files that change while it runs."""
-    files = [run_dir / name for name in ("snapshot.json", "state.json", "ledger.jsonl")]
+    files = [run_dir / name for name in ("snapshot.json", "state.json", "ledger.jsonl", events.FILE)]
     return [p for p in files if p.exists()] + _calls(run_dir)
 
 
-def _stop(run_dir: Path, state: dict, opened_at: str | None) -> Stop | None:
+class _Events:
+    """A run's events, and those since its latest opening (``current``), the opening first."""
+
+    def __init__(self, replayed: list[events.Event]):
+        self.all = replayed
+        openings = [i for i, event in enumerate(replayed) if isinstance(event, events.Start)]
+        self.current = replayed[openings[-1]:] if openings else []
+        self.opened: events.Start | None = self.current[0] if self.current else None
+
+
+#: The events of each phase of a round: the first a phase starts with, the later ones it goes on with.
+_PHASES = {
+    events.Start: "planning", events.Resume: "planning", events.RoundEnd: "planning",
+    events.CallStart: "asking", events.CallEnd: "asking", events.Plan: "asking", events.GateOutcome: "asking",
+    events.ReviewVerdict: "asking",
+    events.EvaluationStart: "evaluating", events.AdmissionOutcome: "evaluating",
+}
+
+
+#: How long a run asking the LLM may go without a call sent or back before it looks stuck.
+STALL_ASKING = timedelta(minutes=15)
+
+#: How long an evaluation may last before the run looks stuck.
+STALL_EVALUATING = timedelta(minutes=30)
+
+
+def _health(run_dir: Path, state: dict, summary: RunSummary, replayed: _Events, now: datetime) -> Health:
+    opened = replayed.opened
+    process = _process(opened)
+    crashed = summary.stop is None and process == "gone"
+    phase = None
+    if opened is not None and summary.stop is None and not crashed:
+        phase = _PHASES.get(type(replayed.current[-1]))
+    running = None if summary.stop else summary.rounds + 1
+    ends = [e for e in replayed.all if isinstance(e, events.CallEnd) and e.error is None]
+    if opened is None:
+        files = sorted(_calls(run_dir))
+        last_call = _time(max(p.stat().st_mtime for p in files)) if files else None
+        roles = [] if running is None else [p.stem.partition("-")[2] for p in files[state.get("calls", 0):]]
+    else:
+        last_call = ends[-1].time if ends else None
+        roles = [e.role for e in replayed.current if isinstance(e, events.CallEnd) and e.file and e.round == running]
+    by_round = {}
+    for end in ends:
+        by_round.setdefault(end.round, []).append(end)
+    return Health(
+        phase=phase, round=running, max_rounds=opened.max_rounds if opened else None, process=process,
+        crashed=crashed, last_call=last_call, stalled=_stalled(phase, replayed, now),
+        calls={role: roles.count(role) for role in dict.fromkeys(roles)},
+        time_left=None if running is None or crashed else _time_left(summary, replayed, now),
+        tokens=_tokens(ends) if opened else None,
+        round_tokens=tuple(RoundTokens(number, _tokens(calls)) for number, calls in sorted(by_round.items())),
+    )
+
+
+#: How many of the latest timed rounds the time left is estimated from.
+RECENT_ROUNDS = 3
+
+
+def _time_left(summary: RunSummary, replayed: _Events, now: datetime) -> float | None:
+    """The seconds the rounds the limits still allow would take at the recent rounds' pace, the round begun included.
+
+    A round is timed from the end of the round before, or the opening of
+    the run when it was the first after it, to its own end.
+    """
+    opened = replayed.opened
+    if opened is None:
+        return None
+    lengths, since = [], None
+    for event in replayed.all:
+        if isinstance(event, (events.Start, events.RoundEnd)):
+            if isinstance(event, events.RoundEnd) and since is not None:
+                lengths.append((event.time - since).total_seconds())
+            since = event.time
+    if not lengths:
+        return None
+    rounds = min(opened.max_rounds - summary.rounds, (opened.max_trials - summary.trials) // max(opened.candidates, 1))
+    pace = sum(lengths[-RECENT_ROUNDS:]) / len(lengths[-RECENT_ROUNDS:])
+    return max(0.0, pace * rounds - (now - since).total_seconds())
+
+
+def _tokens(ends: list[events.CallEnd]) -> Tokens:
+    """The tokens of the calls that ``ends`` end, each count ``None`` when no call reported it."""
+    def total(key):
+        counts = [getattr(end, key) for end in ends if getattr(end, key) is not None]
+        return sum(counts) if counts else None
+    return Tokens(total("input_tokens"), total("output_tokens"), total("cache_hits"), total("reasoning"))
+
+
+def _stalled(phase: str | None, replayed: _Events, now: datetime) -> bool:
+    if phase == "asking":
+        calls = [e.time for e in replayed.current if isinstance(e, (events.CallStart, events.Start))]
+        return now - calls[-1] > STALL_ASKING
+    if phase == "evaluating":
+        started = [e.time for e in replayed.current if isinstance(e, events.EvaluationStart)]
+        return now - started[-1] > STALL_EVALUATING
+    return False
+
+
+def _process(opened: "events.Start | None") -> str:
+    """Whether the process that opened the run last still runs, when it ran on this host."""
+    if opened is None or opened.host != socket.gethostname():
+        return "unknown"
+    try:
+        started = psutil.Process(opened.pid).create_time()
+    except psutil.NoSuchProcess:
+        return "gone"
+    except psutil.Error:
+        return "unknown"
+    # A process started after the run was opened has only been given the same id.
+    return "running" if started <= opened.time.timestamp() + 1 else "gone"
+
+
+def _stop(run_dir: Path, state: dict, opened_at: str | None, replayed: _Events) -> Stop | None:
     """The state's stop, unless it was recorded before the latest open (see the module's notes)."""
     if not state.get("stop"):
         return None
+    if replayed.opened is not None:
+        if not any(isinstance(event, events.Stopped) for event in replayed.current):
+            return None
+        return Stop(by=state["stop"]["by"], reason=state["stop"]["reason"])
     written = (run_dir / "state.json").stat().st_mtime_ns
     if opened_at and written < datetime.fromisoformat(opened_at).timestamp() * 1e9:
         return None

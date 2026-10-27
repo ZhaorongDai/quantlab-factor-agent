@@ -17,6 +17,7 @@ import shutil
 import pytest
 
 from factor_agent import _admission
+from factor_agent.config import AdmissionConfig
 from factor_agent.web.run_view import RunView
 from quantlab.core.component import rebuild
 from quantlab.factor.config import FactorConfig
@@ -88,11 +89,27 @@ def test_every_ic_and_t_is_given_in_the_factors_direction_with_the_raw_value_kep
     assert quiet.metrics["partial_ic_t"] == raw["partial_ic_t"]
 
 
-def test_a_rounds_threshold_is_the_one_its_refusals_quote_carried_over_to_a_round_that_quotes_none(runs):
-    noise = _ledger(runs)["noise"]["reasons"][0]
-    assert "is below the threshold 3.51 at 3 evaluated trial(s)" in noise
+def test_a_rounds_threshold_is_the_one_admission_judged_it_by(runs):
+    # Round 2 evaluates two candidates after round 1's three, and no refusal of it quotes its threshold.
     assert not any("threshold" in r for e in _ledger(runs).values() if e["round"] == 2 for r in e["reasons"])
     factors = _factors(runs)
+    assert factors[QUIET_VOLUME].threshold == pytest.approx(3.51, abs=0.005)
+    assert factors["planted"].threshold == pytest.approx(_admission.t_threshold(AdmissionConfig(), 5))
+
+
+def _without_events(runs, tmp_path) -> RunView:
+    """The run as a campaign without an events file leaves it."""
+    shutil.copytree(runs / "two_rounds" / "run", tmp_path / "run")
+    (tmp_path / "run" / "events.jsonl").unlink()
+    return RunView.read(tmp_path / "run")
+
+
+def test_without_events_a_rounds_threshold_is_the_one_its_refusals_quote_carried_over_to_a_round_that_quotes_none(
+    runs, tmp_path,
+):
+    noise = _ledger(runs)["noise"]["reasons"][0]
+    assert "is below the threshold 3.51 at 3 evaluated trial(s)" in noise
+    factors = {f.description: f for f in _without_events(runs, tmp_path).factors}
     assert factors[QUIET_VOLUME].threshold == 3.51
     assert factors["planted"].threshold == 3.51
 
@@ -124,10 +141,18 @@ def _first_rounds(runs, tmp_path, rounds: int) -> RunView:
     return RunView.read(tmp_path / "run")
 
 
-def test_the_correlation_limit_is_the_one_admission_quoted_and_unknown_while_no_refusal_quotes_it(runs, tmp_path):
-    assert "is above 0.7 in absolute value" in _ledger(runs)["dollar volume surge"]["reasons"][0]
-    assert RunView.read(runs / "two_rounds" / "run").correlation_limit == 0.7
+def test_the_correlation_limit_is_the_one_the_campaign_was_opened_with_before_any_refusal_quotes_it(runs, tmp_path):
     first = _first_rounds(runs, tmp_path, 1)
+    assert not any("absolute value" in r for t in first.trials for r in t.reasons)
+    assert first.correlation_limit == 0.7
+
+
+def test_without_events_the_correlation_limit_is_the_one_a_refusal_quoted_and_unknown_while_none_does(runs, tmp_path):
+    assert "is above 0.7 in absolute value" in _ledger(runs)["dollar volume surge"]["reasons"][0]
+    assert _without_events(runs, tmp_path / "all").correlation_limit == 0.7
+    first = _first_rounds(runs, tmp_path / "first", 1)
+    (tmp_path / "first" / "run" / "events.jsonl").unlink()
+    first = RunView.read(tmp_path / "first" / "run")
     assert first.correlation_limit is None
     assert [f.threshold for f in first.factors] == [3.51]
 

@@ -12,8 +12,13 @@ Reading runs
    :nosignatures:
 
    factor_agent.web.run_view.list_runs
+   factor_agent.web.run_view.find_run
+   factor_agent.web.run_view.run_version
    factor_agent.web.run_view.RunView
    factor_agent.web.run_view.RunSummary
+   factor_agent.web.run_view.Health
+   factor_agent.web.run_view.Tokens
+   factor_agent.web.run_view.RoundTokens
    factor_agent.web.run_view.Trial
    factor_agent.web.run_view.Factor
    factor_agent.web.run_view.Neighbour

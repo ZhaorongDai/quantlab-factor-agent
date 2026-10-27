@@ -13,7 +13,7 @@
       "ic_t": "<number>",
       "partial_ic_mean": "<number>",
       "partial_ic_t": "<number>",
-      "threshold": null,
+      "threshold": "<number>",
       "monotonicity": "<number>",
       "nearest": null,
       "nearest_known": {
@@ -63,5 +63,5 @@
       }
     }
   ],
-  "correlation_limit": null
+  "correlation_limit": "<number>"
 }

@@ -53,12 +53,29 @@ export type Factor = {
   metrics: Record<string, unknown>
 }
 
+export type Tokens = { input: number | null; output: number | null; cache_hits: number | null; reasoning: number | null }
+
+export type Health = {
+  phase: 'planning' | 'asking' | 'evaluating' | null
+  round: number | null
+  max_rounds: number | null
+  process: 'running' | 'gone' | 'unknown'
+  crashed: boolean
+  last_call: string | null
+  stalled: boolean
+  calls: Record<string, number>
+  time_left: number | null
+  tokens: Tokens | null
+  round_tokens: { round: number; tokens: Tokens }[]
+}
+
 export type Run = {
   summary: RunSummary
   trials: Trial[]
   factors: Factor[]
   correlation_limit: number | null
   memory: MemoryVersion[]
+  health: Health
   now: string
 }
 
@@ -70,3 +87,4 @@ async function get<T>(url: string): Promise<T> {
 
 export const runs = () => get<RunSummary[]>('/api/runs')
 export const run = (name: string) => get<Run>(`/api/run?name=${encodeURIComponent(name)}`)
+export const version = (name: string) => get<string>(`/api/run/version?name=${encodeURIComponent(name)}`)

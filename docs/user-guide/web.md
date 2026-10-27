@@ -45,10 +45,33 @@ including one whose first round has not been written yet:
 A round counts once the campaign has written it at the round's end; the round in progress
 is not counted yet. Click a run to open it: a run opens on its results.
 
+## The health line
+
+Every page of a run starts with its health line, read from the run's events file (see
+{doc}`campaign`, "The events file"):
+
+| It says | Meaning |
+|---------|---------|
+| Stopped | the run stopped, with the campaign's reason |
+| Round N of M: planning the next round, asking the LLM, evaluating | what the running campaign is doing in its round in progress, against the round limit |
+| Last LLM call back … ago | how long ago the latest call to the LLM came back |
+| About … left | the time the rounds the round and trial limits still allow would take, at the pace of the last three rounds |
+| Tokens | the tokens of every call so far, as the providers report them: input (of which read from the provider's cache) and output (of which spent reasoning); "Tokens by round" opens them round by round. No prices: spending limits belong to your provider |
+| Crashed | the campaign's process has exited without recording a stop; running the campaign again resumes it |
+| may be stuck | no LLM call was sent or came back for 15 minutes while asking the LLM, or the evaluation has lasted 30 minutes |
+
+The campaign's process is looked for only on the machine the campaign runs on: when the
+frontend runs on another machine, the process is reported as unknown, never as gone. A
+run written by a campaign of an older version has no events file: its line says only which
+LLM roles have answered how many times in the round in progress.
+
+The page reads the run again by itself whenever the run writes, checking every 5 seconds,
+so it can stay open while the campaign runs. The browser tab's title counts the factors
+accepted since the page was opened and says when the run has stopped.
+
 ## The results page
 
-A line at the top says whether the run has stopped, with the campaign's reason, and how
-many rounds, trials and accepted factors it has. Below it is one card per accepted factor,
+Below the health line is one card per accepted factor,
 with what decides how far to trust it (see {doc}`evaluation` for each statistic):
 
 | On the card | Meaning |
@@ -66,11 +89,13 @@ Every IC and t is given in the factor's direction; hover one for the raw value t
 records. A factor accepted earlier in the run is named by its round and the first words of
 its description; hover the name for the whole label.
 
-The run directory does not record the admission settings, so the page takes them from the
-refusals that quote them: a round's threshold is the one its refusals below the threshold
-quote, carried over from the round before when the round has none (a round's candidates
-are all judged at the same threshold), and the correlation limit is the one a refusal for
-correlation quotes. Until a refusal quotes them, the page says they are unknown.
+A round's threshold is the one admission judged the round's candidates by (they are all
+judged at the same one), and the correlation limit the one the campaign was last started
+with, both from the events file. A run without an events file does not record them, so the
+page takes them from the refusals that quote them: a round's threshold is the one its
+refusals below the threshold quote, carried over from the round before when the round has
+none, and the correlation limit is the one a refusal for correlation quotes. Until a
+refusal quotes them, the page says they are unknown.
 
 The cards sort by round, by partial-IC t, by distance from the correlation limit or by
 coverage. Click a factor's description to open it written up: its hypothesis, description
