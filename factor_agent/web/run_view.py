@@ -17,9 +17,14 @@ reads them while a campaign may be writing them:
   the run's latest open and no LLM call ended after it: a resumed run that
   has asked the LLM since, or has written no state since it was opened, has
   not stopped.
+- The memory's versions are the distiller's files ``memory/round_NN.md``,
+  each written before round ``NN``, so after round ``NN - 1``. A version
+  after the first is compared with the one before it line by line.
 """
 
+import difflib
 import json
+import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -57,6 +62,32 @@ class Trial:
 
 
 @dataclass(frozen=True)
+class MemoryLine:
+    """One line of a memory version compared with the version before it.
+
+    ``change`` is ``"kept"``, ``"added"`` (not in the version before) or
+    ``"removed"`` (in the version before, not in this one).
+    """
+
+    change: str
+    line: str
+
+
+@dataclass(frozen=True)
+class MemoryVersion:
+    """One version of the memory the distiller wrote.
+
+    ``round`` is the round after which it was written. ``changes`` holds the
+    lines of this version and of the one before, in order, each marked kept,
+    added or removed; it is ``None`` for the run's first version.
+    """
+
+    round: int
+    text: str
+    changes: tuple[MemoryLine, ...] | None
+
+
+@dataclass(frozen=True)
 class RunSummary:
     """What the run list shows of a run.
 
@@ -80,13 +111,16 @@ class RunSummary:
 
 @dataclass(frozen=True)
 class RunView:
-    """A read-only snapshot of one run: its summary and the trials of its written rounds.
+    """A read-only snapshot of one run: its summary, the trials of its written rounds and its memory.
 
-    ``now`` is the time the view describes (UTC).
+    ``memory`` holds the versions of the memory by the round after which
+    they were written, the earliest first; it is empty while the distiller
+    has written none. ``now`` is the time the view describes (UTC).
     """
 
     summary: RunSummary
     trials: tuple[Trial, ...]
+    memory: tuple[MemoryVersion, ...]
     now: datetime
 
     @classmethod
@@ -127,7 +161,8 @@ class RunView:
             stop=_stop(run_dir, state, versions[-1].get("opened_at")),
             updated=_time(max(p.stat().st_mtime for p in _written(run_dir))),
         )
-        return cls(summary=summary, trials=trials, now=now or datetime.now(timezone.utc))
+        return cls(summary=summary, trials=trials, memory=_memory(run_dir / "memory"),
+                   now=now or datetime.now(timezone.utc))
 
 
 def list_runs(root: str | Path) -> list[RunSummary]:
@@ -182,6 +217,31 @@ def _trials(ledger: Path, rounds: int) -> list[Trial]:
             attempts=tuple(record.get("attempts") or ()), stats=record.get("stats"), metrics=record.get("metrics"),
         ))
     return trials
+
+
+def _memory(folder: Path) -> tuple[MemoryVersion, ...]:
+    """The memory's versions, the earliest first, each but the first compared with the one before."""
+    files = {}
+    for path in folder.glob("round_*.md"):
+        if match := re.fullmatch(r"round_(\d+)\.md", path.name):
+            files[int(match[1]) - 1] = path.read_text().rstrip("\n")
+    versions, before = [], None
+    for number, text in sorted(files.items()):
+        versions.append(MemoryVersion(round=number, text=text, changes=None if before is None else _changes(before, text)))
+        before = text
+    return tuple(versions)
+
+
+def _changes(before: str, after: str) -> tuple[MemoryLine, ...]:
+    old, new = before.splitlines(), after.splitlines()
+    lines = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(a=old, b=new, autojunk=False).get_opcodes():
+        if tag == "equal":
+            lines += [MemoryLine("kept", line) for line in new[j1:j2]]
+            continue
+        lines += [MemoryLine("removed", line) for line in old[i1:i2]]
+        lines += [MemoryLine("added", line) for line in new[j1:j2]]
+    return tuple(lines)
 
 
 def _calls(run_dir: Path) -> list[Path]:

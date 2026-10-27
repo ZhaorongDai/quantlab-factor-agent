@@ -60,6 +60,10 @@ def test_a_run_is_read_by_its_name_and_an_unknown_name_is_not_found(client):
     assert client.get("/api/run", params={"name": "../.."}).status_code == 404
 
 
+def test_a_run_whose_distiller_has_written_nothing_answers_with_no_memory_versions(client):
+    assert client.get("/api/run", params={"name": "example/run"}).json()["memory"] == []
+
+
 def test_the_page_is_served_at_the_root(client):
     response = client.get("/")
     assert response.status_code == 200 and '<div id="root">' in response.text

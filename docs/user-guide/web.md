@@ -45,6 +45,18 @@ including one whose first round has not been written yet:
 A round counts once the campaign has written it at the round's end; the round in progress
 is not counted yet. Click a run to open it.
 
+## The memory page
+
+Every `round.memory_every` rounds the distiller folds the trials since its last version
+into the memory that every later prompt carries (see {doc}`campaign`). The memory page
+lists every version it wrote in the run, named by the round after which it was written,
+the latest first and open. From the second version on, a version shows its lines beside
+those of the version before: added lines are highlighted, removed ones struck through,
+and "Text alone" shows the version as the prompts carry it. A version the distiller left
+as it was says it is unchanged. A run whose distiller has not written a version yet says
+so; an empty or unreadable distiller reply writes no version, and the memory before it is
+kept.
+
 ## On a server
 
 When the campaign runs on a server, start the frontend there and forward its port to your

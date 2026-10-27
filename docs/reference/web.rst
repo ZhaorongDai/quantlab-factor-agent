@@ -16,6 +16,8 @@ Reading runs
    factor_agent.web.run_view.RunSummary
    factor_agent.web.run_view.Trial
    factor_agent.web.run_view.Stop
+   factor_agent.web.run_view.MemoryVersion
+   factor_agent.web.run_view.MemoryLine
 
 Serving
 -------

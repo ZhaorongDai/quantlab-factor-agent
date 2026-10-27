@@ -25,7 +25,11 @@ export type Trial = {
   metrics: Record<string, unknown> | null
 }
 
-export type Run = { summary: RunSummary; trials: Trial[]; now: string }
+export type MemoryLine = { change: 'kept' | 'added' | 'removed'; line: string }
+
+export type MemoryVersion = { round: number; text: string; changes: MemoryLine[] | null }
+
+export type Run = { summary: RunSummary; trials: Trial[]; memory: MemoryVersion[]; now: string }
 
 async function get<T>(url: string): Promise<T> {
   const response = await fetch(url)
