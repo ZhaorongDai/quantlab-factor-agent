@@ -12,6 +12,15 @@ export type RunSummary = {
   updated: string
 }
 
+// A trial's refusal for being too like an existing factor (code: the Gate; ranking: admission).
+export type Collision = {
+  label: string
+  name: string
+  kind: 'code' | 'ranking'
+  accepted_round: number | null
+  known: boolean
+}
+
 export type Trial = {
   round: number
   slot: number
@@ -23,6 +32,7 @@ export type Trial = {
   attempts: Record<string, unknown>[]
   stats: Record<string, number> | null
   metrics: Record<string, unknown> | null
+  collisions: Collision[]
 }
 
 export type MemoryLine = { change: 'kept' | 'added' | 'removed'; line: string }
@@ -69,15 +79,80 @@ export type Health = {
   round_tokens: { round: number; tokens: Tokens }[]
 }
 
+// One finding of a run's diagnosis: what was seen and what to do.
+export type Finding = { rule: string; trials: number; seen: string; do: string }
+
 export type Run = {
   summary: RunSummary
   trials: Trial[]
   factors: Factor[]
   correlation_limit: number | null
+  evaluated: Placed[]
+  threshold: number | null
+  never_evaluated: Refusal[]
   memory: MemoryVersion[]
+  acceptance: AcceptanceReports
+  diagnosis: Finding[]
   health: Health
   now: string
 }
+
+// Acceptance's reports: the model with and without the accepted factors, on validation and the hold-out.
+export type Stat = 'rank_ic' | 'ic' | 'monotonicity' | 'long_short' | 'top_k_return' | 'top_k_excess' | 'top_k_annualised'
+
+export type Contribution = {
+  factor: string
+  mode: 'drop_one' | 'add_one'
+  difference: Partial<Record<Stat, number | null>>
+  agreeing: Partial<Record<Stat, number>>
+}
+
+export type Comparison = {
+  name: string
+  segment: string
+  holdout: boolean
+  factors: string[]
+  selection: boolean | null
+  seeds: number[]
+  top_k: number | null
+  train_window: string[]
+  test_window: string[]
+  baseline: Partial<Record<Stat, number | null>>
+  with_accepted: Partial<Record<Stat, number | null>>
+  difference: Partial<Record<Stat, number | null>>
+  verdict: 'improves' | 'mixed' | 'does_not_improve' | null
+  forced: boolean
+  contribution: Contribution[] | null
+  code_version: string
+  written: string
+}
+
+export type HoldoutOpen = { opened_at: string; code_version: string; forced: boolean }
+
+export type AcceptanceReports = {
+  validation: Comparison | null
+  holdout: Comparison | null
+  reports: Comparison[]
+  holdout_opens: HoldoutOpen[]
+}
+// An evaluated trial as the trials page's admission map places it, its statistics in its direction.
+export type Placed = {
+  round: number
+  slot: number
+  status: 'accepted' | 'rejected'
+  factor_direction: 1 | -1
+  ic_mean: number | null
+  ic_t: number | null
+  partial_ic_mean: number | null
+  partial_ic_t: number | null
+  largest_correlation: number | null
+  threshold: number | null
+}
+
+export type TrialRef = { round: number; slot: number }
+
+// Trials one stage refused for the same reason before the Evaluator scored them.
+export type Refusal = { stage: string; reason: string; rounds: number[]; trials: TrialRef[] }
 
 async function get<T>(url: string): Promise<T> {
   const response = await fetch(url)

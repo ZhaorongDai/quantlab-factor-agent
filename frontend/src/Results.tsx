@@ -1,9 +1,12 @@
-// The results page: one card per accepted factor with what decides how far to trust it;
+// The results page: Acceptance's verdict, the diagnosis and one card per accepted factor with what decides how far to trust it;
 // a card opens to the factor written up. Every IC and t is in the factor's direction, the raw value on hover.
 import { useState } from 'react'
 import type { Factor, Neighbour, Run } from './api'
+import Verdict, { ContributionLines, dropOne } from './Verdict'
+import Diagnosis from './Diagnosis'
 
 const SORTS = {
+  contribution: 'drop-one contribution',
   round: 'round',
   t: 'partial-IC t',
   limit: 'distance from the correlation limit',
@@ -25,8 +28,9 @@ function closest(f: Factor): number | null {
   return values.length ? Math.max(...values.map(Math.abs)) : null
 }
 
-function sortKey(f: Factor, sort: Sort): number {
+function sortKey(run: Run, f: Factor, sort: Sort): number {
   // Larger first, except the round (earliest first).
+  if (sort === 'contribution') return dropOne(run, f.label) ?? -Infinity
   if (sort === 'round') return -(f.round * 1000 + f.slot)
   if (sort === 't') return f.partial_ic_t ?? -Infinity
   if (sort === 'limit') return -(closest(f) ?? 0)
@@ -71,12 +75,12 @@ function Margin({ f }: { f: Factor }) {
       <span>partial-IC t <b>{fmt(t)}</b></span>
       <div className="bar"><i style={{ width: `${(Math.max(t, 0) / scale) * 100}%` }} />
         {f.threshold != null && <em style={{ left: `${(f.threshold / scale) * 100}%` }} />}</div>
-      <small>{f.threshold != null ? `${fmt(t - f.threshold)} over ${fmt(f.threshold)}` : 'threshold not quoted'}</small>
+      <small>{f.threshold != null ? `${fmt(t - f.threshold)} over ${fmt(f.threshold)}` : 'threshold unknown'}</small>
     </div>
   )
 }
 
-function Card({ f, limit, open, toggle }: { f: Factor; limit: number | null; open: boolean; toggle: () => void }) {
+function Card({ run, f, limit, open, toggle }: { run: Run; f: Factor; limit: number | null; open: boolean; toggle: () => void }) {
   const rho = closest(f)
   return (
     <article className={`factor${open ? ' open' : ''}`}>
@@ -98,6 +102,7 @@ function Card({ f, limit, open, toggle }: { f: Factor; limit: number | null; ope
         {limit != null && rho != null && <><dt>ρ limit</dt><dd>{fmt(limit - rho)} below {limit}</dd></>}
         <dt>coverage</dt><dd>{percent(f.coverage)}</dd>
       </dl>
+      <ContributionLines run={run} label={f.label} />
       {open && <WriteUp f={f} limit={limit} />}
     </article>
   )
@@ -129,8 +134,8 @@ function WriteUp({ f, limit }: { f: Factor; limit: number | null }) {
         its partial IC, after the reference set and the factors accepted before it, is <span title={raw(f, 'partial_ic_mean')}>{fmt(f.partial_ic_mean, 4)}</span>{' '}
         with a Newey-West t of <span title={raw(f, 'partial_ic_t')}>{fmt(f.partial_ic_t)}</span>
         {f.threshold != null && f.partial_ic_t != null
-          ? <>, {fmt(f.partial_ic_t - f.threshold)} over the threshold of {fmt(f.threshold)} it had to clear (as the round's refusals quote it). </>
-          : <>; no refusal of its round or an earlier one quotes the threshold it had to clear. </>}
+          ? <>, {fmt(f.partial_ic_t - f.threshold)} over the threshold of {fmt(f.threshold)} it had to clear. </>
+          : <>; the threshold it had to clear is unknown. </>}
         Its decile returns rise with the decile, in its direction, with a monotonicity of {fmt(f.monotonicity)} (1 is a steady rise).{' '}
         <Correlation n={f.nearest} known={false} />
         <Correlation n={f.nearest_known} known />
@@ -142,11 +147,17 @@ function WriteUp({ f, limit }: { f: Factor; limit: number | null }) {
 }
 
 export default function Results({ run }: { run: Run }) {
-  const [sort, setSort] = useState<Sort>('round')
+  // The cards rank by their drop-one contribution when Acceptance measured it.
+  const ranked = run.factors.some(f => dropOne(run, f.label) != null)
+  const [chosen, setSort] = useState<Sort | null>(null)
+  const sort = chosen ?? (ranked ? 'contribution' : 'round')
+  const sorts = (Object.keys(SORTS) as Sort[]).filter(s => s !== 'contribution' || ranked)
   const [open, setOpen] = useState<string | null>(null)
-  const factors = [...run.factors].sort((a, b) => sortKey(b, sort) - sortKey(a, sort))
+  const factors = [...run.factors].sort((a, b) => sortKey(run, b, sort) - sortKey(run, a, sort))
   return (
     <>
+      <Verdict run={run} />
+      <Diagnosis run={run} />
       {!factors.length ? (
         <p className="muted">
           {run.summary.stop ? 'The run accepted no factor.' : 'No factor accepted yet.'}
@@ -156,7 +167,7 @@ export default function Results({ run }: { run: Run }) {
           <div className="sorts">
             <h2>{factors.length} accepted factor{factors.length === 1 ? '' : 's'}</h2>
             <span className="muted">sort by</span>
-            {(Object.keys(SORTS) as Sort[]).map(s => (
+            {sorts.map(s => (
               <button key={s} className={sort === s ? 'on' : ''} onClick={() => setSort(s)}>{SORTS[s]}</button>
             ))}
           </div>
@@ -169,7 +180,7 @@ export default function Results({ run }: { run: Run }) {
           </p>
           <div className="factors">
             {factors.map(f => (
-              <Card key={f.label} f={f} limit={run.correlation_limit} open={open === f.label}
+              <Card key={f.label} run={run} f={f} limit={run.correlation_limit} open={open === f.label}
                     toggle={() => setOpen(open === f.label ? null : f.label)} />
             ))}
           </div>

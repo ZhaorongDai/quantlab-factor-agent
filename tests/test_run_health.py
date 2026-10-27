@@ -20,6 +20,8 @@ from pathlib import Path
 
 import pytest
 
+from factor_agent import _admission
+from factor_agent.config import AdmissionConfig
 from factor_agent.llm.base import Reply
 from factor_agent.web.run_view import RoundTokens, RunView, Tokens
 from tests import synthetic_market
@@ -147,6 +149,14 @@ def test_a_run_resumed_and_stopped_again_reads_as_stopped_with_no_phase_or_round
         view = RunView.read(runs / name / "run")
         assert view.summary.stop.by == "max_rounds"
         assert (view.health.phase, view.health.round, view.health.crashed, view.health.calls) == (None, None, False, {})
+
+
+def test_the_trials_page_places_each_trial_against_the_threshold_admission_judged_its_round_by(runs):
+    # Round 1 evaluates three candidates and round 2 four: admission judged round 2 as at seven trials.
+    view = RunView.read(runs / "finished" / "run")
+    expected = _admission.t_threshold(AdmissionConfig(), 7)
+    assert [p.threshold for p in view.evaluated if p.round == 2] == [pytest.approx(expected)] * 4
+    assert view.threshold == pytest.approx(expected)
 
 
 def _when(runs, tmp_path, kind: str, nth: int = 1) -> Path:

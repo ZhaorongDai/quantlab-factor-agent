@@ -1,0 +1,32 @@
+{
+  "evaluated": [
+    {
+      "round": 1,
+      "slot": 0,
+      "status": "accepted",
+      "factor_direction": 1,
+      "ic_mean": "<number>",
+      "ic_t": "<number>",
+      "partial_ic_mean": "<number>",
+      "partial_ic_t": "<number>",
+      "largest_correlation": "<number>",
+      "threshold": "<number>"
+    }
+  ],
+  "threshold": "<number>",
+  "never_evaluated": [
+    {
+      "stage": "gate",
+      "reason": "line 1: name SecretOp is not in the vocabulary (its fields, operators and builtins)",
+      "rounds": [
+        1
+      ],
+      "trials": [
+        {
+          "round": 1,
+          "slot": 1
+        }
+      ]
+    }
+  ]
+}

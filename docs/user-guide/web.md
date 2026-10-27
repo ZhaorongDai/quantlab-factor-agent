@@ -71,8 +71,22 @@ accepted since the page was opened and says when the run has stopped.
 
 ## The results page
 
-Below the health line is one card per accepted factor,
-with what decides how far to trust it (see {doc}`evaluation` for each statistic):
+Below the health line, one sentence says whether the accepted factors improve your model, from
+{doc}`acceptance`'s validation report on every accepted factor (or, when there is none, on
+the latest selection): they improve it when the seed-averaged rank IC and top-k excess
+return both rise with them, do not when neither does, and the sentence says which one rose
+when only one did. Beside it are the validation figures with and without them (rank IC,
+top-k excess and annualised return, long-short return, decile monotonicity), and, once the
+hold-out has been opened and its report written, the same comparison on the hold-out with
+every open the hold-out lock records. A hold-out opened again with force is marked in red:
+it has been seen before and no longer tests the factors out of sample. A lock with no
+hold-out report (an open that stopped before writing it) is listed as such. When the run
+accepted more factors after the report, the page says how many the report judges. Before
+Acceptance has run, the page says the factors are not judged against your model yet and
+shows the call that judges them.
+
+Below that is one card per accepted factor, with what decides how far to trust it (see
+{doc}`evaluation` for each statistic):
 
 | On the card | Meaning |
 |-------------|---------|
@@ -84,6 +98,7 @@ with what decides how far to trust it (see {doc}`evaluation` for each statistic)
 | closest, closest known | the reference or accepted factor, and the known factor, most correlated with it, with that correlation |
 | ρ limit | how far its largest correlation is below the correlation limit |
 | coverage | the mean daily share of the members it has a value for |
+| drop-one, add-one | when the validation report has a contribution table (`acceptance.contribution`): the rank IC the model loses without it, and gains from it alone on your model, with how many seeds agree on the sign |
 
 Every IC and t is given in the factor's direction; hover one for the raw value the ledger
 records. A factor accepted earlier in the run is named by its round and the first words of
@@ -97,9 +112,64 @@ refusals below the threshold quote, carried over from the round before when the 
 none, and the correlation limit is the one a refusal for correlation quotes. Until a
 refusal quotes them, the page says they are unknown.
 
-The cards sort by round, by partial-IC t, by distance from the correlation limit or by
+The cards rank by their drop-one contribution when there is one. A report written by an
+older version, without the contribution table or the selection flag, is shown with what it
+holds. The cards also sort by round, by partial-IC t, by distance from the correlation limit or by
 coverage. Click a factor's description to open it written up: its hypothesis, description
 and code, and its trust facts in sentences. A run that has accepted nothing says so.
+
+### The diagnosis
+
+Between the health line and the cards, the page lists at most three findings, each a
+thing seen in the run's trials and what to do about it, the one concerning the most
+trials first. While fewer than three factors are accepted the diagnosis stands out; a run
+where no rule holds shows none. The rules and their thresholds:
+
+| Finding | When | What to do |
+|---------|------|------------|
+| the LLM's replies could not be read | more than 20% of the trials met a reply the parser could not read as candidates | change the model, or raise its output limit |
+| candidates keep colliding with one of your factors | more than 5 trials collided with the same reference or known factor, named with the count | steer the research directions away from it, or check your known factors |
+| candidates collide with factors the run accepted | more than 5 trials collided with factors accepted earlier in the run, all counted together | nothing: the novelty checks are at work |
+| candidates cover too few members | more than 15% of the trials were refused for coverage | check your data's fields and dates |
+| candidate code fails to build | more than 15% of the trials met a graph build failure | check the operator file, or the model |
+| nothing accepted, below the t threshold | no factor accepted, and most evaluated trials were refused below the partial-IC t threshold | nothing: this is the statistical bar, not an error |
+
+Shares count trials, not the versions within them: a trial is counted once, whichever of
+its versions met the problem. A collision is a trial refused for being too like an
+existing factor (see {doc}`concepts`): by the Gate as a rewrite, the same graph with
+other parameters, or a too large shared subtree, or by admission as a correlation above
+the limit. A repeat of one of the run's own earlier candidates is not a collision.
+
+## The trials page
+
+A bar at the top counts the run's rounds, trials, evaluated trials (those the Evaluator
+scored), accepted and failed trials.
+
+Below it, the admission map places every evaluated trial by two facts admission judges
+(see {doc}`evaluation`): across, its largest absolute correlation with an existing factor
+(the nearest reference or accepted factor, or the nearest known one); up, its partial
+IC's Newey-West t in the trial's direction. A dashed upright line marks the correlation
+limit and a dashed level line the latest round's t threshold (see the results page for
+where they come from); the shaded region between them is where admission accepts a trial, when its
+coverage and decile monotonicity pass too. Accepted trials are green, those admission
+refused red. Each round had its own threshold, which rises with the trials evaluated, so
+an early accepted trial can sit below the final line. A trial with nothing to compare
+with sits at a correlation of 0. While the threshold or the limit is unknown, its
+line is not drawn.
+
+Under the map, the trials that never reached the Evaluator are listed by the stage that
+refused them: the parser (the reply could not be read as candidates), the Gate, or the
+reviewer, which still found the rewrite inconsistent; code the Evaluator could not build
+comes last. Trials refused for the same reason, apart from the numbers, reply or code the
+reason quotes, are one row with their count and rounds, so a round lost to one problem is
+one line; click the row to list its trials.
+
+Click a point or a trial to read it in the side panel: its round, mechanism type and
+research direction, the hypothesis, description and code of its final version, the
+reasons it was refused, the versions refused before it with their reasons and hints, and,
+for an evaluated trial, its statistics in its direction (hover one for the raw value) with
+its round's threshold, nearest factors and coverage. Trials that arrived since the page
+was opened stand out on the map for fifteen seconds.
 
 ## The memory page
 
