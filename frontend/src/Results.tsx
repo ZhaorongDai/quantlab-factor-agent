@@ -2,8 +2,10 @@
 // a card opens to the factor written up. Every IC and t is in the factor's direction, the raw value on hover.
 import { useState } from 'react'
 import type { Factor, Neighbour, Run, RunSummary } from './api'
+import Verdict, { ContributionLines, dropOne } from './Verdict'
 
 const SORTS = {
+  contribution: 'drop-one contribution',
   round: 'round',
   t: 'partial-IC t',
   limit: 'distance from the correlation limit',
@@ -25,8 +27,9 @@ function closest(f: Factor): number | null {
   return values.length ? Math.max(...values.map(Math.abs)) : null
 }
 
-function sortKey(f: Factor, sort: Sort): number {
+function sortKey(run: Run, f: Factor, sort: Sort): number {
   // Larger first, except the round (earliest first).
+  if (sort === 'contribution') return dropOne(run, f.label) ?? -Infinity
   if (sort === 'round') return -(f.round * 1000 + f.slot)
   if (sort === 't') return f.partial_ic_t ?? -Infinity
   if (sort === 'limit') return -(closest(f) ?? 0)
@@ -87,7 +90,7 @@ function Margin({ f }: { f: Factor }) {
   )
 }
 
-function Card({ f, limit, open, toggle }: { f: Factor; limit: number | null; open: boolean; toggle: () => void }) {
+function Card({ run, f, limit, open, toggle }: { run: Run; f: Factor; limit: number | null; open: boolean; toggle: () => void }) {
   const rho = closest(f)
   return (
     <article className={`factor${open ? ' open' : ''}`}>
@@ -109,6 +112,7 @@ function Card({ f, limit, open, toggle }: { f: Factor; limit: number | null; ope
         {limit != null && rho != null && <><dt>ρ limit</dt><dd>{fmt(limit - rho)} below {limit}</dd></>}
         <dt>coverage</dt><dd>{percent(f.coverage)}</dd>
       </dl>
+      <ContributionLines run={run} label={f.label} />
       {open && <WriteUp f={f} limit={limit} />}
     </article>
   )
@@ -153,12 +157,17 @@ function WriteUp({ f, limit }: { f: Factor; limit: number | null }) {
 }
 
 export default function Results({ run }: { run: Run }) {
-  const [sort, setSort] = useState<Sort>('round')
+  // The cards rank by their drop-one contribution when Acceptance measured it.
+  const ranked = run.factors.some(f => dropOne(run, f.label) != null)
+  const [chosen, setSort] = useState<Sort | null>(null)
+  const sort = chosen ?? (ranked ? 'contribution' : 'round')
+  const sorts = (Object.keys(SORTS) as Sort[]).filter(s => s !== 'contribution' || ranked)
   const [open, setOpen] = useState<string | null>(null)
-  const factors = [...run.factors].sort((a, b) => sortKey(b, sort) - sortKey(a, sort))
+  const factors = [...run.factors].sort((a, b) => sortKey(run, b, sort) - sortKey(run, a, sort))
   return (
     <>
       <Health summary={run.summary} />
+      <Verdict run={run} />
       {!factors.length ? (
         <p className="muted">
           {run.summary.stop ? 'The run accepted no factor.' : 'No factor accepted yet.'}
@@ -168,7 +177,7 @@ export default function Results({ run }: { run: Run }) {
           <div className="sorts">
             <h2>{factors.length} accepted factor{factors.length === 1 ? '' : 's'}</h2>
             <span className="muted">sort by</span>
-            {(Object.keys(SORTS) as Sort[]).map(s => (
+            {sorts.map(s => (
               <button key={s} className={sort === s ? 'on' : ''} onClick={() => setSort(s)}>{SORTS[s]}</button>
             ))}
           </div>
@@ -181,7 +190,7 @@ export default function Results({ run }: { run: Run }) {
           </p>
           <div className="factors">
             {factors.map(f => (
-              <Card key={f.label} f={f} limit={run.correlation_limit} open={open === f.label}
+              <Card key={f.label} run={run} f={f} limit={run.correlation_limit} open={open === f.label}
                     toggle={() => setOpen(open === f.label ? null : f.label)} />
             ))}
           </div>

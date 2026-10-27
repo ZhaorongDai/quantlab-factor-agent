@@ -59,7 +59,47 @@ export type Run = {
   factors: Factor[]
   correlation_limit: number | null
   memory: MemoryVersion[]
+  acceptance: AcceptanceReports
   now: string
+}
+
+// Acceptance's reports: the model with and without the accepted factors, on validation and the hold-out.
+export type Stat = 'rank_ic' | 'ic' | 'monotonicity' | 'long_short' | 'top_k_return' | 'top_k_excess' | 'top_k_annualised'
+
+export type Contribution = {
+  factor: string
+  mode: 'drop_one' | 'add_one'
+  difference: Partial<Record<Stat, number | null>>
+  agreeing: Partial<Record<Stat, number>>
+}
+
+export type Comparison = {
+  name: string
+  segment: string
+  holdout: boolean
+  factors: string[]
+  selection: boolean | null
+  seeds: number[]
+  top_k: number | null
+  train_window: string[]
+  test_window: string[]
+  baseline: Partial<Record<Stat, number | null>>
+  with_accepted: Partial<Record<Stat, number | null>>
+  difference: Partial<Record<Stat, number | null>>
+  verdict: 'improves' | 'mixed' | 'does_not_improve' | null
+  forced: boolean
+  contribution: Contribution[] | null
+  code_version: string
+  written: string
+}
+
+export type HoldoutOpen = { opened_at: string; code_version: string; forced: boolean }
+
+export type AcceptanceReports = {
+  validation: Comparison | null
+  holdout: Comparison | null
+  reports: Comparison[]
+  holdout_opens: HoldoutOpen[]
 }
 
 async function get<T>(url: string): Promise<T> {

@@ -48,8 +48,24 @@ is not counted yet. Click a run to open it: a run opens on its results.
 ## The results page
 
 A line at the top says whether the run has stopped, with the campaign's reason, and how
-many rounds, trials and accepted factors it has. Below it is one card per accepted factor,
-with what decides how far to trust it (see {doc}`evaluation` for each statistic):
+many rounds, trials and accepted factors it has.
+
+Below it, one sentence says whether the accepted factors improve your model, from
+{doc}`acceptance`'s validation report on every accepted factor (or, when there is none, on
+the latest selection): they improve it when the seed-averaged rank IC and top-k excess
+return both rise with them, do not when neither does, and the sentence says which one rose
+when only one did. Beside it are the validation figures with and without them (rank IC,
+top-k excess and annualised return, long-short return, decile monotonicity), and, once the
+hold-out has been opened and its report written, the same comparison on the hold-out with
+every open the hold-out lock records. A hold-out opened again with force is marked in red:
+it has been seen before and no longer tests the factors out of sample. A lock with no
+hold-out report (an open that stopped before writing it) is listed as such. When the run
+accepted more factors after the report, the page says how many the report judges. Before
+Acceptance has run, the page says the factors are not judged against your model yet and
+shows the call that judges them.
+
+Below that is one card per accepted factor, with what decides how far to trust it (see
+{doc}`evaluation` for each statistic):
 
 | On the card | Meaning |
 |-------------|---------|
@@ -61,6 +77,7 @@ with what decides how far to trust it (see {doc}`evaluation` for each statistic)
 | closest, closest known | the reference or accepted factor, and the known factor, most correlated with it, with that correlation |
 | ρ limit | how far its largest correlation is below the correlation limit |
 | coverage | the mean daily share of the members it has a value for |
+| drop-one, add-one | when the validation report has a contribution table (`acceptance.contribution`): the rank IC the model loses without it, and gains from it alone on your model, with how many seeds agree on the sign |
 
 Every IC and t is given in the factor's direction; hover one for the raw value the ledger
 records. A factor accepted earlier in the run is named by its round and the first words of
@@ -72,7 +89,9 @@ quote, carried over from the round before when the round has none (a round's can
 are all judged at the same threshold), and the correlation limit is the one a refusal for
 correlation quotes. Until a refusal quotes them, the page says they are unknown.
 
-The cards sort by round, by partial-IC t, by distance from the correlation limit or by
+The cards rank by their drop-one contribution when there is one. A report written by an
+older version, without the contribution table or the selection flag, is shown with what it
+holds. The cards also sort by round, by partial-IC t, by distance from the correlation limit or by
 coverage. Click a factor's description to open it written up: its hypothesis, description
 and code, and its trust facts in sentences. A run that has accepted nothing says so.
 

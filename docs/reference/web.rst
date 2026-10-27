@@ -17,6 +17,10 @@ Reading runs
    factor_agent.web.run_view.Trial
    factor_agent.web.run_view.Factor
    factor_agent.web.run_view.Neighbour
+   factor_agent.web.run_view.AcceptanceReports
+   factor_agent.web.run_view.Comparison
+   factor_agent.web.run_view.Contribution
+   factor_agent.web.run_view.HoldoutOpen
    factor_agent.web.run_view.Stop
    factor_agent.web.run_view.MemoryVersion
    factor_agent.web.run_view.MemoryLine

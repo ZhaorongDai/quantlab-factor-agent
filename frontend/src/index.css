@@ -64,3 +64,27 @@ dl.trust dd { margin: 0; overflow-wrap: anywhere }
 .write-up [title] { text-decoration: underline dotted; cursor: help }
 pre.code { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; margin: 0 }
 .factor .margin, .factor dl.trust { max-width: 420px }
+/* The verdict: whether the accepted factors improve the user's model */
+.verdict { display: flex; flex-wrap: wrap; gap: 12px 24px; border: 1px solid var(--line); border-left: 4px solid var(--mut); background: var(--card); border-radius: 6px; padding: 10px 14px; margin: 8px 0 16px }
+.verdict.improves { border-left-color: var(--good) }
+.verdict.does_not_improve { border-left-color: var(--bad) }
+.verdict.unjudged { display: block; border-left-color: var(--acc) }
+.verdict h2 { font-size: 18px; margin: 0 0 6px }
+.verdict h3 { font-size: 13px; margin: 10px 0 4px }
+.verdict p { margin: 4px 0; max-width: 80ch }
+.verdict .validation { flex: 2 1 320px; min-width: 0 }
+.verdict .holdout { flex: 1 1 260px; min-width: 0; border-left: 1px solid var(--line); padding-left: 16px }
+.verdict .holdout.forced { border: 2px solid var(--bad); border-radius: 6px; padding: 6px 12px }
+.verdict .warning { color: var(--bad); font-weight: 600 }
+.verdict code { font-family: ui-monospace, monospace; font-size: 12px }
+table.comparison { border-collapse: collapse; font-size: 12px; font-variant-numeric: tabular-nums }
+.comparison th, .comparison td { padding: 2px 10px 2px 0; text-align: right; white-space: nowrap }
+.comparison th:first-child { text-align: left; font-weight: 400; color: var(--mut) }
+.comparison thead th { color: var(--mut); font-weight: 500 }
+.up { color: var(--good) }
+.down { color: var(--bad) }
+ol.opens { margin: 2px 0; padding-left: 20px }
+dl.contribution { margin: 6px 0 0; font-size: 12px }
+dl.contribution > div { display: flex; gap: 8px }
+dl.contribution dt { color: var(--mut); min-width: 56px }
+dl.contribution dd { margin: 0 }
