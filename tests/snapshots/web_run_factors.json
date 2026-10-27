@@ -1,0 +1,67 @@
+{
+  "factors": [
+    {
+      "label": "planted (accepted in round 1)",
+      "round": 1,
+      "slot": 0,
+      "mechanism_type": "risk_compensation",
+      "hypothesis": "Hypothesis behind planted.",
+      "description": "planted",
+      "code": "alpha = close / open",
+      "factor_direction": 1,
+      "ic_mean": "<number>",
+      "ic_t": "<number>",
+      "partial_ic_mean": "<number>",
+      "partial_ic_t": "<number>",
+      "threshold": null,
+      "monotonicity": "<number>",
+      "nearest": null,
+      "nearest_known": {
+        "label": "KLEN (Alpha158Stock, a known factor)",
+        "name": "KLEN (Alpha158Stock, a known factor)",
+        "accepted_round": null,
+        "correlation": "<number>"
+      },
+      "decile_returns": [
+        "<number>",
+        "<number>",
+        "<number>",
+        "<number>",
+        "<number>",
+        "<number>",
+        "<number>",
+        "<number>",
+        "<number>",
+        "<number>"
+      ],
+      "coverage": "<number>",
+      "metrics": {
+        "ic_mean": "<number>",
+        "ic_t": "<number>",
+        "partial_ic_mean": "<number>",
+        "partial_ic_t": "<number>",
+        "nearest": "",
+        "nearest_correlation": null,
+        "nearest_known": "KLEN (Alpha158Stock, a known factor)",
+        "nearest_known_correlation": "<number>",
+        "decile_returns": [
+          "<number>",
+          "<number>",
+          "<number>",
+          "<number>",
+          "<number>",
+          "<number>",
+          "<number>",
+          "<number>",
+          "<number>",
+          "<number>"
+        ],
+        "coverage": "<number>",
+        "n_days": 515,
+        "start": "2010-01-01",
+        "end": "2011-12-22"
+      }
+    }
+  ],
+  "correlation_limit": null
+}

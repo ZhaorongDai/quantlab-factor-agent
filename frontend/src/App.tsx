@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import * as api from './api'
 import type { Run, RunSummary } from './api'
 import Memory from './Memory'
+import Results from './Results'
 
 function useRunParam(): [string, (name: string) => void] {
   const [name, setName] = useState(new URLSearchParams(location.search).get('run') ?? '')
@@ -18,11 +19,14 @@ function useRunParam(): [string, (name: string) => void] {
   return [name, open]
 }
 
-// A run's page (&page=<page>): its trials by default.
-const PAGES = ['trials', 'memory'] as const
+// A run's page (&page=<page>): its results by default.
+const PAGES = ['results', 'trials', 'memory'] as const
 type Page = (typeof PAGES)[number]
 
-const pageParam = (): Page => (new URLSearchParams(location.search).get('page') as Page | null) ?? 'trials'
+const pageParam = (): Page => {
+  const page = new URLSearchParams(location.search).get('page') as Page | null
+  return page && PAGES.includes(page) ? page : 'results'
+}
 
 function usePageParam(): [Page, (page: Page) => void] {
   const [page, setPage] = useState<Page>(pageParam)
@@ -40,7 +44,7 @@ function usePageParam(): [Page, (page: Page) => void] {
 
 function pageHref(page: Page): string {
   const params = new URLSearchParams(location.search)
-  if (page === 'trials') params.delete('page')
+  if (page === 'results') params.delete('page')
   else params.set('page', page)
   return `?${params}`
 }
@@ -105,7 +109,7 @@ function RunPage({ name }: { name: string }) {
   return (
     <>
       <Pages page={page} open={openPage} />
-      {page === 'memory' ? <Memory versions={run.memory} /> : <Trials run={run} />}
+      {page === 'memory' ? <Memory versions={run.memory} /> : page === 'trials' ? <Trials run={run} /> : <Results run={run} />}
     </>
   )
 }

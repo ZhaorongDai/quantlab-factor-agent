@@ -1,8 +1,10 @@
 """The frontend's HTTP routes over a run a real campaign wrote, and its console script.
 
-The JSON of the run list is compared with a stored snapshot
-(``tests/snapshots/web_runs.json``), with the values that change from run to
-run (the code version, the time) replaced. After a deliberate change of the
+The JSON of the run list and of a run's accepted factors is compared with
+stored snapshots (``tests/snapshots/web_runs.json``,
+``tests/snapshots/web_run_factors.json``), with the values that change from
+run to run or machine to machine (the code version, the time, statistics)
+replaced. After a deliberate change of the
 JSON's shape, rewrite the snapshot with ``FACTOR_AGENT_UPDATE_SNAPSHOTS=1``.
 """
 
@@ -16,11 +18,15 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
 from factor_agent.web.app import create_app, main  # noqa: E402
+from quantlab.core.component import rebuild  # noqa: E402
+from quantlab.factor.config import FactorConfig  # noqa: E402
+from quantlab.factor.predefined.alpha158 import Alpha158Stock  # noqa: E402
 from tests import synthetic_market  # noqa: E402
 from tests.campaign_runner import candidate, run, write_config  # noqa: E402
 from tests.fake_llm import FakeLLM  # noqa: E402
 
 SNAPSHOT = Path(__file__).parent / "snapshots" / "web_runs.json"
+FACTORS = Path(__file__).parent / "snapshots" / "web_run_factors.json"
 
 ROUND = [
     candidate("planted", "alpha = close / open"),
@@ -32,7 +38,11 @@ ROUND = [
 def client(tmp_path_factory):
     root = tmp_path_factory.mktemp("web")
     components = synthetic_market.build(root / "data")
-    config = write_config(root / "runs" / "example", components,
+    klen = Alpha158Stock(FactorConfig(
+        warmup_bars=60, dataset=rebuild(components["prices"]), mode="batch",
+        data_columns=("adjOpen", "adjHigh", "adjLow", "adjClose", "adjVolume"), factor_names=("KLEN",),
+    ))
+    config = write_config(root / "runs" / "example", components, known=[klen.get_config()],
                           round={"candidates": 2, "min_per_type": 0, "retries": 0, "max_rounds": 1})
     run(config, FakeLLM(lambda number, directions: ROUND), root / "kunquant_cache")
     return TestClient(create_app(root / "runs"))
@@ -58,6 +68,23 @@ def test_a_run_is_read_by_its_name_and_an_unknown_name_is_not_found(client):
     assert [t["status"] for t in run_json["trials"]] == ["accepted", "failed"]
     assert client.get("/api/run", params={"name": "elsewhere"}).status_code == 404
     assert client.get("/api/run", params={"name": "../.."}).status_code == 404
+
+
+def _shape(value):
+    """``value`` with every number that is not a count replaced, as the contract does not fix them."""
+    if isinstance(value, dict):
+        return {key: _shape(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_shape(item) for item in value]
+    return "<number>" if isinstance(value, float) else value
+
+
+def test_a_runs_accepted_factors_answer_with_the_snapshot_json(client):
+    run_json = client.get("/api/run", params={"name": "example/run"}).json()
+    factors = _shape({key: run_json[key] for key in ("factors", "correlation_limit")})
+    if os.environ.get("FACTOR_AGENT_UPDATE_SNAPSHOTS"):
+        FACTORS.write_text(json.dumps(factors, indent=2) + "\n")
+    assert factors == json.loads(FACTORS.read_text())
 
 
 def test_a_run_whose_distiller_has_written_nothing_answers_with_no_memory_versions(client):

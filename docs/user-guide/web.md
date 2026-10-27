@@ -43,7 +43,38 @@ including one whose first round has not been written yet:
 | last activity | when the run last wrote a file |
 
 A round counts once the campaign has written it at the round's end; the round in progress
-is not counted yet. Click a run to open it.
+is not counted yet. Click a run to open it: a run opens on its results.
+
+## The results page
+
+A line at the top says whether the run has stopped, with the campaign's reason, and how
+many rounds, trials and accepted factors it has. Below it is one card per accepted factor,
+with what decides how far to trust it (see {doc}`evaluation` for each statistic):
+
+| On the card | Meaning |
+|-------------|---------|
+| round, mechanism type | the round that accepted it and its research direction's mechanism type |
+| +1 or −1 | its factor direction: +1 when a higher value went with a higher training return, −1 when with a lower one |
+| decile returns | each decile's mean return over the deciles' mean, from decile 1 (the lowest values) to decile 10 |
+| partial-IC t | its partial IC's Newey-West t against the threshold it had to clear, and by how much it cleared it |
+| monotonicity | how steadily its decile returns rise with the decile, in its direction (1 is a steady rise) |
+| closest, closest known | the reference or accepted factor, and the known factor, most correlated with it, with that correlation |
+| ρ limit | how far its largest correlation is below the correlation limit |
+| coverage | the mean daily share of the members it has a value for |
+
+Every IC and t is given in the factor's direction; hover one for the raw value the ledger
+records. A factor accepted earlier in the run is named by its round and the first words of
+its description; hover the name for the whole label.
+
+The run directory does not record the admission settings, so the page takes them from the
+refusals that quote them: a round's threshold is the one its refusals below the threshold
+quote, carried over from the round before when the round has none (a round's candidates
+are all judged at the same threshold), and the correlation limit is the one a refusal for
+correlation quotes. Until a refusal quotes them, the page says they are unknown.
+
+The cards sort by round, by partial-IC t, by distance from the correlation limit or by
+coverage. Click a factor's description to open it written up: its hypothesis, description
+and code, and its trust facts in sentences. A run that has accepted nothing says so.
 
 ## The memory page
 

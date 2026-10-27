@@ -29,7 +29,38 @@ export type MemoryLine = { change: 'kept' | 'added' | 'removed'; line: string }
 
 export type MemoryVersion = { round: number; text: string; changes: MemoryLine[] | null }
 
-export type Run = { summary: RunSummary; trials: Trial[]; memory: MemoryVersion[]; now: string }
+export type Neighbour = { label: string; name: string; accepted_round: number | null; correlation: number | null }
+
+export type Factor = {
+  label: string
+  round: number
+  slot: number
+  mechanism_type: string | null
+  hypothesis: string
+  description: string
+  code: string
+  factor_direction: 1 | -1
+  ic_mean: number | null
+  ic_t: number | null
+  partial_ic_mean: number | null
+  partial_ic_t: number | null
+  threshold: number | null
+  monotonicity: number | null
+  nearest: Neighbour | null
+  nearest_known: Neighbour | null
+  decile_returns: (number | null)[]
+  coverage: number | null
+  metrics: Record<string, unknown>
+}
+
+export type Run = {
+  summary: RunSummary
+  trials: Trial[]
+  factors: Factor[]
+  correlation_limit: number | null
+  memory: MemoryVersion[]
+  now: string
+}
 
 async function get<T>(url: string): Promise<T> {
   const response = await fetch(url)
