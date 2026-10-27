@@ -134,3 +134,8 @@ def test_the_correlation_limit_is_the_one_admission_quoted_and_unknown_while_no_
 
 def test_a_run_with_no_accepted_factor_has_none(runs, tmp_path):
     assert _first_rounds(runs, tmp_path, 0).factors == ()
+
+
+def test_a_run_where_no_rule_holds_shows_no_diagnosis(runs, tmp_path):
+    assert RunView.read(runs / "two_rounds" / "run").diagnosis == ()
+    assert _first_rounds(runs, tmp_path, 0).diagnosis == ()

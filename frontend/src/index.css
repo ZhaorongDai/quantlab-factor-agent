@@ -64,3 +64,14 @@ dl.trust dd { margin: 0; overflow-wrap: anywhere }
 .write-up [title] { text-decoration: underline dotted; cursor: help }
 pre.code { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; margin: 0 }
 .factor .margin, .factor dl.trust { max-width: 420px }
+/* The diagnosis */
+.diagnosis { border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; margin: 8px 0 14px; max-width: 80ch; font-size: 13px }
+.diagnosis h2 { font-size: 13px; margin: 2px 0 4px; color: var(--mut); font-weight: 600 }
+.diagnosis ul { list-style: none; margin: 0; padding: 0 }
+.diagnosis li { padding: 4px 0 }
+.diagnosis li + li { border-top: 1px solid var(--line) }
+.diagnosis p { margin: 0 }
+.diagnosis .do { color: var(--mut) }
+.diagnosis.prominent { border-color: var(--bad); border-left-width: 4px; background: var(--card); padding: 10px 14px; font-size: 14px }
+.diagnosis.prominent h2 { font-size: 16px; color: var(--fg) }
+.diagnosis.prominent .seen { font-weight: 600 }

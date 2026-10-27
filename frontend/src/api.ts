@@ -12,6 +12,15 @@ export type RunSummary = {
   updated: string
 }
 
+// A trial's refusal for being too like an existing factor (code: the Gate; ranking: admission).
+export type Collision = {
+  label: string
+  name: string
+  kind: 'code' | 'ranking'
+  accepted_round: number | null
+  known: boolean
+}
+
 export type Trial = {
   round: number
   slot: number
@@ -23,6 +32,7 @@ export type Trial = {
   attempts: Record<string, unknown>[]
   stats: Record<string, number> | null
   metrics: Record<string, unknown> | null
+  collisions: Collision[]
 }
 
 export type MemoryLine = { change: 'kept' | 'added' | 'removed'; line: string }
@@ -53,12 +63,16 @@ export type Factor = {
   metrics: Record<string, unknown>
 }
 
+// One finding of a run's diagnosis: what was seen and what to do.
+export type Finding = { rule: string; trials: number; seen: string; do: string }
+
 export type Run = {
   summary: RunSummary
   trials: Trial[]
   factors: Factor[]
   correlation_limit: number | null
   memory: MemoryVersion[]
+  diagnosis: Finding[]
   now: string
 }
 

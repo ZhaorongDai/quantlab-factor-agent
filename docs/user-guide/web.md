@@ -76,6 +76,28 @@ The cards sort by round, by partial-IC t, by distance from the correlation limit
 coverage. Click a factor's description to open it written up: its hypothesis, description
 and code, and its trust facts in sentences. A run that has accepted nothing says so.
 
+### The diagnosis
+
+Between the health line and the cards, the page lists at most three findings, each a
+thing seen in the run's trials and what to do about it, the one concerning the most
+trials first. While fewer than three factors are accepted the diagnosis stands out; a run
+where no rule holds shows none. The rules and their thresholds:
+
+| Finding | When | What to do |
+|---------|------|------------|
+| the LLM's replies could not be read | more than 20% of the trials met a reply the parser could not read as candidates | change the model, or raise its output limit |
+| candidates keep colliding with one of your factors | more than 5 trials collided with the same reference or known factor, named with the count | steer the research directions away from it, or check your known factors |
+| candidates collide with factors the run accepted | more than 5 trials collided with factors accepted earlier in the run, all counted together | nothing: the novelty checks are at work |
+| candidates cover too few members | more than 15% of the trials were refused for coverage | check your data's fields and dates |
+| candidate code fails to build | more than 15% of the trials met a graph build failure | check the operator file, or the model |
+| nothing accepted, below the t threshold | no factor accepted, and most evaluated trials were refused below the partial-IC t threshold | nothing: this is the statistical bar, not an error |
+
+Shares count trials, not the versions within them: a trial is counted once, whichever of
+its versions met the problem. A collision is a trial refused for being too like an
+existing factor (see {doc}`concepts`): by the Gate as a rewrite, the same graph with
+other parameters, or a too large shared subtree, or by admission as a correlation above
+the limit. A repeat of one of the run's own earlier candidates is not a collision.
+
 ## The memory page
 
 Every `round.memory_every` rounds the distiller folds the trials since its last version

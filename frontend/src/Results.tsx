@@ -2,6 +2,7 @@
 // a card opens to the factor written up. Every IC and t is in the factor's direction, the raw value on hover.
 import { useState } from 'react'
 import type { Factor, Neighbour, Run, RunSummary } from './api'
+import Diagnosis from './Diagnosis'
 
 const SORTS = {
   round: 'round',
@@ -159,6 +160,7 @@ export default function Results({ run }: { run: Run }) {
   return (
     <>
       <Health summary={run.summary} />
+      <Diagnosis run={run} />
       {!factors.length ? (
         <p className="muted">
           {run.summary.stop ? 'The run accepted no factor.' : 'No factor accepted yet.'}

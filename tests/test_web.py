@@ -100,3 +100,9 @@ def test_the_console_script_has_no_option_to_bind_another_interface(capsys):
     with pytest.raises(SystemExit):
         main(["runs", "--host", "0.0.0.0"])
     assert "unrecognized arguments: --host" in capsys.readouterr().err
+
+
+def test_a_run_answers_with_its_diagnosis_and_each_trials_collisions(client):
+    run_json = client.get("/api/run", params={"name": "example/run"}).json()
+    assert run_json["diagnosis"] == []
+    assert [t["collisions"] for t in run_json["trials"]] == [[], []]
