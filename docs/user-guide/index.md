@@ -32,3 +32,10 @@ llm-backends
 evaluation
 acceptance
 ```
+
+```{toctree}
+:caption: Looking at runs
+:maxdepth: 1
+
+web
+```

@@ -16,8 +16,18 @@ dependencies = [
     "quantlab-py",
 ]
 
+[project.optional-dependencies]
+web = [
+    "fastapi>=0.162.0",
+    "uvicorn>=0.54.0",
+]
+
+[project.scripts]
+factor-agent-web = "factor_agent.web.app:main"
+
 [dependency-groups]
 dev = [
+    "httpx>=0.28.1",
     "pytest>=9.1.1",
     "pytest-xdist>=3.8.0",
 ]
@@ -37,6 +47,10 @@ quantlab-py = { path = "../quantlab", editable = true }
 where = ["."]
 include = ["factor_agent*"]
 namespaces = false
+
+[tool.setuptools.package-data]
+# The frontend's built page, committed so that an install needs no Node.
+"factor_agent.web" = ["static/**/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

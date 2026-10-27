@@ -29,6 +29,9 @@ see the :doc:`../user-guide/index`; to run a campaign, see the
    * - Connect a language model
      - ``LLMBackend``, ``make_backend``, ``OpenAICompatibleBackend``
      - :doc:`llm`
+   * - Read run directories, serve the frontend
+     - ``list_runs``, ``RunView``, ``factor-agent-web``
+     - :doc:`web`
 
 Each object page gives its signature and description, followed by parameters, return
 values, exceptions and examples where documented. The :doc:`modules` lists every module.
@@ -42,4 +45,5 @@ The :ref:`genindex` finds objects by name.
    evaluation
    acceptance
    llm
+   web
    modules

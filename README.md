@@ -107,3 +107,4 @@ A campaign runs for hours, most of it waiting for the language model, and uses n
 | [LLM backends](docs/user-guide/llm-backends.md) | backends, the LLM log, replay, cost and quota |
 | [Gate, review and evaluation](docs/user-guide/evaluation.md) | the Gate's checks, the review, the statistics, admission |
 | [Acceptance](docs/user-guide/acceptance.md) | validation, contribution, the hold-out, export |
+| [The web frontend](docs/user-guide/web.md) | `factor-agent-web`: your runs in a browser on localhost, also over SSH |

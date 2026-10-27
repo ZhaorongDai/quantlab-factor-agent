@@ -82,7 +82,8 @@ for line in open("runs/my_campaign/ledger.jsonl"):
 Every candidate is one line of `ledger.jsonl`: accepted, rejected (by the reviewer or by
 admission) or failed (refused by the parser or the Gate, or its graph did not compile),
 with the stage where it ended and the reasons. [The run directory](../user-guide/campaign.md#the-run-directory)
-lists the other files.
+lists the other files. To look at your runs in a browser instead, start
+[the web frontend](../user-guide/web.md): `uv run factor-agent-web runs/`.
 
 ## 4. Judge the accepted factors
 

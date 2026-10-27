@@ -1,0 +1,14 @@
+[
+  {
+    "name": "example/run",
+    "code_version": "<code version>",
+    "rounds": 1,
+    "trials": 2,
+    "accepted": 1,
+    "stop": {
+      "by": "max_rounds",
+      "reason": "the round limit of 1 rounds is reached"
+    },
+    "updated": "<time>"
+  }
+]
