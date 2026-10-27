@@ -98,6 +98,37 @@ existing factor (see {doc}`concepts`): by the Gate as a rewrite, the same graph 
 other parameters, or a too large shared subtree, or by admission as a correlation above
 the limit. A repeat of one of the run's own earlier candidates is not a collision.
 
+## The trials page
+
+A bar at the top counts the run's rounds, trials, evaluated trials (those the Evaluator
+scored), accepted and failed trials, and says whether the run has stopped.
+
+Below it, the admission map places every evaluated trial by two facts admission judges
+(see {doc}`evaluation`): across, its largest absolute correlation with an existing factor
+(the nearest reference or accepted factor, or the nearest known one); up, its partial
+IC's Newey-West t in the trial's direction. A dashed upright line marks the correlation
+limit and a dashed level line the latest round's t threshold, both as the run's refusals
+quote them; the shaded region between them is where admission accepts a trial, when its
+coverage and decile monotonicity pass too. Accepted trials are green, those admission
+refused red. Each round had its own threshold, which rises with the trials evaluated, so
+an early accepted trial can sit below the final line. A trial with nothing to compare
+with sits at a correlation of 0. Until a refusal quotes the threshold or the limit, its
+line is not drawn.
+
+Under the map, the trials that never reached the Evaluator are listed by the stage that
+refused them: the parser (the reply could not be read as candidates), the Gate, or the
+reviewer, which still found the rewrite inconsistent; code the Evaluator could not build
+comes last. Trials refused for the same reason, apart from the numbers, reply or code the
+reason quotes, are one row with their count and rounds, so a round lost to one problem is
+one line; click the row to list its trials.
+
+Click a point or a trial to read it in the side panel: its round, mechanism type and
+research direction, the hypothesis, description and code of its final version, the
+reasons it was refused, the versions refused before it with their reasons and hints, and,
+for an evaluated trial, its statistics in its direction (hover one for the raw value) with
+its round's threshold, nearest factors and coverage. Trials that arrived since the page
+was opened stand out on the map for fifteen seconds.
+
 ## The memory page
 
 Every `round.memory_every` rounds the distiller folds the trials since its last version

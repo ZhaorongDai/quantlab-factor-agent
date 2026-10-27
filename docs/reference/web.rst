@@ -18,6 +18,9 @@ Reading runs
    factor_agent.web.run_view.Collision
    factor_agent.web.run_view.Factor
    factor_agent.web.run_view.Neighbour
+   factor_agent.web.run_view.Placed
+   factor_agent.web.run_view.Refusal
+   factor_agent.web.run_view.TrialRef
    factor_agent.web.run_view.Finding
    factor_agent.web.run_view.Stop
    factor_agent.web.run_view.MemoryVersion
