@@ -46,6 +46,11 @@ with them. The **reference pool** holds the scored values of the reference set a
 accepted factors; the Evaluator measures a candidate's correlation with it and regresses
 the candidate on it for the partial IC. Known factors never enter the pool.
 
+A **collision** is a trial refused for being too like a factor of these sets: by the Gate
+as a rewrite, the same graph with other parameters or a too large shared subtree (a code
+collision), or by admission as a correlation above the limit (a ranking collision). A
+repeat of the campaign's own earlier candidate is refused as a duplicate, not a collision.
+
 ## Segments
 
 | Segment | Used by | Shown to the LLM |

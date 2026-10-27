@@ -88,6 +88,17 @@ dl.contribution { margin: 6px 0 0; font-size: 12px }
 dl.contribution > div { display: flex; gap: 8px }
 dl.contribution dt { color: var(--mut); min-width: 56px }
 dl.contribution dd { margin: 0 }
+/* The diagnosis */
+.diagnosis { border: 1px solid var(--line); border-radius: 6px; padding: 6px 12px; margin: 8px 0 14px; max-width: 80ch; font-size: 13px }
+.diagnosis h2 { font-size: 13px; margin: 2px 0 4px; color: var(--mut); font-weight: 600 }
+.diagnosis ul { list-style: none; margin: 0; padding: 0 }
+.diagnosis li { padding: 4px 0 }
+.diagnosis li + li { border-top: 1px solid var(--line) }
+.diagnosis p { margin: 0 }
+.diagnosis .do { color: var(--mut) }
+.diagnosis.prominent { border-color: var(--bad); border-left-width: 4px; background: var(--card); padding: 10px 14px; font-size: 14px }
+.diagnosis.prominent h2 { font-size: 16px; color: var(--fg) }
+.diagnosis.prominent .seen { font-weight: 600 }
 /* The trials page */
 .numbers { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; margin-bottom: 12px }
 .numbers b { font-size: 16px }

@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import type { Factor, Neighbour, Run, RunSummary } from './api'
 import Verdict, { ContributionLines, dropOne } from './Verdict'
+import Diagnosis from './Diagnosis'
 
 const SORTS = {
   contribution: 'drop-one contribution',
@@ -168,6 +169,7 @@ export default function Results({ run }: { run: Run }) {
     <>
       <Health summary={run.summary} />
       <Verdict run={run} />
+      <Diagnosis run={run} />
       {!factors.length ? (
         <p className="muted">
           {run.summary.stop ? 'The run accepted no factor.' : 'No factor accepted yet.'}

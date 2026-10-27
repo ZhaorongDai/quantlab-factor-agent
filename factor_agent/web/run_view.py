@@ -26,6 +26,13 @@ reads them while a campaign may be writing them:
   records opens of the hold-out is a hold-out report. The opens are the hold-out
   lock's. A report written before the contribution table or the selection
   flag existed reads with ``None`` for them: nothing it lacks is made up.
+- A collision is read from a refusal's text: the Gate's rewrite, refinement
+  of parameters only or shared subtree is a code collision with each factor
+  it names, admission's correlation above the limit a ranking collision. The
+  Gate's refusal of a duplicate of the run's own earlier candidate is not.
+- The diagnosis is read from the trials by rules private to this module,
+  their thresholds fixed here, each finding counting trials (not attempts:
+  a trial is counted once whichever of its versions met the problem).
 - A trial the Evaluator scored is placed on the admission map by its
   partial-IC t in its direction (the sign of its training IC, as admission
   reads it) and its largest absolute correlation with an existing factor.
@@ -54,6 +61,26 @@ class Stop:
 
 
 @dataclass(frozen=True)
+class Collision:
+    """A trial's refusal for being too like an existing factor: a reference, known or accepted one.
+
+    ``label`` names the factor as the Gate and the Evaluator do; ``name`` is
+    how a page names it, as ``Neighbour.name``. ``kind`` is ``"code"`` (the
+    Gate found a rewrite, the same graph with other parameters, or a too
+    large shared subtree) or ``"ranking"`` (admission found a correlation
+    above the limit). ``accepted_round`` is the round that accepted the
+    factor, ``None`` for one of the user's own factors; ``known`` is true
+    for a known factor, false for a reference or accepted one.
+    """
+
+    label: str
+    name: str
+    kind: str
+    accepted_round: int | None
+    known: bool
+
+
+@dataclass(frozen=True)
 class Trial:
     """One trial of a written round, as the ledger holds it, with NaN read as ``None``.
 
@@ -61,7 +88,8 @@ class Trial:
     round's research directions. ``status``, ``stage``, ``reasons``,
     ``candidate``, ``direction``, ``attempts``, ``stats`` and ``metrics`` are
     the trial record's (``factor_agent.ledger.TrialRecord``); ``metrics`` is
-    ``None`` for a trial the Evaluator never scored.
+    ``None`` for a trial the Evaluator never scored. ``collisions`` holds
+    every collision of the trial's versions, each factor and kind once.
     """
 
     round: int
@@ -74,6 +102,7 @@ class Trial:
     attempts: tuple[dict, ...]
     stats: dict | None
     metrics: dict | None
+    collisions: tuple[Collision, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -291,6 +320,23 @@ class AcceptanceReports:
 
 
 @dataclass(frozen=True)
+class Finding:
+    """One finding of a run's diagnosis: a thing seen in its trials and what to do about it.
+
+    ``rule`` names the rule that found it: ``"unreadable_replies"``,
+    ``"known_collisions"`` (one of the user's own factors),
+    ``"accepted_collisions"`` (factors the run accepted), ``"coverage_refusals"``,
+    ``"graph_build_failures"`` or ``"below_threshold"``. ``trials`` counts the
+    trials it concerns. ``seen`` and ``do`` are sentences for the page.
+    """
+
+    rule: str
+    trials: int
+    seen: str
+    do: str
+
+
+@dataclass(frozen=True)
 class RunSummary:
     """What the run list shows of a run.
 
@@ -329,7 +375,9 @@ class RunView:
     ``memory`` holds the versions of the memory by the round after which
     they were written, the earliest first; it is empty while the distiller
     has written none. ``acceptance`` holds the run's Acceptance reports and
-    hold-out opens. ``now`` is the time the view describes (UTC).
+    hold-out opens. ``diagnosis`` holds at most three findings, the one
+    concerning the most trials first; it is empty when no rule holds.
+    ``now`` is the time the view describes (UTC).
     """
 
     summary: RunSummary
@@ -341,6 +389,7 @@ class RunView:
     never_evaluated: tuple[Refusal, ...]
     memory: tuple[MemoryVersion, ...]
     acceptance: AcceptanceReports
+    diagnosis: tuple[Finding, ...]
     now: datetime
 
     @classmethod
@@ -383,6 +432,7 @@ class RunView:
         )
         return cls(summary=summary, trials=trials, factors=_factors(trials), correlation_limit=_correlation_limit(trials),
                    **_trials_page(trials), memory=_memory(run_dir / "memory"), acceptance=_acceptance(run_dir),
+                   diagnosis=_diagnosis(trials),
                    now=now or datetime.now(timezone.utc))
 
 
@@ -436,6 +486,7 @@ def _trials(ledger: Path, rounds: int) -> list[Trial]:
             round=record["round"], slot=slot, status=record["status"], stage=record["stage"],
             reasons=tuple(record["reasons"]), candidate=record["candidate"], direction=record.get("direction"),
             attempts=tuple(record.get("attempts") or ()), stats=record.get("stats"), metrics=record.get("metrics"),
+            collisions=_trial_collisions(record),
         ))
     return trials
 
@@ -533,6 +584,120 @@ def _factors(trials: tuple[Trial, ...]) -> tuple[Factor, ...]:
             decile_returns=deciles, coverage=metrics.get("coverage"), metrics=metrics,
         ))
     return tuple(factors)
+
+
+#: The refusals that name the factors a candidate collided with, by kind; group 1 holds the names.
+_COLLISIONS = (
+    ("code", re.compile(r"^the factor rewrites (.+?(?:\)| more)): ", re.DOTALL)),
+    ("code", re.compile(r"^the factor is (.+?) with other windows or parameter values only; ", re.DOTALL)),
+    ("code", re.compile(r"^the factor shares a \d+-node subtree with (.+?), more than the limit of \d+: ", re.DOTALL)),
+    ("ranking", re.compile(
+        r"^cross-sectional correlation [-+]?[\d.]+ with (.+?)(?:, sampled on [^,]*,)? is above [\d.]+ in absolute value$",
+        re.DOTALL)),
+)
+
+#: One label in the Gate's list of them: a reference, known or accepted factor's label ends in its parentheses.
+_LABEL = re.compile(r"(.+?) \((accepted in round \d+|[\w.]+(?:, a known factor)?)\)(?:, |(?: and \d+ more)?$)", re.DOTALL)
+
+
+def _collisions(reason: str) -> list[Collision]:
+    """The collisions a refusal names, none for any other refusal."""
+    for kind, pattern in _COLLISIONS:
+        if found := pattern.match(reason):
+            names = found.group(1)
+            labels = [names] if kind == "ranking" else [f"{m[1]} ({m[2]})" for m in _LABEL.finditer(names)]
+            return [_collision(label, kind) for label in labels]
+    return []
+
+
+def _collision(label: str, kind: str) -> Collision:
+    neighbour = _neighbour(label, None)
+    return Collision(label=label, name=neighbour.name, kind=kind, accepted_round=neighbour.accepted_round,
+                     known=label.endswith(", a known factor)"))
+
+
+def _trial_collisions(record: dict) -> tuple[Collision, ...]:
+    """Every collision of a trial's versions, each factor and kind once."""
+    reasons = [r for attempt in record.get("attempts") or () for r in attempt.get("reasons") or ()]
+    found = {}
+    for reason in reasons + list(record["reasons"]):
+        for collision in _collisions(reason):
+            found.setdefault((collision.label, collision.kind), collision)
+    return tuple(found.values())
+
+
+#: Findings shown at most.
+_FINDINGS = 3
+
+#: The share of trials above which unreadable replies, coverage refusals and graph build failures are findings.
+_UNREADABLE_SHARE, _COVERAGE_SHARE, _BUILD_SHARE = 0.20, 0.15, 0.15
+
+#: The number of trials above which collisions with one of the user's factors, or with accepted ones, are a finding.
+_COLLIDING_TRIALS = 5
+
+
+def _refusals(trial: Trial) -> list[tuple[str, str]]:
+    """Every (stage, reason) the trial's versions were refused with, its final refusal among them."""
+    found = [(attempt.get("stage", ""), r) for attempt in trial.attempts for r in attempt.get("reasons") or ()]
+    return found + [(trial.stage, r) for r in trial.reasons]
+
+
+def _share(count: int, total: int) -> str:
+    return f"{count} of {total} trials ({count / total:.0%})"
+
+
+def _diagnosis(trials: list[Trial]) -> tuple[Finding, ...]:
+    """The findings of the rules that hold, the most trials first, at most three."""
+    n = len(trials)
+    if not n:
+        return ()
+    findings = []
+    unreadable = sum(any(stage == "parse" for stage, _ in _refusals(t)) for t in trials)
+    if unreadable > _UNREADABLE_SHARE * n:
+        findings.append(Finding(
+            "unreadable_replies", unreadable,
+            f"The LLM's replies could not be read as candidates in {_share(unreadable, n)}.",
+            "Change the model, or raise its output limit if its replies are cut off."))
+    own, accepted = {}, {}
+    for trial in trials:
+        for collision in {c.label: c for c in trial.collisions}.values():
+            (own if collision.accepted_round is None else accepted).setdefault(collision.label, []).append(trial)
+    if own:
+        label, colliding = max(own.items(), key=lambda item: len(item[1]))
+        if len(colliding) > _COLLIDING_TRIALS:
+            findings.append(Finding(
+                "known_collisions", len(colliding),
+                f"Candidates collided with your factor {label} in {_share(len(colliding), n)}.",
+                "Steer the research directions away from it, or check that your known factors are the ones you mean."))
+    merged = {id(t) for colliding in accepted.values() for t in colliding}
+    if len(merged) > _COLLIDING_TRIALS:
+        names = ", ".join(f"{_neighbour(label, None).name} ({len(colliding)})"
+                          for label, colliding in sorted(accepted.items(), key=lambda item: -len(item[1])))
+        findings.append(Finding(
+            "accepted_collisions", len(merged),
+            f"Candidates collided with factors the run accepted earlier in {_share(len(merged), n)}: {names}.",
+            "Nothing to fix: these are the novelty checks at work, refusing what the run already found. "
+            "If it goes on, give later rounds other research directions."))
+    coverage = sum(any(stage == "admission" and r.startswith("coverage ") for stage, r in _refusals(t)) for t in trials)
+    if coverage > _COVERAGE_SHARE * n:
+        findings.append(Finding(
+            "coverage_refusals", coverage,
+            f"Candidates had a value on too few members in {_share(coverage, n)}.",
+            "Check that your data's fields have values for the members and dates the run trains on."))
+    builds = sum(any(r.startswith(("graph build failed", "graph build crashed")) for _, r in _refusals(t)) for t in trials)
+    if builds > _BUILD_SHARE * n:
+        findings.append(Finding(
+            "graph_build_failures", builds,
+            f"Candidate code failed to build a graph in {_share(builds, n)}.",
+            "Check the operator file's signatures and descriptions, or try a model that writes the operators correctly."))
+    evaluated = [t for t in trials if t.metrics is not None]
+    below = sum(any(_THRESHOLD.search(r) for r in t.reasons) for t in evaluated)
+    if not any(t.status == "accepted" for t in trials) and below > len(evaluated) / 2:
+        findings.append(Finding(
+            "below_threshold", below,
+            f"Nothing was accepted: {below} of {len(evaluated)} evaluated trials fell below the partial-IC t threshold.",
+            "This is the statistical bar, not an error: more rounds or other research directions may clear it."))
+    return tuple(sorted(findings, key=lambda f: -f.trials)[:_FINDINGS])
 
 
 #: The order of the stages that refuse a trial before the Evaluator scores it.
