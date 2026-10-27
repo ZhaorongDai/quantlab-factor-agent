@@ -27,6 +27,7 @@ from tests.fake_llm import FakeLLM  # noqa: E402
 
 SNAPSHOT = Path(__file__).parent / "snapshots" / "web_runs.json"
 FACTORS = Path(__file__).parent / "snapshots" / "web_run_factors.json"
+TRIALS = Path(__file__).parent / "snapshots" / "web_run_trials.json"
 
 ROUND = [
     candidate("planted", "alpha = close / open"),
@@ -89,6 +90,14 @@ def test_a_runs_accepted_factors_answer_with_the_snapshot_json(client):
 
 def test_a_run_whose_distiller_has_written_nothing_answers_with_no_memory_versions(client):
     assert client.get("/api/run", params={"name": "example/run"}).json()["memory"] == []
+
+
+def test_a_runs_trials_page_answers_with_the_snapshot_json(client):
+    run_json = client.get("/api/run", params={"name": "example/run"}).json()
+    trials = _shape({key: run_json[key] for key in ("evaluated", "threshold", "never_evaluated")})
+    if os.environ.get("FACTOR_AGENT_UPDATE_SNAPSHOTS"):
+        TRIALS.write_text(json.dumps(trials, indent=2) + "\n")
+    assert trials == json.loads(TRIALS.read_text())
 
 
 def test_the_page_is_served_at_the_root(client):

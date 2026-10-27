@@ -22,6 +22,12 @@ reads them while a campaign may be writing them:
   round's candidates are judged at the same trial count), carried over from
   the round before when the round quotes none, and the correlation limit is
   the one a refusal quotes. Either is ``None`` while no refusal quotes it.
+- A trial the Evaluator scored is placed on the admission map by its
+  partial-IC t in its direction (the sign of its training IC, as admission
+  reads it) and its largest absolute correlation with an existing factor.
+  The trials it never scored are grouped by the stage that refused them and
+  the reason: reasons that differ only in their numbers, or in the reply or
+  code they quote, are one reason.
 - The memory's versions are the distiller's files ``memory/round_NN.md``,
   each written before round ``NN``, so after round ``NN - 1``. A version
   after the first is compared with the one before it line by line.
@@ -122,6 +128,56 @@ class Factor:
 
 
 @dataclass(frozen=True)
+class Placed:
+    """An evaluated trial as the admission map places it, with its statistics in its direction.
+
+    ``round`` and ``slot`` name the trial, ``status`` is accepted or rejected.
+    ``factor_direction`` is +1 when a higher value went with a higher training
+    return, -1 otherwise. ``ic_mean``, ``ic_t``, ``partial_ic_mean`` and
+    ``partial_ic_t`` are in that direction; the trial's ``metrics`` keep the
+    raw values. ``largest_correlation`` is the larger absolute correlation
+    with the nearest reference or accepted factor and the nearest known one,
+    ``None`` when there was none to compare with. ``threshold`` is the t
+    threshold of its round as the refusals quote it (``None`` while none does).
+    """
+
+    round: int
+    slot: int
+    status: str
+    factor_direction: int
+    ic_mean: float | None
+    ic_t: float | None
+    partial_ic_mean: float | None
+    partial_ic_t: float | None
+    largest_correlation: float | None
+    threshold: float | None
+
+
+@dataclass(frozen=True)
+class TrialRef:
+    """A trial named by its round and its slot in the round."""
+
+    round: int
+    slot: int
+
+
+@dataclass(frozen=True)
+class Refusal:
+    """The trials one stage refused for the same reason before the Evaluator scored them.
+
+    ``stage`` is ``"parse"``, ``"gate"``, ``"review"`` or ``"evaluate"`` (code
+    the Evaluator could not build). ``reason`` is the first trial's final
+    reason; the others' may differ in the numbers, reply or code they quote.
+    ``rounds`` are the rounds the trials belong to, the earliest first.
+    """
+
+    stage: str
+    reason: str
+    rounds: tuple[int, ...]
+    trials: tuple[TrialRef, ...]
+
+
+@dataclass(frozen=True)
 class MemoryLine:
     """One line of a memory version compared with the version before it.
 
@@ -178,6 +234,11 @@ class RunView:
     correlation with an existing factor that admission allows, as the run's
     latest refusal for it quotes it, ``None`` while no refusal quotes it: the
     run directory does not record the campaign's admission settings.
+    ``evaluated`` places every trial the Evaluator scored, in round and slot
+    order, and ``threshold`` is the t threshold of the latest round as its or
+    an earlier round's refusals quote it, ``None`` while none does.
+    ``never_evaluated`` groups the trials it never scored, by stage (parse,
+    Gate, review, then evaluation) and then by the first round of each reason.
     ``memory`` holds the versions of the memory by the round after which
     they were written, the earliest first; it is empty while the distiller
     has written none. ``now`` is the time the view describes (UTC).
@@ -187,6 +248,9 @@ class RunView:
     trials: tuple[Trial, ...]
     factors: tuple[Factor, ...]
     correlation_limit: float | None
+    evaluated: tuple[Placed, ...]
+    threshold: float | None
+    never_evaluated: tuple[Refusal, ...]
     memory: tuple[MemoryVersion, ...]
     now: datetime
 
@@ -229,7 +293,7 @@ class RunView:
             updated=_time(max(p.stat().st_mtime for p in _written(run_dir))),
         )
         return cls(summary=summary, trials=trials, factors=_factors(trials), correlation_limit=_correlation_limit(trials),
-                   memory=_memory(run_dir / "memory"),
+                   **_trials_page(trials), memory=_memory(run_dir / "memory"),
                    now=now or datetime.now(timezone.utc))
 
 
@@ -380,6 +444,49 @@ def _factors(trials: tuple[Trial, ...]) -> tuple[Factor, ...]:
             decile_returns=deciles, coverage=metrics.get("coverage"), metrics=metrics,
         ))
     return tuple(factors)
+
+
+#: The order of the stages that refuse a trial before the Evaluator scores it.
+_STAGES = ("parse", "gate", "review", "evaluate")
+
+#: What a reason quotes after its message: a reply, code or a value.
+_QUOTED = re.compile(r": ['\"`].*$", re.DOTALL)
+
+#: A number in a reason.
+_NUMBER = re.compile(r"[-+]?\d+(?:\.\d+)?(?:e[-+]?\d+)?")
+
+
+def _trials_page(trials: tuple[Trial, ...]) -> dict:
+    """The admission map's trials, the latest threshold and the trials never evaluated, as ``RunView`` fields."""
+    thresholds = _thresholds(trials)
+    evaluated = []
+    for trial in trials:
+        if not trial.metrics:
+            continue
+        metrics = trial.metrics
+        sign = 1 if (metrics.get("ic_mean") or 0) > 0 else -1
+        correlations = [abs(c) for c in (metrics.get("nearest_correlation"), metrics.get("nearest_known_correlation"))
+                        if c is not None]
+        evaluated.append(Placed(
+            round=trial.round, slot=trial.slot, status=trial.status, factor_direction=sign,
+            **{key: None if metrics.get(key) is None else sign * metrics[key]
+               for key in ("ic_mean", "ic_t", "partial_ic_mean", "partial_ic_t")},
+            largest_correlation=max(correlations) if correlations else None, threshold=thresholds[trial.round],
+        ))
+    groups: dict[tuple[str, str], list[Trial]] = {}
+    for trial in trials:
+        if trial.metrics or trial.status == "accepted":
+            continue
+        reason = trial.reasons[0] if trial.reasons else ""
+        groups.setdefault((trial.stage, _NUMBER.sub("#", _QUOTED.sub("", reason))), []).append(trial)
+    never = [Refusal(stage=stage, reason=members[0].reasons[0] if members[0].reasons else "",
+                     rounds=tuple(sorted({t.round for t in members})),
+                     trials=tuple(TrialRef(t.round, t.slot) for t in members))
+             for (stage, _), members in groups.items()]
+    never.sort(key=lambda g: (_STAGES.index(g.stage) if g.stage in _STAGES else len(_STAGES), g.trials[0].round,
+                              g.trials[0].slot))
+    return {"evaluated": tuple(evaluated), "threshold": thresholds[max(thresholds)] if thresholds else None,
+            "never_evaluated": tuple(never)}
 
 
 def _memory(folder: Path) -> tuple[MemoryVersion, ...]:

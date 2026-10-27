@@ -4,6 +4,7 @@ import * as api from './api'
 import type { Run, RunSummary } from './api'
 import Memory from './Memory'
 import Results from './Results'
+import Trials from './Trials'
 
 function useRunParam(): [string, (name: string) => void] {
   const [name, setName] = useState(new URLSearchParams(location.search).get('run') ?? '')
@@ -110,29 +111,6 @@ function RunPage({ name }: { name: string }) {
     <>
       <Pages page={page} open={openPage} />
       {page === 'memory' ? <Memory versions={run.memory} /> : page === 'trials' ? <Trials run={run} /> : <Results run={run} />}
-    </>
-  )
-}
-
-function Trials({ run }: { run: Run }) {
-  const s = run.summary
-  return (
-    <>
-      <p className="facts">
-        {s.rounds} round{s.rounds === 1 ? '' : 's'} written, {s.trials} trials, {s.accepted} accepted; <State summary={s} />;
-        last activity {ago(s.updated)}; code version <span className="mono" title={s.code_version}>{version(s.code_version)}</span>.
-      </p>
-      <table className="runs">
-        <thead><tr><th>round</th><th>slot</th><th>status</th><th>stage</th><th>description</th></tr></thead>
-        <tbody>
-          {run.trials.map(t => (
-            <tr key={`${t.round}.${t.slot}`} className="static">
-              <td>{t.round}</td><td>{t.slot + 1}</td><td><span className={`badge ${t.status}`}>{t.status}</span></td><td>{t.stage}</td>
-              <td>{String(t.candidate.description ?? '')}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </>
   )
 }

@@ -64,3 +64,34 @@ dl.trust dd { margin: 0; overflow-wrap: anywhere }
 .write-up [title] { text-decoration: underline dotted; cursor: help }
 pre.code { font-family: ui-monospace, monospace; font-size: 12px; white-space: pre-wrap; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 6px 8px; margin: 0 }
 .factor .margin, .factor dl.trust { max-width: 420px }
+/* The trials page */
+.numbers { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: baseline; margin-bottom: 12px }
+.numbers b { font-size: 16px }
+.numbers .good { color: var(--good) }
+.trials-page { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); gap: 16px; align-items: start }
+@media (max-width: 900px) { .trials-page { grid-template-columns: minmax(0, 1fr) } }
+figure.admission { margin: 0 }
+figure.admission svg { width: 100%; max-width: 760px; height: auto; display: block }
+.admission .zone { fill: color-mix(in srgb, var(--good) 9%, transparent) }
+.admission .axis { stroke: var(--line) }
+.admission .limit { stroke: var(--mut); stroke-dasharray: 4 3 }
+.admission .label { fill: var(--mut); font-size: 11px }
+.admission .point { cursor: pointer; stroke: var(--card); stroke-width: 1 }
+.admission .point.accepted, .key.accepted { fill: var(--good); color: var(--good) }
+.admission .point.rejected, .key.rejected { fill: var(--bad); color: var(--bad); fill-opacity: .7 }
+.key.failed { color: var(--fail) }
+.admission .point.fresh { stroke: var(--acc); stroke-width: 3 }
+.admission .point.picked { stroke: var(--fg); stroke-width: 2 }
+.never h3 { font-size: 15px; margin: 16px 0 4px }
+.never h4 { font-size: 13px; margin: 10px 0 2px; font-weight: 600 }
+.never button.row { display: block; width: 100%; color: var(--fg); padding: 3px 6px; border-radius: 4px; overflow-wrap: anywhere }
+.never button.row:hover, .never button.row.picked { background: color-mix(in srgb, var(--acc) 10%, transparent) }
+.never button.row.sub { padding-left: 28px; font-size: 12px }
+aside.reader { border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 10px 12px; position: sticky; top: 52px; max-height: calc(100vh - 68px); overflow: auto }
+aside.reader h3 { font-size: 14px; margin: 4px 0 6px; overflow-wrap: anywhere }
+aside.reader h4 { margin: 12px 0 2px; font-size: 13px }
+aside.reader p { margin: 4px 0 }
+aside.reader .reason { font-size: 12px; overflow-wrap: anywhere }
+aside.reader .hint { font-size: 12px; color: var(--mut) }
+ol.versions { padding-left: 18px; margin: 4px 0 }
+ol.versions li { margin-bottom: 8px }

@@ -58,9 +58,31 @@ export type Run = {
   trials: Trial[]
   factors: Factor[]
   correlation_limit: number | null
+  evaluated: Placed[]
+  threshold: number | null
+  never_evaluated: Refusal[]
   memory: MemoryVersion[]
   now: string
 }
+
+// An evaluated trial as the trials page's admission map places it, its statistics in its direction.
+export type Placed = {
+  round: number
+  slot: number
+  status: 'accepted' | 'rejected'
+  factor_direction: 1 | -1
+  ic_mean: number | null
+  ic_t: number | null
+  partial_ic_mean: number | null
+  partial_ic_t: number | null
+  largest_correlation: number | null
+  threshold: number | null
+}
+
+export type TrialRef = { round: number; slot: number }
+
+// Trials one stage refused for the same reason before the Evaluator scored them.
+export type Refusal = { stage: string; reason: string; rounds: number[]; trials: TrialRef[] }
 
 async function get<T>(url: string): Promise<T> {
   const response = await fetch(url)
