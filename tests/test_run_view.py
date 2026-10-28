@@ -18,7 +18,7 @@ import shutil
 
 import pytest
 
-from factor_agent.web.run_view import RunView, list_runs
+from factor_agent.web.run_view import RunView, find_run, list_runs
 from tests import synthetic_market
 from tests.campaign_runner import candidate, run, write_config
 from tests.fake_llm import FakeLLM, Interrupted, round_of
@@ -177,3 +177,22 @@ def test_every_version_after_the_first_says_what_changed_from_the_one_before(run
         ("added", "- Distilled memory number 2: volume surprises keep working."),
     ]
     assert [c.line for c in changes if c.change != "removed"] == versions[2].text.splitlines()
+
+
+def test_a_run_is_found_by_its_name_without_walking_the_folder(runs, monkeypatch):
+    # A folder of runs may sit beside other work of hundreds of thousands of files: the page asks for a run every
+    # few seconds, so finding one by its name must not walk the folder.
+    names = [s.name for s in list_runs(runs)]
+    def walk(*args, **kwargs):
+        raise AssertionError("find_run walked the folder")
+    monkeypatch.setattr(type(runs), "rglob", walk)
+    for name in names:
+        assert find_run(runs, name) == runs / name
+    assert find_run(runs, "nowhere/run") is None
+
+
+def test_a_name_outside_the_folder_or_of_a_folder_that_is_no_run_finds_nothing(runs):
+    name = list_runs(runs)[0].name
+    assert find_run(runs / "finished", "../" + name) is None
+    assert find_run(runs, "finished") is None
+    assert find_run(runs / "finished" / "run", "run") == runs / "finished" / "run"

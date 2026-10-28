@@ -302,8 +302,19 @@ def list_runs(root: str | Path) -> list[RunSummary]:
 
 
 def find_run(root: str | Path, name: str) -> Path | None:
-    """The run directory ``list_runs(root)`` names ``name``, ``None`` when it names none so."""
-    return _run_dirs(Path(root)).get(name)
+    """The run directory ``list_runs(root)`` names ``name``, ``None`` when it names none so.
+
+    A name is the run's path under ``root``, so the run is looked up there without walking ``root``, which
+    may hold other work of many files; a name that leaves ``root`` names nothing.
+    """
+    root = Path(root)
+    if name == root.name and (root / "snapshot.json").is_file():
+        return root
+    parts = Path(name).parts
+    if not parts or Path(name).is_absolute() or ".." in parts:
+        return None
+    found = root / name
+    return found if (found / "snapshot.json").is_file() else None
 
 
 def _run_dirs(root: Path) -> dict[str, Path]:
