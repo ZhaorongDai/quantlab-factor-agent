@@ -10,9 +10,9 @@ two candidates once, a chunk of sessions at a time
 (``factor_agent.session.SessionColumns``), then its daily graph runs with the
 others; a day without a session (the warm-up before the intraday data begins,
 say) has no session value, so a daily window reaching back before it is
-missing and counted against coverage. Each candidate is
-then scored by the campaign's ``Scoring``: ranked across the whole market
-(KunQuant ``Rank``), neutralised when the scoring neutralises, and masked to
+missing and counted against coverage. Each candidate is then scored by the
+campaign's ``Scoring``: ranked across the whole market (KunQuant ``Rank``),
+neutralised when the scoring neutralises, and masked to
 the members of day t, or kept on every symbol without a membership. A
 reference or known factor given as a component is scored the same way; one
 given as a store (a ``*_neutral`` store, say) is read as stored and masked
