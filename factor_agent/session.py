@@ -25,8 +25,9 @@ that restart at each session's first bar and skip a missing value, sums
 greatest value present). Moments are sums of the values less the session's
 first value, as quantlab's session statistics compute them, so that in
 float32 a price's deviations are not lost to its level. An accumulator is
-named after what it accumulates, the canonical hash of the aggregation's
-input subgraph (of each input's, joined, for two) and the kind
+named after what it accumulates, the hash of what the aggregation's input
+subgraph computes (``computation_hashes``; of each input's, joined, for
+two) and the kind
 (``<hash>_count``, ``<hash>_first``, ``<hash>_shifted_sumsq``...): one
 function builds one accumulator per name, and KunQuant's expression folding
 merges two accumulators only when their names are the same, so two
@@ -35,9 +36,10 @@ their sums (``SessionMean(x)`` and ``SessionStd(x)``: the count, the first
 value and the shifted sums of ``x`` and of its square).
 
 All the graphs of one factor are one KunQuant function, and an operator
-whose canonical hash an earlier one has (in the same graph or another) is
-that operator, so a subtree two candidates share is computed once, however
-each wrote it.
+that computes what an earlier one computes (in the same graph or another:
+the same ``computation_hashes``) is that operator, so a subtree two
+candidates share is computed once, and a graph's values are the same
+whichever graphs it is computed with.
 
 ``SessionColumns`` is the provider of session columns to a daily factor
 (``factor_agent.derived``): it computes the intraday graphs of a stage split
@@ -65,7 +67,7 @@ from factor_agent.aggregations import (
     SessionSkew, SessionStd, SessionSum, SessionWeightedMean,
 )
 from factor_agent.derived import Provider
-from factor_agent.gate._canonical import canonical_hashes
+from factor_agent.gate._canonical import computation_hashes
 from factor_agent.gate.graph import Graph, Node
 from factor_agent.gate.vocabulary import resolve_classes
 
@@ -249,7 +251,7 @@ def _corr(expansion: _Expansion, inputs: list[OpBase], keys: list[str]) -> OpBas
     return _nan_unless(And(LessThan(ConstantOp(0.0), xx), LessThan(ConstantOp(0.0), yy)), xy / Sqrt(xx * yy))
 
 
-#: How each aggregation expands: from its input operators and the keys naming their sums (the canonical hash of
+#: How each aggregation expands: from its input operators and the keys naming their sums (the computation hash of
 #: each input's subgraph), its value at each bar.
 _EXPANSIONS: dict[type, Callable[[_Expansion, list[OpBase], list[str]], OpBase]] = {
     SessionMean: _mean, SessionSum: _sum, SessionCount: _count, SessionStd: _std, SessionSkew: _skew,
@@ -263,10 +265,10 @@ def session_function(graphs: Mapping[str, Graph]) -> Function:
 
     Every aggregation is expanded into its session sums; the bars before a
     session's last are NaN. A subtree is computed once however often the
-    graphs hold it: an operator whose canonical hash an earlier one of any
-    graph has is that operator (``Mul(close, volume)`` and
-    ``Mul(volume, close)`` are one), so an aggregation of one subgraph in
-    two graphs sums it once. Operators in or after a loop are kept as
+    graphs hold it: an operator computing what an earlier one of any graph
+    computes is that operator (``Mul(close, volume)`` and
+    ``Mul(volume, close)`` are one, ``x + 1e8 - 1e8`` and ``x`` two), so an
+    aggregation of one subgraph in two graphs sums it once. Operators in or after a loop are kept as
     built, a loop's body being its own.
 
     Raises
@@ -277,12 +279,12 @@ def session_function(graphs: Mapping[str, Graph]) -> Function:
     inputs: dict[str, OpBase] = {}
     expansion = _Expansion(inputs)
     ops: list[OpBase] = []
-    # The operator computing each canonical hash, over every graph so far.
+    # The operator computing each computation hash, over every graph so far.
     built: dict[str, OpBase] = {}
     for name, graph in graphs.items():
         if not _is_aggregation(graph, graph.nodes[-1]):
             raise ValueError(f"SessionFactor: graph {name} does not end in a session aggregation")
-        hashes = canonical_hashes(graph)
+        hashes = computation_hashes(graph)
         shared = _shareable(graph)
         # Graph.build makes an operator per node other than an Input, in node order.
         nodes = iter([i for i, node in enumerate(graph.nodes) if node.op != "Input"])

@@ -14,6 +14,7 @@ import pandas as pd
 import pytest
 from quantlab.factor.kunquant_compile import CACHE_ENV
 
+from factor_agent.gate._canonical import computation_hashes
 from factor_agent.gate.graph import Graph
 from factor_agent.gate.stages import session_column, split
 from factor_agent.session import SessionColumns
@@ -61,7 +62,7 @@ def _sessions(codes: dict[str, str], panel=None, granularity=None) -> dict[str, 
 def test_an_intraday_graph_is_named_after_what_it_computes_once_its_windows_are_rewritten():
     staged = _staged("alpha = SessionMean(WindowedAvg(bar_close, 5))")
     [(name, graph)] = staged.intraday.items()
-    assert name == session_column(graph.fingerprint())
+    assert name == session_column(computation_hashes(graph)[-1])
     assert "session_position" in graph.input_names
     unwindowed = _staged("alpha = SessionMean(bar_close)")
     assert "session_position" not in next(iter(unwindowed.intraday.values())).input_names

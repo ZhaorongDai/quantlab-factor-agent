@@ -12,6 +12,7 @@ from KunQuant.Op import Input, Rank
 from KunQuant.ops import Div, Mul, WindowedAvg
 
 from factor_agent.aggregations import SessionMean
+from factor_agent.gate._canonical import computation_hashes
 from factor_agent.gate.graph import Graph
 from factor_agent.gate.stages import split
 from tests.vocabulary_files import intraday, price_volume
@@ -27,8 +28,8 @@ def _graph(op) -> Graph:
 
 
 def _session_column(op) -> str:
-    """The name of the session column of the intraday graph ``op``: its canonical hash."""
-    return f"session_{_graph(op).fingerprint()}"
+    """The name of the session column of the intraday graph ``op``: the hash of what it computes."""
+    return f"session_{computation_hashes(_graph(op))[-1]}"
 
 
 def test_a_daily_graph_is_its_own_daily_graph_with_no_intraday_graph():

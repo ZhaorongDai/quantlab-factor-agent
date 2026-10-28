@@ -109,6 +109,31 @@ def canonical_hashes(graph: "Graph") -> list[str]:
     return [_sha(["term", _key(t)]) for t in canonical_terms(graph)]
 
 
+#: Operators whose result does not depend on the order of their inputs, to the last bit, NaN included.
+#: ``Max`` and ``Min`` are not among them: a SIMD maximum returns its second input when one is NaN.
+_EXACTLY_COMMUTATIVE = frozenset({"Add", "Mul", "Equals", "And", "Or", "SessionCorr"})
+
+
+def computation_hashes(graph: "Graph") -> list[str]:
+    """Return a hash of what every node of ``graph`` computes, in node order; the last is the factor's.
+
+    Two nodes hash alike only when they compute the same values to the last
+    bit: the hash is of the operator, attributes, inputs and loop as
+    written, without the canonical hash's rewrites (``x + 1e8 - 1e8`` is not
+    ``x`` in float32, nor ``x / 3`` ``x * (1/3)``), the inputs of an
+    operator whose result does not depend on their order sorted. A repeated
+    subexpression hashes the same wherever it appears.
+    """
+    hashes: list[str] = []
+    for node in graph.nodes:
+        inputs = [hashes[i] for i in node.inputs]
+        if node.op in _EXACTLY_COMMUTATIVE:
+            inputs.sort()
+        parent = None if node.parent is None else hashes[node.parent]
+        hashes.append(_sha(["computation", node.op, sorted(node.attrs), inputs, parent]))
+    return hashes
+
+
 def effective_parameters(graph: "Graph", lags_below: frozenset[str] = frozenset()) -> list[tuple[str, str, float]]:
     """Return ``(operator, kind, value)`` for every value the factor uses once constants are merged.
 

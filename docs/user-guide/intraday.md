@@ -47,10 +47,11 @@ second, `BackRef(last_price, 5)` lags 5 bars within the session, and
 
 The Gate splits the candidate's graph at its aggregations. Each aggregation, with what it
 reads, becomes an intraday graph, computed once per session. Its value is a **session
-column**, named after the graph's canonical hash, so two aggregations that compute the same
-thing are one column, whether they come from one candidate or two. The daily graph reads
-each session column as it reads a field. A graph without an aggregation or an intraday field
-is a daily candidate, judged as it was before.
+column**, named after what the graph computes, so two aggregations that compute the same
+values are one column, whether they come from one candidate or two, and the operand order of a
+sum or a product does not matter. The daily graph reads each session column as it reads a
+field. A graph without an aggregation or an intraday field has no intraday stage: it is
+evaluated on the daily bars alone, as in a campaign without an intraday family.
 
 Inside the intraday stage:
 
@@ -227,7 +228,7 @@ The paths are stores under one data root: point them at your own.
 Each round, the Evaluator splits every candidate that passed the review into its stages.
 All of the round's intraday graphs run as one KunQuant function on the intraday dataset,
 over the training segment and the daily warm-up before it. An operator that two candidates
-share is computed once, however each wrote it. The session columns are then put on the
+share is computed once when both compute the same values. The session columns are then put on the
 daily panel, and the daily graphs run as in a daily round. Coverage is measured on the daily
 graph, so a missing session value is a missing value.
 

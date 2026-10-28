@@ -23,6 +23,7 @@ from quantlab.factor.kunquant_compile import CACHE_ENV
 from factor_agent.acceptance import Acceptance
 from factor_agent.config import CampaignConfig
 from factor_agent.evaluator import Evaluator
+from factor_agent.exported import GraphFactor
 from factor_agent.gate.graph import Graph
 from factor_agent.scoring import Scoring
 from tests import synthetic_intraday_market as market
@@ -88,6 +89,35 @@ def test_the_exported_intraday_factor_gives_the_values_the_evaluator_scored(camp
     on_members = np.where(frame.in_rows, frame.on_axes(recomputed), np.nan)
     assert np.isfinite(on_members).mean() > 0.9
     np.testing.assert_array_equal(on_members, np.where(frame.in_rows, evaluated.values, np.nan))
+
+
+def test_two_candidates_whose_aggregations_share_a_canonical_hash_each_export_the_values_they_were_scored_on(campaign):
+    # Adding 1e8 and taking it off again hashes as the volume itself but loses its digits in float32.
+    acceptance = campaign["acceptance"]
+    config, vocabulary = acceptance.config, acceptance.vocabulary
+    codes = ["alpha = WindowedAvg(SessionMean(bar_volume), 5)", "alpha = WindowedAvg(SessionMean(bar_volume + 1e8 - 1e8), 5)"]
+    graphs = [Graph.record(vocabulary.execute(code)["alpha"], vocabulary) for code in codes]
+    assert graphs[0].fingerprint() == graphs[1].fingerprint()
+    evaluator = Evaluator.for_segment(
+        config.training, prices=config.data.load("prices"), label=config.data.load("label"),
+        scoring=Scoring.from_config(config.scoring, config.data, njobs=4),
+        warmup_bars=config.evaluator.warmup_bars, njobs=4, vocabulary=vocabulary, intraday=config.data.load("intraday"),
+    )
+    frame = evaluator._scored_frame()
+    evaluated = evaluator._values(graphs, frame)
+    exported = []
+    for graph, values in zip(graphs, evaluated):
+        daily_graphs, sessions = GraphFactor.staged({"f": graph.to_json()}, vocabulary)
+        factor = GraphFactor(acceptance._factor_config(daily_graphs, {}, sessions, kwargs={
+            "graphs": daily_graphs, "classes": vocabulary.class_paths([*daily_graphs.values(), *sessions.values()]),
+            "sessions": sessions, "intraday": config.data.load("intraday").get_config(),
+        }))
+        recomputed = acceptance._scoring().apply(factor).compute(config.training.start, config.training.end)["f"]
+        on_members = np.where(frame.in_rows, frame.on_axes(recomputed), np.nan)
+        assert np.isfinite(on_members).mean() > 0.9
+        np.testing.assert_array_equal(on_members, np.where(frame.in_rows, values.values, np.nan))
+        exported.append(on_members)
+    assert not np.array_equal(exported[0], exported[1], equal_nan=True)
 
 
 def test_acceptance_validates_the_intraday_factor_and_opens_the_hold_out_on_it(campaign):

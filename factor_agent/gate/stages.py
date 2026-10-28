@@ -5,10 +5,12 @@ aggregation (``factor_agent.aggregations``) and what it depends on is its
 intraday stage, computed on each session's intraday bars; everything above
 the aggregations is its daily stage, computed on one value per stock and
 day. ``split`` gives the daily graph, each aggregation subtree replaced by
-an ``Input`` of its session column, named after the subtree's canonical hash
-(``session_column``), and the intraday graphs by those names, each ending in
-its aggregation: two aggregations that compute the same, in one graph or in
-two, are one column. The daily family's bar mask, which quantlab's
+an ``Input`` of its session column, named after what the subtree computes
+(``session_column``, ``computation_hashes``), and the intraday graphs by
+those names, each ending in its aggregation: two aggregations that compute
+the same values, in one graph or in two, are one column, and two that
+compute different values are two, even when their canonical hashes are one
+(``x + 1e8 - 1e8`` is ``x`` to the Gate but not in float32). The daily family's bar mask, which quantlab's
 NaN-preserving stand-ins add to what they compute, is left out of the
 intraday stage: a bar there is an intraday bar. A graph without an
 aggregation or an intraday field is its own daily graph.
@@ -48,7 +50,7 @@ from KunQuant.Op import ForeachBackWindow, WindowedTrait
 from KunQuant.ops import Add
 
 from factor_agent.aggregations import SESSION_POSITION, SessionAggregation, WithinSession
-from factor_agent.gate._canonical import canonical_hashes, effective_parameters
+from factor_agent.gate._canonical import canonical_hashes, computation_hashes, effective_parameters
 from factor_agent.gate.graph import Graph, Node
 
 #: The parameter set of an attribute that is bookkeeping (``vocabulary.FLAG``), never checked.
@@ -78,7 +80,7 @@ class Staged:
 
 
 def session_column(subtree_hash: str) -> str:
-    """The name of the session column of an aggregation subtree, from its canonical hash."""
+    """The name of the session column of an aggregation subtree, from the hash of what it computes."""
     return f"session_{subtree_hash}"
 
 
@@ -122,7 +124,7 @@ def split(graph: Graph, vocabulary: "Vocabulary") -> Staged:
         i: _within_session(_rebuilt(graph, i, lambda j: masked.get(j)))
         for i, aggregation in enumerate(aggregations) if aggregation and DAILY in stages[i]
     }
-    names = {i: session_column(subgraph.fingerprint()) for i, subgraph in intraday.items()}
+    names = {i: session_column(computation_hashes(subgraph)[-1]) for i, subgraph in intraday.items()}
     daily = _rebuilt(graph, len(graph.nodes) - 1, lambda j: Node("Input", (("name", names[j]),), (), None) if j in names else None)
     return Staged(daily, {names[i]: subgraph for i, subgraph in intraday.items()})
 
