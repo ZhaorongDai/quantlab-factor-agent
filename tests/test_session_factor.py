@@ -288,6 +288,22 @@ def test_aggregations_of_one_subgraph_share_their_sums(vocabulary):
     assert _accumulators(both.graph()) == _accumulators(std.graph()) == 4
 
 
+def test_a_subtree_two_graphs_share_is_computed_once(vocabulary):
+    codes = {
+        "mean": "alpha = SessionMean(Rank(WindowedAvg(close * volume, 5)))",
+        "std": "alpha = SessionStd(Rank(WindowedAvg(volume * close, 5)))",
+    }
+    both = _factor(vocabulary, codes)
+    # The two Rank subtrees are written apart but compute the same values (one canonical hash): one of each operator.
+    ops = [type(op).__name__ for op in both.graph().ops]
+    assert ops.count("Rank") == ops.count("WindowedAvg") == 1
+    daily = both.resample("1d", "last").compute(DAYS[0], DAYS[-1])
+    for name, code in codes.items():
+        alone = _sessions(vocabulary, {name: code})
+        np.testing.assert_allclose(daily[name].values, alone[name].values, rtol=1e-6)
+        assert np.isfinite(alone[name].values).any()
+
+
 def test_a_graph_that_does_not_end_in_an_aggregation_is_refused(vocabulary):
     # The Gate refuses such a graph (an intraday field reaching the daily stage), so it is recorded without it.
     graphs = {"a": Graph.record(vocabulary.execute("alpha = SessionMean(close) * volume")["alpha"], vocabulary).to_json()}
@@ -330,14 +346,18 @@ def test_each_aggregation_of_one_input_is_its_numpy_reference_on_the_values_pres
         "of_close": f"alpha = {aggregation}(close)",
         "of_dollars": f"alpha = {aggregation}(close * volume)",
         "of_price": f"alpha = {aggregation}(last_price)",
+        "of_rank": f"alpha = {aggregation}(Rank(close * volume))",
     })
     reference = REFERENCES[aggregation]
+    # A cross-sectional operator ranks across the symbols at each bar.
+    ranked = panel.assign(rank=(panel["close"] * panel["volume"]).to_pandas().rank(axis=1, pct=True))
     for name, values in {
         "of_close": lambda bars: bars["close"],
         "of_dollars": lambda bars: bars["close"] * bars["volume"],
         "of_price": lambda bars: _last_price(bars["close"]),
+        "of_rank": lambda bars: bars["rank"],
     }.items():
-        expected = _per_session(panel, lambda bars: reference(values(bars)))
+        expected = _per_session(ranked, lambda bars: reference(values(bars)))
         np.testing.assert_allclose(_values(daily, name), expected, rtol=2e-5, atol=ABSOLUTE.get(aggregation, 1e-6),
                                    err_msg=name)
     empty = _values(daily, "of_close")[DAYS.index(EMPTY_DAY), SYMBOLS.index(EMPTY_SYMBOL)]

@@ -5,9 +5,12 @@ round's graphs as one KunQuant graph and computes it on the whole-market
 dataset (the segment plus the warm-up bars before it). A candidate of an
 intraday family runs as its stage split (``factor_agent.gate.stages``): the
 round's session columns are computed once on the whole-market intraday
-dataset over the same days (``factor_agent.session.SessionColumns``), then
-its daily graph runs with the others; a day without a session (the warm-up
-before the intraday data begins, say) has no session value. Each candidate is
+dataset over the same days, all in one KunQuant function, a subtree shared by
+two candidates once, a chunk of sessions at a time
+(``factor_agent.session.SessionColumns``), then its daily graph runs with the
+others; a day without a session (the warm-up before the intraday data begins,
+say) has no session value, so a daily window reaching back before it is
+missing and counted against coverage. Each candidate is
 then scored by the campaign's ``Scoring``: ranked across the whole market
 (KunQuant ``Rank``), neutralised when the scoring neutralises, and masked to
 the members of day t, or kept on every symbol without a membership. A
