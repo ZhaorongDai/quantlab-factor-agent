@@ -26,7 +26,7 @@ from factor_agent.config import GateConfig
 from factor_agent.gate import Gate, Passed, Rejected
 from factor_agent.gate.graph import Graph
 from factor_agent.gate.vocabulary import Vocabulary
-from factor_agent.session import SessionFactor
+from factor_agent.session import SESSION_INPUTS, SessionFactor
 from factor_agent.zoo import Zoo
 from tests.vocabulary_files import EXAMPLE_OPERATORS
 from tests.synthetic_intraday import (
@@ -416,3 +416,17 @@ def test_a_correlation_of_price_levels_keeps_its_relative_accuracy_in_float32(vo
     daily = _sessions(vocabulary, {"trend": "alpha = SessionCorr(close, session_position)"}, levels)
     expected = _per_session(levels, lambda bars: PAIR_REFERENCES["SessionCorr"](bars["close"], _position(bars)))
     np.testing.assert_allclose(_values(daily, "trend"), expected, rtol=1e-4, atol=1e-4)
+
+
+def test_the_memory_a_bar_takes_counts_the_session_inputs_and_grows_with_what_is_computed(vocabulary):
+    mean = _factor(vocabulary, {"a": "alpha = SessionMean(volume)"})
+    peak, output = mean.cell_bytes()
+    assert output == 8
+    # The columns read, the three session inputs, the float64 copy of the price they come from and the output.
+    assert peak >= 8 * (len(mean.config.data_columns) + len(SESSION_INPUTS) + 1 + 1)
+    # A cross-sectional rank of each bar ends a KunQuant stage: its values are held for every bar.
+    ranked = _factor(vocabulary, {"a": "alpha = SessionMean(Rank(volume))"})
+    assert ranked.config.data_columns == mean.config.data_columns
+    assert ranked.cell_bytes()[0] > peak
+    both = _factor(vocabulary, {"a": "alpha = SessionMean(volume)", "b": "alpha = SessionMax(volume)"})
+    assert both.cell_bytes()[0] > peak

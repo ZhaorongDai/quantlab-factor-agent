@@ -52,6 +52,7 @@ from collections.abc import Callable, Mapping
 import numpy as np
 import pandas as pd
 import xarray as xr
+from KunQuant.Driver import compileit
 from KunQuant.Op import Builder, ConstantOp, Input, OpBase, Output
 from KunQuant.ops import (
     Accumulator, And, Equals, LessEqual, LessThan, Max, Min, Not, Select, SetAccumulator, SetInfOrNanToValue, Sqrt,
@@ -59,7 +60,7 @@ from KunQuant.ops import (
 from KunQuant.Stage import Function
 from quantlab.factor.chunking import ChunkedBuilder
 from quantlab.factor.config import FactorConfig
-from quantlab.factor.kunquant import FactorKunQuant
+from quantlab.factor.kunquant import BATCH_OPTIONS, FactorKunQuant
 from quantlab.factor.predefined.intraday import LAST_PRICE, SESSION_BARS_LEFT, SESSION_POSITION, session_inputs
 
 from factor_agent.aggregations import (
@@ -75,6 +76,10 @@ from factor_agent.gate.vocabulary import resolve_classes
 SESSION_INPUTS = (SESSION_POSITION, SESSION_BARS_LEFT, LAST_PRICE)
 #: The bars' column the last trade price is carried from: the bar's last trade, missing on a bar without one.
 PRICE = "close"
+#: The bytes per bar and symbol of the arrays ``session_inputs`` computes the session inputs through: the float64
+#: price and closing-auction price it is given, its index, mask and price arrays, and the six float32 inputs it
+#: returns, counted from its code (about 150 bytes) and rounded up.
+SESSION_INPUT_WORK = 160
 
 
 def _zero_if_missing(value: OpBase) -> OpBase:
@@ -361,6 +366,24 @@ class SessionFactor(FactorKunQuant):
     def _get_factor_func(self) -> Function:
         return session_function(self._graphs())
 
+    def cell_bytes(self) -> tuple[int, int]:
+        """Return the bytes one bar of one symbol takes: at peak, and as output; see ``Factor.cell_bytes``.
+
+        The peak counts, at 8 bytes each as ``FactorKunQuant`` does, the
+        columns read, the session inputs, every array KunQuant holds for
+        each bar between two of its stages (a cross-sectional operator's
+        values, say: the ``TEMP`` buffers of the generated module) and the
+        outputs, and besides them the arrays ``session_inputs`` computes
+        through (``SESSION_INPUT_WORK``), as if all were held at once.
+        """
+        output = 8 * self.num_factors
+        source = "\n".join(compileit(
+            self._get_factor_func(), self.class_name, input_layout="TS", output_layout="TS",
+            options=dict(BATCH_OPTIONS),
+        ))
+        held = len(self._input_variables()) + len(SESSION_INPUTS) + source.count("BufferKind::TEMP")
+        return 8 * held + output + SESSION_INPUT_WORK, output
+
     def _kunquant_inputs(self, inputs: xr.Dataset) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
         arrays, symbols, timestamps = super()._kunquant_inputs(inputs)
         session = np.asarray(self.config.dataset.resample_labels(np.asarray(timestamps), "1d"))
@@ -403,8 +426,8 @@ class SessionColumns(Provider):
     quantlab's ``ChunkedBuilder``: only one chunk's bars are in memory at a
     time, beside the daily values. ``granularity`` is the chunks' calendar
     period (``"month"``, ``"day"``...); ``None`` computes the days whole
-    when they fit in the memory available and otherwise in the coarsest
-    period whose chunks do. The values do not depend on it. The dataset must
+    when they fit in the memory available (``SessionFactor.cell_bytes``)
+    and otherwise in the coarsest period whose chunks do. The values do not depend on it. The dataset must
     read a store (``stored_symbols``), as a campaign's intraday dataset
     does.
     """

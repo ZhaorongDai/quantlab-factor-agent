@@ -236,8 +236,11 @@ The minute bars do not fit in memory at once, so the sessions are computed in ch
 the whole span fits in half the memory available it is computed whole. Otherwise it is
 computed in the coarsest calendar period (a year, a quarter, a month, a week or a day) whose
 largest chunk fits. The values do not depend on the chunks. A chunk holds about 8 bytes per
-bar, symbol and column read or computed: a year of one-minute bars is about 98,000 bars, so
-on a symbol axis of 17,000 stocks one column of one year is about 13 GB. A round of intraday
+bar and symbol for each column read, each session input, each output and each array KunQuant
+keeps between two of its stages (a cross-sectional rank's, say), and about 160 more for
+computing the session inputs. A year of one-minute bars is about 98,000 bars, so on a symbol
+axis of 17,000 stocks one column of one year is about 13 GB, and the session inputs' work
+about 270 GB. A round of intraday
 candidates reads the minute bars of the whole training segment, so it takes much longer than
 a daily round. There is no time limit.
 
