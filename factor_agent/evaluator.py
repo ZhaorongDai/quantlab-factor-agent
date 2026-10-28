@@ -67,7 +67,7 @@ from quantlab.factor.config import FactorConfig
 from quantlab.model.evaluation import cross_sectional_rank_ic_series
 from scipy import stats
 
-from factor_agent import period_lag
+from factor_agent import derived, period_lag
 from factor_agent.exported import ranked_function
 from factor_agent.gate.graph import Graph
 from factor_agent.scoring import Scoring
@@ -160,11 +160,11 @@ class CompileFailure:
 Admit = Callable[[int, Metrics, int], str | None]
 
 
-class _RoundGraph(period_lag.PeriodLagFactor):
+class _RoundGraph(derived.DerivedColumnsFactor):
     """A batch of graphs as one factor, one whole-market rank per candidate.
 
-    The lag columns the graphs read are computed from the dataset
-    (``factor_agent.period_lag``).
+    The lag columns the graphs read are derived columns, computed from the
+    dataset (``factor_agent.period_lag``).
 
     ``compute`` keeps its last result, so the scored factor that wraps it
     (a ``NeutralizedFactor`` when the scoring neutralises) reads the panel
@@ -178,8 +178,8 @@ class _RoundGraph(period_lag.PeriodLagFactor):
         self._computed: tuple[tuple, xr.Dataset] | None = None
         super().__init__(config)
 
-    def _period_lags(self) -> Mapping[str, Mapping]:
-        return self._lags
+    def _providers(self) -> list[derived.Provider]:
+        return period_lag.providers(self._lags)
 
     def _get_factor_names(self) -> tuple[str, ...]:
         n = len(self._graphs)
@@ -369,7 +369,7 @@ class Evaluator:
         factor = _RoundGraph(
             FactorConfig(
                 warmup_bars=self._warmup_bars, dataset=self._prices, mode="batch",
-                data_columns=period_lag.data_columns(inputs, lags), njobs=self._njobs,
+                data_columns=derived.data_columns(inputs, period_lag.providers(lags)), njobs=self._njobs,
             ),
             graphs,
             lags,
