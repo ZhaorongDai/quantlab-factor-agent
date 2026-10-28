@@ -80,6 +80,8 @@ def test_the_field_file_loads_with_the_price_volume_file_on_vendor_columns(vocab
         ("alpha = (netinc - PeriodLag(netinc, 4)) / assetsavg", "pure number"),
         ("alpha = Log(pe) - Log(evebit)", "pure number"),
         ("alpha = close / netinc", "1/shares"),
+        # Called turnover, volume / amount is shares per dollar (1/vwap): its unit tells the reviewer it is no turnover.
+        ("turnover = Div(volume, amount)\nalpha = WindowedAvg(turnover, 60)", "shares/dollars"),
     ],
 )
 def test_dimensions_are_inferred_over_mixed_fields(vocabulary, code, dimension):
