@@ -44,6 +44,9 @@ import threading
 from dataclasses import asdict, dataclass, field, fields
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Literal
+
+from factor_agent.llm._raw import raw_facts
 
 #: The events file's name in a run directory.
 FILE = "events.jsonl"
@@ -160,6 +163,10 @@ class CallEnd(CallStart):
     error: str | None = None
 
 
+#: Which version of a slot's candidate the Gate checks: the first, one fixed after a refusal, or one rewritten.
+GateStep = Literal["proposed", "fixed", "rewritten"]
+
+
 @dataclass(frozen=True, kw_only=True)
 class GateOutcome(Event):
     """One version of a slot's candidate checked by the parser and the Gate.
@@ -174,7 +181,7 @@ class GateOutcome(Event):
     type = "gate"
     round: int
     slot: int
-    step: str
+    step: GateStep
     item: object
     passed: bool
     stage: str | None = None
@@ -309,39 +316,15 @@ def reply_facts(reply) -> dict:
     reply: an Anthropic message, an OpenAI-compatible chat completion or
     the Claude Code CLI's result.
     """
-    usage = reply.usage or {}
-    try:
-        raw = json.loads(reply.raw) if reply.raw else {}
-    except json.JSONDecodeError:
-        raw = {}
-    raw = raw if isinstance(raw, dict) else {}
-    raw_usage = raw.get("usage") if isinstance(raw.get("usage"), dict) else {}
-    choice = (raw.get("choices") or [{}])[0] if isinstance(raw.get("choices"), list) else {}
-    cache_hits = _first(
-        raw_usage.get("cache_read_input_tokens"),
-        _dig(raw_usage, "prompt_tokens_details", "cached_tokens"),
-        raw_usage.get("prompt_cache_hit_tokens"),
-    )
-    reasoning = _dig(raw_usage, "completion_tokens_details", "reasoning_tokens")
-    stop = _first(raw.get("stop_reason"), choice.get("finish_reason") if isinstance(choice, dict) else None)
+    usage, facts = reply.usage or {}, raw_facts(reply.raw)
     return {
         "input_tokens": usage.get("input_tokens"),
         "output_tokens": usage.get("output_tokens"),
-        "cache_hits": cache_hits,
-        "reasoning": reasoning,
-        "truncated": None if stop is None else stop in ("max_tokens", "length"),
+        "cache_hits": facts.cache_hits,
+        "reasoning": facts.reasoning_tokens,
+        "truncated": facts.truncated,
         "empty": not reply.text.strip(),
     }
-
-
-def _first(*values):
-    return next((v for v in values if v is not None), None)
-
-
-def _dig(value, *keys):
-    for key in keys:
-        value = value.get(key) if isinstance(value, dict) else None
-    return value
 
 
 def _plain(value):

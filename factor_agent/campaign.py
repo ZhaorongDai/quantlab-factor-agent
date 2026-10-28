@@ -84,9 +84,8 @@ from pathlib import Path
 from factor_agent import _admission, _feedback, _scheduler
 from factor_agent.config import ROLES, CampaignConfig
 from factor_agent.evaluator import CompileFailure, Evaluator, Metrics
-from factor_agent.events import FILE as EVENTS_FILE
 from factor_agent.events import (
-    AdmissionOutcome, EvaluationStart, Events, Plan, Resume, RoundEnd, Start, Stopped,
+    FILE as EVENTS_FILE, AdmissionOutcome, EvaluationStart, Events, Plan, Resume, RoundEnd, Start, Stopped,
 )
 from factor_agent.gate import Gate
 from factor_agent.gate.graph import Graph
@@ -233,13 +232,13 @@ class Campaign:
         state.versions = snapshot.versions
         ledger = Ledger(run_dir / "ledger.jsonl")
         log = LLMLog(run_dir / "llm_log")
-        written = (ledger.path.read_text() if ledger.path.exists() else "", len(log.files()))
+        written = _written(ledger, log)
         ledger.keep(state.rounds)
         records = ledger.records()
         reference, known = config.load_factors()
         log.drop_after(state.calls)
         events = Events(run_dir / EVENTS_FILE)
-        dropped = (ledger.path.read_text() if ledger.path.exists() else "", len(log.files())) != written
+        dropped = _written(ledger, log) != written
         events.write(self._opened(snapshot, state, dropped))
         researcher = Researcher(
             {
@@ -495,6 +494,11 @@ class Campaign:
             stats=checked.stats, attempts=_attempts(proposal), direction=proposal.direction.to_dict(),
             graph=checked.graph.to_json(),
         )
+
+
+def _written(ledger: Ledger, log: LLMLog) -> tuple[str, int]:
+    """What the run has written to its ledger and its LLM log: the ledger's text and the number of call files."""
+    return ledger.path.read_text() if ledger.path.exists() else "", len(log.files())
 
 
 def _seed(directions) -> str:

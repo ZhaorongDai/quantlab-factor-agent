@@ -29,8 +29,8 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 
-from factor_agent import events as ev
 from factor_agent.candidate import Candidate
+from factor_agent.events import CallEnd, CallStart, Event, Events, GateOutcome, GateStep, ReviewVerdict, reply_facts
 from factor_agent.gate import Gate, Passed
 from factor_agent.llm.base import LLMBackend, ProviderQuotaExhausted, Request
 from factor_agent.prompts import MEMORY_ITEMS, MEMORY_PARTS, SECTIONS, Prompts
@@ -110,7 +110,19 @@ class Proposal:
     checked: Passed | None
     attempts: tuple[Attempt, ...]
     group: int
-    slot: int = 0
+    slot: int
+
+
+@dataclass(frozen=True)
+class _Scope:
+    """What an LLM call concerns, as its start and end in the events file say: its round, proposal group and slots.
+
+    The planner's and the distiller's calls concern their round only.
+    """
+
+    round: int
+    group: int | None = None
+    slots: tuple[int, ...] = ()
 
 
 def output_unit(checked: Passed) -> str:
@@ -140,7 +152,7 @@ class Researcher:
 
     def __init__(
         self, roles: dict[str, tuple[LLMBackend, str]], prompts: Prompts, groups: int = 1,
-        events: ev.Events | None = None,
+        events: Events | None = None,
     ):
         self.roles = dict(roles)
         self.prompts = prompts
@@ -163,7 +175,7 @@ class Researcher:
         )
         issues, by_type = [], {kind: [] for kind in self._types}
         try:
-            items = _json_array(self._ask("planner", prompt, number))
+            items = _json_array(self._ask("planner", prompt, _Scope(number)))
         except ValueError as exc:
             items, issues = [], [f"planner: {exc}"]
         for i, item in enumerate(items, 1):
@@ -258,7 +270,7 @@ class Researcher:
         missing = Verdict(False, "the reviewer gave no verdict on this candidate")
         verdicts = [judged[p] or missing for p in range(len(proposals))]
         for proposal, verdict in zip(proposals, verdicts):
-            self._event(ev.ReviewVerdict(
+            self._event(ReviewVerdict(
                 round=number, slot=proposal.slot, consistent=verdict.consistent, reason=verdict.reason,
                 rewrite=any(attempt.stage == "review" for attempt in proposal.attempts),
             ))
@@ -301,11 +313,11 @@ class Researcher:
         """
         reply = self._ask("distiller", self.prompts.render(
             "distill", round=number, memory=memory or "(none: this is the first memory)", history=history,
-        ), number)
+        ), _Scope(number))
         return _memory(reply)
 
     def _check(
-        self, number: int, slot: int, step: str, direction: Direction, item: object, gate: Gate, zoo: Zoo,
+        self, number: int, slot: int, step: GateStep, direction: Direction, item: object, gate: Gate, zoo: Zoo,
         attempts: list[Attempt], group: int,
     ) -> Proposal:
         """Parse and gate one item, of ``slot`` in proposal group ``group``; a refusal is appended to ``attempts``.
@@ -315,7 +327,7 @@ class Researcher:
         """
         def refused(stage, reasons, candidate=None, shown=item, hints=()):
             attempts.append(Attempt(shown, stage, tuple(reasons), tuple(hints)))
-            self._event(ev.GateOutcome(
+            self._event(GateOutcome(
                 round=number, slot=slot, step=step, item=shown, passed=False, stage=stage,
                 reasons=list(reasons), hints=list(hints),
             ))
@@ -333,7 +345,7 @@ class Researcher:
             ])
         checked = gate.check(candidate, zoo)
         if isinstance(checked, Passed):
-            self._event(ev.GateOutcome(round=number, slot=slot, step=step, item=item, passed=True))
+            self._event(GateOutcome(round=number, slot=slot, step=step, item=item, passed=True))
             return Proposal(direction, item, candidate, checked, tuple(attempts), group, slot)
         return refused("gate", checked.reasons, candidate, hints=checked.hints)
 
@@ -363,31 +375,31 @@ class Researcher:
         )
         return [fixed[p] for p in range(len(refused))]
 
-    def _ask(self, role: str, prompt: str, number: int, group: int | None = None, slots: list[int] = ()) -> str:
+    def _ask(self, role: str, prompt: str, scope: _Scope) -> str:
         """Send ``prompt`` to ``role``'s backend and return the reply's text.
 
-        The call belongs to round ``number``, proposal ``group`` and
-        ``slots``, as its start and end in the events file say.
+        The call's start and end in the events file say what it concerns: ``scope``.
         """
         backend, model = self.roles[role]
         request = Request(role=role, model=model, prompt=prompt)
         if self.events is None:
             return backend.complete(request).text
-        call = dict(call=self.events.next_call(), round=number, role=role, model=model, group=group, slots=list(slots))
-        self.events.write(ev.CallStart(**call))
+        call = dict(call=self.events.next_call(), round=scope.round, role=role, model=model, group=scope.group,
+                    slots=list(scope.slots))
+        self.events.write(CallStart(**call))
         started = time.monotonic()
         try:
             # A recording backend says which call file it wrote; any other backend writes none.
             reply, path = backend.record(request) if hasattr(backend, "record") else (backend.complete(request), None)
         except BaseException as exc:
-            self.events.write(ev.CallEnd(**call, seconds=time.monotonic() - started, error=f"{type(exc).__name__}: {exc}"))
+            self.events.write(CallEnd(**call, seconds=time.monotonic() - started, error=f"{type(exc).__name__}: {exc}"))
             raise
-        self.events.write(ev.CallEnd(
-            **call, file=path.name if path else None, seconds=time.monotonic() - started, **ev.reply_facts(reply),
+        self.events.write(CallEnd(
+            **call, file=path.name if path else None, seconds=time.monotonic() - started, **reply_facts(reply),
         ))
         return reply.text
 
-    def _event(self, event: ev.Event) -> None:
+    def _event(self, event: Event) -> None:
         if self.events is not None:
             self.events.write(event)
 
@@ -403,7 +415,7 @@ class Researcher:
         """
         groups = list(positions_by_group.items())
         replies = self._ask_all(role, [
-            (render(positions), number, group, [slots[p] for p in positions]) for group, positions in groups
+            (render(positions), _Scope(number, group, tuple(slots[p] for p in positions))) for group, positions in groups
         ])
         return {
             p: value
@@ -411,11 +423,10 @@ class Researcher:
             for p, value in zip(positions, read(positions, text), strict=True)
         }
 
-    def _ask_all(self, role: str, asked: list[tuple]) -> list[str]:
+    def _ask_all(self, role: str, asked: list[tuple[str, _Scope]]) -> list[str]:
         """Make ``asked`` calls to ``role`` side by side, one thread each; return the replies' texts in order.
 
-        Each call is ``_ask``'s arguments after the role: its prompt, round,
-        group and slots. Every call is waited for, so each that succeeds is
+        Each call is its prompt and what it concerns. Every call is waited for, so each that succeeds is
         logged; then a ``ProviderQuotaExhausted`` among the errors is raised,
         so the campaign stops for the quota, and otherwise the first error in
         the order of ``asked``.
@@ -423,7 +434,7 @@ class Researcher:
         if not asked:
             return []
         with ThreadPoolExecutor(max_workers=len(asked)) as pool:
-            calls = [pool.submit(self._ask, role, *call) for call in asked]
+            calls = [pool.submit(self._ask, role, prompt, scope) for prompt, scope in asked]
         errors = [call.exception() for call in calls if call.exception() is not None]
         if errors:
             raise next((error for error in errors if isinstance(error, ProviderQuotaExhausted)), errors[0])
