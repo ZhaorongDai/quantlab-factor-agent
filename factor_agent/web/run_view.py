@@ -68,6 +68,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from factor_agent import events
+from factor_agent.web._config import ConfigCopy, RunFiles, SnapshotFile, read_files
 from factor_agent.web._acceptance import AcceptanceReports, Comparison, Contribution, HoldoutOpen, acceptance
 from factor_agent.web._diagnosis import Finding, diagnosis
 from factor_agent.web._files import Replayed, read_json, utc, written
@@ -82,9 +83,9 @@ from factor_agent.web._trials import Placed, Refusal, TrialRef, trials_page
 
 __all__ = [
     "RECENT_ROUNDS", "STALL_ASKING", "STALL_EVALUATING", "AcceptanceReports", "Check", "Collision", "Comparison",
-    "Contribution", "Factor", "Finding", "Health", "HoldoutOpen", "LLMCall", "MemoryLine", "MemoryVersion", "Neighbour",
-    "PendingTrial", "Placed", "Refusal", "RoundCall", "RoundTokens", "RunSummary", "RunView", "RunningRound", "Stop",
-    "Tokens", "Trial", "TrialRef", "find_run", "list_runs", "read_call", "run_version",
+    "ConfigCopy", "Contribution", "Factor", "Finding", "Health", "HoldoutOpen", "LLMCall", "MemoryLine", "MemoryVersion", "Neighbour",
+    "PendingTrial", "Placed", "Refusal", "RoundCall", "RoundTokens", "RunFiles", "RunSummary", "RunView", "RunningRound", "SnapshotFile", "Stop",
+    "Tokens", "Trial", "TrialRef", "find_run", "list_runs", "read_call", "read_files", "run_version",
 ]
 
 

@@ -390,6 +390,8 @@ class CampaignConfig:
     context: ContextConfig = ContextConfig()
     mechanisms: tuple = DEFAULT_MECHANISMS
     prompts: dict = field(default_factory=dict)
+    #: The YAML text ``from_file`` read, which a run keeps for each opening; None for a config made in code.
+    source: str | None = field(default=None, compare=False, repr=False)
 
     def __post_init__(self):
         object.__setattr__(self, "mechanisms", tuple(self.mechanisms))
@@ -481,7 +483,8 @@ class CampaignConfig:
         PromptError
             Naming every problem of the replaced templates.
         """
-        raw = yaml.safe_load(Path(path).read_text())
+        source = Path(path).read_text()
+        raw = yaml.safe_load(source)
         folder = Path(path).parent
         sections = {
             "evaluator": EvaluatorConfig, "gate": GateConfig,
@@ -517,6 +520,7 @@ class CampaignConfig:
             known=_entries("known", raw.get("known")),
             directions=tuple(raw.get("directions") or ()),
             acceptance=AcceptanceConfig.from_dict(raw.get("acceptance")),
+            source=source,
             **{name: klass(**raw[name]) for name, klass in sections.items() if name in raw},
             **optional,
         )

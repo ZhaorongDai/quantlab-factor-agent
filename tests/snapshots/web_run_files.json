@@ -1,0 +1,19 @@
+{
+  "configs": [
+    {
+      "opening": 1,
+      "opened_at": "<time>",
+      "text": "<config>"
+    }
+  ],
+  "snapshot": [
+    {
+      "name": "fields/sharadar_price_volume.yaml",
+      "text": "<file>"
+    },
+    {
+      "name": "operators/kunquant_example.yaml",
+      "text": "<file>"
+    }
+  ]
+}

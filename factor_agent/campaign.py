@@ -223,6 +223,7 @@ class Campaign:
         state_path = run_dir / "state.json"
         prices = config.data.load("prices")
         snapshot = self._snapshot(run_dir, state_path, _columns(prices))
+        _keep_config(config, run_dir, opening=len(snapshot.versions))
         recent_rounds = snapshot.settings["context"]["recent_rounds"]
         vocabulary = config.vocabulary(_columns(prices), snapshot.search_files)
         label = config.data.load("label")
@@ -494,6 +495,16 @@ class Campaign:
             stats=checked.stats, attempts=_attempts(proposal), direction=proposal.direction.to_dict(),
             graph=checked.graph.to_json(),
         )
+
+
+def _keep_config(config: CampaignConfig, run_dir: Path, opening: int) -> None:
+    """Keep the config text of the run's ``opening``-th start or resume as ``config/open-<opening>.yaml``.
+
+    A resume may raise a limit, so every opening keeps its own; a config made in code has no text to keep.
+    """
+    if config.source is not None:
+        (run_dir / "config").mkdir(exist_ok=True)
+        (run_dir / "config" / f"open-{opening}.yaml").write_text(config.source)
 
 
 def _written(ledger: Ledger, log: LLMLog) -> tuple[str, int]:

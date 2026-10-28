@@ -11,6 +11,8 @@ Routes:
 - ``GET /api/run?name=<name>``: one run (``RunView.read``) by its name in the list, 404 for any other name;
 - ``GET /api/run/call?name=<name>&number=<number>``: one LLM call of a run (``read_call``) by the number
   of its call file, 404 when the run has no call file of that number;
+- ``GET /api/run/files?name=<name>``: the config of each start or resume of a run and its snapshot's
+  files (``read_files``), read only when the page shows them;
 - ``GET /api/run/version?name=<name>``: a text that changes whenever the run writes (``run_version``),
   which the page polls before reading the run again;
 - ``GET /``: the page, built from ``frontend/`` into ``factor_agent/web/static``.
@@ -22,7 +24,7 @@ the app is made, so the module imports without them.
 import argparse
 from pathlib import Path
 
-from factor_agent.web.run_view import RunView, find_run, list_runs, read_call, run_version
+from factor_agent.web.run_view import RunView, find_run, list_runs, read_call, read_files, run_version
 
 #: The built page: ``npm run build`` in ``frontend/`` writes it, and it is committed.
 STATIC = Path(__file__).parent / "static"
@@ -75,6 +77,10 @@ def create_app(root: str | Path):
         if found is None:
             raise HTTPException(404, f"run {name!r} has no LLM call number {number}")
         return found
+
+    @app.get("/api/run/files")
+    def files(name: str):
+        return read_files(run_dir(name))
 
     @app.get("/api/run/version")
     def version(name: str):

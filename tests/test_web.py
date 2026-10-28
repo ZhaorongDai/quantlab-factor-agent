@@ -37,6 +37,7 @@ TRIALS = Path(__file__).parent / "snapshots" / "web_run_trials.json"
 HEALTH = Path(__file__).parent / "snapshots" / "web_run_health.json"
 CALL = Path(__file__).parent / "snapshots" / "web_run_call.json"
 RUNNING = Path(__file__).parent / "snapshots" / "web_run_running.json"
+FILES = Path(__file__).parent / "snapshots" / "web_run_files.json"
 
 #: Each client's folder of runs, synthetic market components and KunQuant cache.
 CLIENT: dict = {}
@@ -195,7 +196,7 @@ def test_the_console_script_has_no_option_to_bind_another_interface(capsys):
 def _times(value):
     """``value`` with every time replaced, as the contract does not fix them."""
     if isinstance(value, dict):
-        return {key: "<time>" if key in ("time", "sent", "returned", "started", "evaluation") and item else _times(item)
+        return {key: "<time>" if key in ("time", "sent", "returned", "started", "evaluation", "opened_at") and item else _times(item)
                 for key, item in value.items()}
     if isinstance(value, list):
         return [_times(item) for item in value]
@@ -211,6 +212,19 @@ def test_an_llm_call_is_read_by_its_number_and_answers_with_the_snapshot_json(cl
     assert call == json.loads(CALL.read_text())
     assert client.get("/api/run/call", params={"name": "example/run", "number": 99}).status_code == 404
     assert client.get("/api/run/call", params={"name": "elsewhere", "number": 1}).status_code == 404
+
+
+def test_a_runs_config_and_snapshot_files_answer_with_the_snapshot_json(client):
+    files = client.get("/api/run/files", params={"name": "example/run"}).json()
+    assert files["configs"][0]["opening"] == 1 and "run_dir:" in files["configs"][0]["text"]
+    files = _times({
+        "configs": [{**c, "text": "<config>"} for c in files["configs"]],
+        "snapshot": [{**f, "text": "<file>"} for f in files["snapshot"]],
+    })
+    if os.environ.get("FACTOR_AGENT_UPDATE_SNAPSHOTS"):
+        FILES.write_text(json.dumps(files, indent=2) + "\n")
+    assert files == json.loads(FILES.read_text())
+    assert client.get("/api/run/files", params={"name": "elsewhere"}).status_code == 404
 
 
 def test_the_round_in_progress_answers_with_the_snapshot_json(client, tmp_path):
