@@ -1,9 +1,11 @@
 // The run list, and a run opened from it (?run=<name>).
 import { useEffect, useState } from 'react'
+import type { ReactNode } from 'react'
 import * as api from './api'
 import type { RunSummary } from './api'
 import Health from './Health'
 import { useLiveRun, useTabTitle } from './live'
+import type { LiveRun } from './live'
 import Memory from './Memory'
 import Results from './Results'
 import Selection from './Selection'
@@ -53,13 +55,32 @@ function pageHref(page: Page): string {
   return `?${params}`
 }
 
-function Pages({ page, open }: { page: Page; open: (page: Page) => void }) {
+function Pages({ page, open, children }: { page: Page; open: (page: Page) => void; children?: ReactNode }) {
   return (
     <nav className="pages">
       {PAGES.filter(p => p !== 'selection').map(p => (
         <a key={p} href={pageHref(p)} className={p === page || (p === 'results' && page === 'selection') ? 'here' : ''} onClick={e => { e.preventDefault(); open(p) }}>{p}</a>
       ))}
+      {children}
     </nav>
+  )
+}
+
+// The pause of a run that has not stopped: the button, and while paused the bar saying so.
+function PauseButton({ live }: { live: LiveRun }) {
+  return live.paused == null
+    ? <button className="pause" onClick={live.pause} title="Stop the page from updating, to read or click without anything moving">Pause live updates</button>
+    : <button className="pause on" onClick={live.resume}>Resume live updates</button>
+}
+
+function PausedBar({ live }: { live: LiveRun }) {
+  if (live.paused == null) return null
+  return (
+    <p className="paused">
+      Paused since {new Date(live.paused).toLocaleTimeString()}: the page stands as it was then
+      {live.changed ? <>; <b>the run has changed since</b></> : <>; the run has not changed since</>}.{' '}
+      <button className="link" onClick={live.resume}>Resume</button>
+    </p>
   )
 }
 
@@ -104,13 +125,15 @@ function RunList({ open }: { open: (name: string) => void }) {
 }
 
 function RunPage({ name }: { name: string }) {
-  const { run, error, clock } = useLiveRun(name)
+  const live = useLiveRun(name)
+  const { run, error, clock } = live
   const [page, openPage] = usePageParam()
   useTabTitle(name, run)
   if (!run) return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>
   return (
     <>
-      <Pages page={page} open={openPage} />
+      <Pages page={page} open={openPage}>{!run.summary.stop && <PauseButton live={live} />}</Pages>
+      <PausedBar live={live} />
       <Health run={run} clock={clock} />
       {error && <p className="error small">{error}</p>}
       {page === 'memory' ? <Memory versions={run.memory} /> : page === 'trials' ? <Trials run={run} name={name} clock={clock} />

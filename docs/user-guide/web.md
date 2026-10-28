@@ -70,6 +70,13 @@ The page reads the run again by itself whenever the run writes, checking every 5
 so it can stay open while the campaign runs. The browser tab's title counts the factors
 accepted since the page was opened and says when the run has stopped.
 
+While the run has not stopped, **Pause live updates** beside the page names holds the page
+still, to read or click a running round without anything moving. Paused, the page stands
+at the moment of the pause: the round's timeline, the times since the last call and the
+stall warnings do not move, and the run is not read again. A bar says since when the page
+is paused and, as the page still checks every 5 seconds, whether the run has changed since.
+**Resume** reads the run again at once.
+
 ## The results page
 
 Below the health line, one sentence says whether the accepted factors improve your model, from
