@@ -203,7 +203,7 @@ def test_the_evaluator_scores_a_period_lag_where_the_earlier_report_is_k_periods
     evaluator = Evaluator.for_segment(
         Segment("training", str(timestamps[first].date()), str(timestamps[last].date())),
         prices=periodic["dataset"], label=periodic["label"], scoring=Scoring(None, None, njobs=1),
-        warmup_bars=0, njobs=1, purge_bars=0, period_lags=periodic["vocabulary"].lag_columns,
+        warmup_bars=0, njobs=1, purge_bars=0, vocabulary=periodic["vocabulary"],
     )
     graph = _graph(periodic["vocabulary"], "alpha = PeriodLag(netinc, 4)")
     [metrics] = evaluator.evaluate([graph])

@@ -63,7 +63,7 @@ one round are never both accepted when the second says nothing new.
 """
 
 import warnings
-from collections.abc import Callable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 
 import numpy as np
@@ -229,13 +229,13 @@ class Evaluator:
 
     def __init__(
         self, segment: Segment, prices, label, scoring: Scoring, reference: Sequence,
-        warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS, period_lags: Mapping[str, Mapping] | None = None,
-        known: Sequence = (), vocabulary: Vocabulary | None = None, intraday=None,
+        warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS, known: Sequence = (),
+        vocabulary: Vocabulary | None = None, intraday=None,
     ):
         self._segment = segment
         self._vocabulary = vocabulary
         self._intraday = intraday
-        self._period_lags = dict(period_lags or {})
+        self._period_lags = vocabulary.lag_columns if vocabulary else {}
         self._purge_bars = purge_bars
         self._prices = prices
         self._label = label
@@ -249,8 +249,8 @@ class Evaluator:
     @classmethod
     def for_segment(
         cls, segment: Segment, *, prices, label, scoring: Scoring, reference: Sequence = (), known: Sequence = (),
-        warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS, period_lags: Mapping[str, Mapping] | None = None,
-        vocabulary: Vocabulary | None = None, intraday=None,
+        warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS, vocabulary: Vocabulary | None = None,
+        intraday=None,
     ) -> "Evaluator":
         """Return an evaluator of ``segment``.
 
@@ -277,20 +277,18 @@ class Evaluator:
             Warm-up bars and KunQuant executor threads.
         purge_bars : int
             The fewest bars dropped at the end of the segment (``segments.purge``).
-        period_lags : mapping, optional
-            How each lag column a graph may read is computed
-            (``Vocabulary.lag_columns``); a lag reads the warm-up it needs
-            when that is longer than ``warmup_bars``.
         vocabulary : Vocabulary, optional
             The vocabulary the graphs were recorded under, which splits a
-            candidate of an intraday family into its stages; without it every
-            graph is a daily graph.
+            candidate of an intraday family into its stages and says how
+            each lag column a graph may read is computed
+            (``Vocabulary.lag_columns``; a lag reads the warm-up it needs
+            when that is longer than ``warmup_bars``); without it every
+            graph is a daily graph reading no lag column.
         intraday : quantlab dataset, optional
             The whole-market intraday bars the intraday graphs run on.
         """
         return cls(
-            segment, prices, label, scoring, reference, warmup_bars, njobs, purge_bars, period_lags, known,
-            vocabulary, intraday,
+            segment, prices, label, scoring, reference, warmup_bars, njobs, purge_bars, known, vocabulary, intraday,
         )
 
     @property
@@ -413,7 +411,6 @@ class Evaluator:
             _Values(frame.on_axes(panel[_output_name(i)]), frame.on_axes(raw[_presence_name(i)]))
             for i in range(len(graphs))
         ]
-
 
     def _session_columns(self, staged: list[stages.Staged]) -> list[derived.Provider]:
         """The provider of the session columns the split graphs read, in a list; none without any."""

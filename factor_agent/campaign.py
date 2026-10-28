@@ -225,10 +225,11 @@ class Campaign:
         state_path = run_dir / "state.json"
         prices = config.data.load("prices")
         intraday = config.data.load("intraday") if config.data.intraday is not None else None
-        snapshot = self._snapshot(run_dir, state_path, _columns(prices), _intraday_columns(intraday))
+        columns, intraday_columns = _columns(prices), _intraday_columns(intraday)
+        snapshot = self._snapshot(run_dir, state_path, columns, intraday_columns)
         _keep_config(config, run_dir, opening=len(snapshot.versions))
         recent_rounds = snapshot.settings["context"]["recent_rounds"]
-        vocabulary = config.vocabulary(_columns(prices), snapshot.search_files, _intraday_columns(intraday))
+        vocabulary = config.vocabulary(columns, snapshot.search_files, intraday_columns)
         label = config.data.load("label")
         scoring = Scoring.from_config(config.scoring, config.data, njobs=config.evaluator.njobs)
         prompts = self._prompts(config.templates(snapshot.search_files), vocabulary, label, scoring)
@@ -263,7 +264,6 @@ class Campaign:
             warmup_bars=config.evaluator.warmup_bars,
             njobs=config.evaluator.njobs,
             purge_bars=config.segments.purge_bars,
-            period_lags=vocabulary.lag_columns,
             vocabulary=vocabulary,
             intraday=intraday,
         )
