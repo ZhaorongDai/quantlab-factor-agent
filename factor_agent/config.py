@@ -36,7 +36,7 @@ from quantlab.core.component import rebuild
 from quantlab.core.store_folder import load_component
 
 from factor_agent import _acceptance_model
-from factor_agent.gate.vocabulary import Vocabulary
+from factor_agent.gate.vocabulary import Vocabulary, VocabularyError
 from factor_agent.prompts import Templates
 from factor_agent.segments import PURGE_BARS, Segment, Segments
 from factor_agent.snapshot import SearchFiles
@@ -51,12 +51,15 @@ class DataConfig:
     ``prices`` is the whole-market price dataset, ``label`` the forward
     label (masked by day-t membership when there is a membership) and
     ``membership`` the members of each day (an ``IndexConstituentDataset``)
-    or None, when every symbol is scored.
+    or None, when every symbol is scored. ``intraday`` is the whole-market
+    intraday dataset an intraday family's fields read (one-minute trade
+    bars, say), or None without an intraday family.
     """
 
     prices: dict | str
     label: dict | str
     membership: dict | str | None = None
+    intraday: dict | str | None = None
 
     def load(self, name: str) -> Any:
         """Rebuild the component ``name``; a list of components is rebuilt item by item."""
@@ -455,18 +458,27 @@ class CampaignConfig:
         """
         return Templates.load((files or self.search_files()).prompts)
 
-    def vocabulary(self, columns=None, files: SearchFiles | None = None) -> Vocabulary:
+    def vocabulary(self, columns=None, files: SearchFiles | None = None, intraday_columns=None) -> Vocabulary:
         """The Vocabulary of the field and operator files; ``columns``, given, are the price dataset's.
 
-        ``files`` are the config's own by default, or a run snapshot's copies.
+        ``files`` are the config's own by default, or a run snapshot's copies;
+        ``intraday_columns``, given, are the intraday dataset's, the session
+        inputs included.
 
         Raises
         ------
         VocabularyError
-            With every problem of the files, a field column missing from ``columns`` included.
+            With every problem of the files, a field column missing from ``columns`` or
+            ``intraday_columns`` included, and an intraday family without ``data.intraday``.
         """
         files = files or self.search_files()
-        return Vocabulary.load(files.fields, files.operators, self.operator_modules, columns)
+        vocabulary = Vocabulary.load(files.fields, files.operators, self.operator_modules, columns, intraday_columns)
+        if vocabulary.intraday_family is not None and self.data.intraday is None:
+            raise VocabularyError([
+                f"{vocabulary.intraday_family} is an intraday family, but the config names no data.intraday, "
+                f"the dataset of its bars"
+            ])
+        return vocabulary
 
     @classmethod
     def from_file(cls, path: str | Path) -> "CampaignConfig":

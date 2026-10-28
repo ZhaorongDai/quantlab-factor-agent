@@ -2,7 +2,12 @@
 
 It is fixed to one segment when it is made. ``evaluate`` compiles all of a
 round's graphs as one KunQuant graph and computes it on the whole-market
-dataset (the segment plus the warm-up bars before it). Each candidate is
+dataset (the segment plus the warm-up bars before it). A candidate of an
+intraday family runs as its stage split (``factor_agent.gate.stages``): the
+round's session columns are computed once on the whole-market intraday
+dataset over the same days (``factor_agent.session.SessionColumns``), then
+its daily graph runs with the others; a day without a session (the warm-up
+before the intraday data begins, say) has no session value. Each candidate is
 then scored by the campaign's ``Scoring``: ranked across the whole market
 (KunQuant ``Rank``), neutralised when the scoring neutralises, and masked to
 the members of day t, or kept on every symbol without a membership. A
@@ -69,9 +74,12 @@ from scipy import stats
 
 from factor_agent import derived, period_lag
 from factor_agent.exported import ranked_function
+from factor_agent.gate import stages
 from factor_agent.gate.graph import Graph
+from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.scoring import Scoring
 from factor_agent.segments import PURGE_BARS, Segment, purge
+from factor_agent.session import SessionColumns
 from factor_agent.zoo import Kind, factor_label, owner
 
 #: Groups the daily cross section is cut into for the decile returns.
@@ -163,8 +171,8 @@ Admit = Callable[[int, Metrics, int], str | None]
 class _RoundGraph(derived.DerivedColumnsFactor):
     """A batch of graphs as one factor, one whole-market rank per candidate.
 
-    The lag columns the graphs read are derived columns, computed from the
-    dataset (``factor_agent.period_lag``).
+    The lag and session columns the graphs read are derived columns, filled
+    by ``providers`` (``factor_agent.period_lag``, ``factor_agent.session``).
 
     ``compute`` keeps its last result, so the scored factor that wraps it
     (a ``NeutralizedFactor`` when the scoring neutralises) reads the panel
@@ -172,14 +180,14 @@ class _RoundGraph(derived.DerivedColumnsFactor):
     candidate outputs are neutralised; the presence outputs are read raw.
     """
 
-    def __init__(self, config: FactorConfig, graphs: list[Graph], period_lags: Mapping[str, Mapping]):
+    def __init__(self, config: FactorConfig, graphs: list[Graph], providers: Sequence[derived.Provider]):
         self._graphs = graphs
-        self._lags = dict(period_lags)
+        self._derived = list(providers)
         self._computed: tuple[tuple, xr.Dataset] | None = None
         super().__init__(config)
 
     def _providers(self) -> list[derived.Provider]:
-        return period_lag.providers(self._lags)
+        return self._derived
 
     def _get_factor_names(self) -> tuple[str, ...]:
         n = len(self._graphs)
@@ -219,9 +227,11 @@ class Evaluator:
     def __init__(
         self, segment: Segment, prices, label, scoring: Scoring, reference: Sequence,
         warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS, period_lags: Mapping[str, Mapping] | None = None,
-        known: Sequence = (),
+        known: Sequence = (), vocabulary: Vocabulary | None = None, intraday=None,
     ):
         self._segment = segment
+        self._vocabulary = vocabulary
+        self._intraday = intraday
         self._period_lags = dict(period_lags or {})
         self._purge_bars = purge_bars
         self._prices = prices
@@ -237,6 +247,7 @@ class Evaluator:
     def for_segment(
         cls, segment: Segment, *, prices, label, scoring: Scoring, reference: Sequence = (), known: Sequence = (),
         warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS, period_lags: Mapping[str, Mapping] | None = None,
+        vocabulary: Vocabulary | None = None, intraday=None,
     ) -> "Evaluator":
         """Return an evaluator of ``segment``.
 
@@ -267,8 +278,17 @@ class Evaluator:
             How each lag column a graph may read is computed
             (``Vocabulary.lag_columns``); a lag reads the warm-up it needs
             when that is longer than ``warmup_bars``.
+        vocabulary : Vocabulary, optional
+            The vocabulary the graphs were recorded under, which splits a
+            candidate of an intraday family into its stages; without it every
+            graph is a daily graph.
+        intraday : quantlab dataset, optional
+            The whole-market intraday bars the intraday graphs run on.
         """
-        return cls(segment, prices, label, scoring, reference, warmup_bars, njobs, purge_bars, period_lags, known)
+        return cls(
+            segment, prices, label, scoring, reference, warmup_bars, njobs, purge_bars, period_lags, known,
+            vocabulary, intraday,
+        )
 
     @property
     def segment(self) -> Segment:
@@ -364,15 +384,17 @@ class Evaluator:
 
     def _values(self, graphs: list[Graph], frame: "_Frame") -> list["_Values | CompileFailure"]:
         """Each graph's scored values and its own (unranked) presence, bisecting a batch that fails."""
-        inputs = {name for graph in graphs for name in graph.input_names}
-        lags = period_lag.read(inputs, self._period_lags)
+        staged = [stages.split(graph, self._vocabulary) for graph in graphs] if self._vocabulary else []
+        daily = [s.daily for s in staged] if staged else graphs
+        inputs = {name for graph in daily for name in graph.input_names}
+        providers = period_lag.providers(period_lag.read(inputs, self._period_lags)) + self._session_columns(staged)
         factor = _RoundGraph(
             FactorConfig(
                 warmup_bars=self._warmup_bars, dataset=self._prices, mode="batch",
-                data_columns=derived.data_columns(inputs, period_lag.providers(lags)), njobs=self._njobs,
+                data_columns=derived.data_columns(inputs, providers) or self._axes(), njobs=self._njobs,
             ),
-            graphs,
-            lags,
+            daily,
+            providers,
         )
         start, end = self._segment.start, self._segment.end
         try:
@@ -388,6 +410,19 @@ class Evaluator:
             _Values(frame.on_axes(panel[_output_name(i)]), frame.on_axes(raw[_presence_name(i)]))
             for i in range(len(graphs))
         ]
+
+
+    def _session_columns(self, staged: list[stages.Staged]) -> list[derived.Provider]:
+        """The provider of the session columns the split graphs read, in a list; none without any."""
+        graphs = {name: graph.to_json() for s in staged for name, graph in s.intraday.items()}
+        if not graphs:
+            return []
+        return [SessionColumns(self._intraday, graphs, self._vocabulary.class_paths(graphs.values()), self._njobs)]
+
+    def _axes(self) -> tuple[str, ...]:
+        """A daily field's column, read for the panel's dates and symbols when the graphs read only session columns."""
+        return tuple(sorted(f.column for f in self._vocabulary.fields.values() if f.column is not None
+                            and f.family != self._vocabulary.intraday_family))[:1]
 
 
 @dataclass(frozen=True)

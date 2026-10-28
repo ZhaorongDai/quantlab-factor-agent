@@ -26,15 +26,22 @@ aggregation's input subgraph and the kind of sum (``<hash>_sum``,
 ``<hash>_count``), because KunQuant's expression folding merges two
 accumulators only when their names are the same: two aggregations of one
 subgraph in one function, in one graph or in two, then share their sums.
+
+``SessionColumns`` is the provider of session columns to a daily factor
+(``factor_agent.derived``): it computes the intraday graphs of a stage split
+(``factor_agent.gate.stages``) with ``SessionFactor`` and puts each session's
+value on its day of the daily panel.
 """
 
 from collections.abc import Callable, Mapping
 
 import numpy as np
+import pandas as pd
 import xarray as xr
 from KunQuant.Op import Builder, ConstantOp, Input, OpBase, Output
 from KunQuant.ops import Accumulator, Equals, LessEqual, Select, SetAccumulator, SetInfOrNanToValue
 from KunQuant.Stage import Function
+from quantlab.factor.config import FactorConfig
 from quantlab.factor.kunquant import FactorKunQuant
 from quantlab.factor.predefined.intraday import LAST_PRICE, SESSION_BARS_LEFT, SESSION_POSITION, session_inputs
 
@@ -42,6 +49,7 @@ from factor_agent.aggregations import SessionAggregation, SessionMean
 from factor_agent.gate._canonical import canonical_hashes
 from factor_agent.gate.graph import Graph, Node
 from factor_agent.gate.vocabulary import resolve_classes
+from factor_agent.derived import Provider
 
 #: The inputs the factor adds to the bars' own columns, computed from the bar timestamps and prices.
 SESSION_INPUTS = (SESSION_POSITION, SESSION_BARS_LEFT, LAST_PRICE)
@@ -192,3 +200,47 @@ class SessionFactor(FactorKunQuant):
 def _inputs(graphs: Mapping[str, list]) -> set[str]:
     """The names of the ``Input`` nodes of recorded graphs."""
     return {dict(node[1])["name"] for graph in graphs.values() for node in graph if node[0] == "Input"}
+
+
+class SessionColumns(Provider):
+    """The session columns of intraday graphs, filled for a daily factor from an intraday dataset.
+
+    ``graphs`` maps each session column to its intraday graph
+    (``Graph.to_json()``, by the names ``stages.split`` gives them) and
+    ``classes`` gives the class path of every operator they record
+    (``Vocabulary.class_paths``). ``fill`` computes them with
+    ``SessionFactor`` on ``dataset``, the intraday dataset, over the days of
+    the daily axes, and puts each session's value on its day: a session's
+    label is its date, and a symbol is matched by its label as text, so the
+    permatickers of an integer axis find the symbols of a text one. A day
+    without a session (before the intraday data begins, say) and a symbol
+    the intraday dataset does not hold are NaN. It reads no column of the
+    daily dataset and needs no warm-up: an intraday graph sees its own
+    session only.
+    """
+
+    def __init__(self, dataset, graphs: Mapping[str, list], classes: Mapping[str, str], njobs: int = 1):
+        self._dataset = dataset
+        self._graphs = {name: list(graph) for name, graph in graphs.items()}
+        self._classes = dict(classes)
+        self._njobs = njobs
+        self.columns = tuple(self._graphs)
+
+    def fill(self, dataset, panel, arrays, symbols, timestamps) -> dict[str, np.ndarray]:
+        days = pd.DatetimeIndex(timestamps).normalize()
+        factor = SessionFactor(FactorConfig(
+            warmup_bars=0, dataset=self._dataset, mode="batch", njobs=self._njobs,
+            data_columns=SessionFactor.data_columns(self._graphs),
+            kwargs={"graphs": self._graphs, "classes": self._classes},
+        ))
+        daily = factor.resample("1d", "last").compute(days[0].strftime("%Y-%m-%d"), days[-1].strftime("%Y-%m-%d"))
+        rows = pd.DatetimeIndex(daily["timestamp"].values).normalize().get_indexer(days)
+        columns = pd.Index([str(s) for s in daily["symbol"].values]).get_indexer([str(s) for s in symbols])
+        found = np.ix_(rows >= 0, columns >= 0)
+        read = np.ix_(rows[rows >= 0], columns[columns >= 0])
+        filled = {}
+        for name in self.columns:
+            values = np.full((len(days), len(symbols)), np.nan, dtype=np.float32)
+            values[found] = daily[name].transpose("timestamp", "symbol").values[read]
+            filled[name] = values
+        return filled

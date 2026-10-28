@@ -98,6 +98,7 @@ from factor_agent.prompts import Prompts, Templates
 from factor_agent.researcher import Proposal, Researcher
 from factor_agent.scoring import Scoring
 from factor_agent.segments import code_version
+from factor_agent.session import SESSION_INPUTS
 from factor_agent.snapshot import RunSnapshot, SnapshotMismatch
 from factor_agent.zoo import Zoo
 
@@ -223,10 +224,11 @@ class Campaign:
         config, run_dir = self.config, Path(self.config.run_dir)
         state_path = run_dir / "state.json"
         prices = config.data.load("prices")
-        snapshot = self._snapshot(run_dir, state_path, _columns(prices))
+        intraday = config.data.load("intraday") if config.data.intraday is not None else None
+        snapshot = self._snapshot(run_dir, state_path, _columns(prices), _intraday_columns(intraday))
         _keep_config(config, run_dir, opening=len(snapshot.versions))
         recent_rounds = snapshot.settings["context"]["recent_rounds"]
-        vocabulary = config.vocabulary(_columns(prices), snapshot.search_files)
+        vocabulary = config.vocabulary(_columns(prices), snapshot.search_files, _intraday_columns(intraday))
         label = config.data.load("label")
         scoring = Scoring.from_config(config.scoring, config.data, njobs=config.evaluator.njobs)
         prompts = self._prompts(config.templates(snapshot.search_files), vocabulary, label, scoring)
@@ -262,6 +264,8 @@ class Campaign:
             njobs=config.evaluator.njobs,
             purge_bars=config.segments.purge_bars,
             period_lags=vocabulary.lag_columns,
+            vocabulary=vocabulary,
+            intraday=intraday,
         )
         zoo = Zoo.from_existing(reference, vocabulary, known=known)
         _write_zoo(run_dir / "zoo.json", zoo)
@@ -311,12 +315,17 @@ class Campaign:
             memory=state.memory, not_covered=zoo.not_covered,
         )
 
-    def _snapshot(self, run_dir: Path, state_path: Path, columns: list[str]) -> RunSnapshot:
+    def _snapshot(
+        self, run_dir: Path, state_path: Path, columns: set[str] | None, intraday_columns: set[str] | None = None,
+    ) -> RunSnapshot:
         """Open the run's snapshot: of the config's files, or, in a replay, of the replayed run's snapshot.
 
         The replaced templates and the vocabulary (against the price
-        dataset's ``columns``) are checked first, so broken files are never
-        snapshotted and a run refused for them starts cleanly once they are fixed.
+        dataset's ``columns`` and the intraday dataset's ``intraday_columns``)
+        are checked first, so broken files are never snapshotted and a run
+        refused for them starts cleanly once they are fixed. The settings
+        recorded are the prompt context and, with an intraday dataset, that
+        dataset, which the intraday family's fields mean.
 
         Raises
         ------
@@ -346,8 +355,10 @@ class Campaign:
             files, settings = recorded.search_files, recorded.settings
         else:
             files, settings = self.config.search_files(), {"context": asdict(self.config.context)}
+            if self.config.data.intraday is not None:
+                settings["intraday"] = {"dataset": json.loads(json.dumps(self.config.data.intraday))}
         self.config.templates(files)
-        self.config.vocabulary(columns, files)
+        self.config.vocabulary(columns, files, intraday_columns)
         return RunSnapshot.open(run_dir, files, code_version(), settings)
 
     def _opened(self, snapshot: RunSnapshot, state: _State, dropped: bool) -> Start:
@@ -572,6 +583,14 @@ def _columns(prices) -> set[str] | None:
     if not any(Path(path).exists() for path in prices.stores()):
         return None
     return set(prices.head(0).collect_schema().names()) - {"timestamp", "symbol"}
+
+
+def _intraday_columns(intraday) -> set[str] | None:
+    """The intraday dataset's columns and the session inputs added to them; None without a dataset or a store."""
+    if intraday is None:
+        return None
+    columns = _columns(intraday)
+    return None if columns is None else columns | set(SESSION_INPUTS)
 
 
 def _write_zoo(path: Path, zoo: Zoo) -> None:

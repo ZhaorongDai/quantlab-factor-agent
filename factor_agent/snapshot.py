@@ -200,7 +200,7 @@ def _check_settings(run_dir: Path, recorded: dict, given: dict) -> None:
     if changed:
         raise SnapshotMismatch(
             f"run snapshot of {run_dir}: the run's settings differ from the ones it started with: "
-            f"{'; '.join(changed)}. Changed prompt context settings need a new run directory."
+            f"{'; '.join(changed)}. A changed search space needs a new run directory."
         )
 
 
