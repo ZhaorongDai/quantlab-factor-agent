@@ -189,6 +189,12 @@ details.pending .card.picked { outline: 2px solid var(--acc) }
 .st-consistent { border-left-color: var(--good) !important }
 .st-inconsistent { border-left-color: var(--bad) !important }
 .card .stage { color: var(--mut) }
+/* A stage's colour: the whole of a badge's outline and text, and the stage line of a pending trial's card. */
+.badge.st-planned { color: var(--mut) }
+.badge.st-proposed, .badge.st-fixed, .badge.st-rewritten, .card.st-proposed .stage, .card.st-fixed .stage, .card.st-rewritten .stage { color: var(--acc) }
+.badge.st-consistent, .card.st-consistent .stage { color: var(--good) }
+.badge.st-inconsistent, .card.st-inconsistent .stage { color: var(--bad) }
+.badge[class*="st-"] { border-left-color: currentColor !important }
 aside.reader .flag { color: var(--bad); font-weight: 600; font-size: 12px }
 aside.reader .good { color: var(--good) }
 aside.reader .bad { color: var(--bad) }
