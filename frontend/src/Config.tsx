@@ -70,7 +70,9 @@ function Openings({ configs }: { configs: ConfigCopy[] }) {
       {configs.map((c, i) => (
         <details key={c.opening} className="memory-version" open={i === 0}>
           <summary>{c.opening === 1 ? 'Started' : `Resumed (opening ${c.opening})`} <span className="muted small">{when(c.opened_at)}</span></summary>
-          {c.changes ? <Changes lines={c.changes} /> : <p className="muted small">The config the run was started with.</p>}
+          {c.changes ? <Changes lines={c.changes} />
+            : c.opening === 1 ? <p className="muted small">The config the run was started with.</p>
+              : <p className="muted small">The earliest config kept: the run's openings before this one came before runs kept their config, so what this one changed is unknown.</p>}
         </details>
       ))}
     </>
