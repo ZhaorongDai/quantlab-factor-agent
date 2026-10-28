@@ -212,3 +212,28 @@ def in_direction(metrics: dict) -> tuple[int, dict[str, float | None]]:
     sign = 1 if (metrics.get("ic_mean") or 0) > 0 else -1
     return sign, {key: None if metrics.get(key) is None else sign * metrics[key]
                   for key in ("ic_mean", "ic_t", "partial_ic_mean", "partial_ic_t")}
+
+
+def _ranks(values: list[float]) -> list[float]:
+    """Each value's rank from 1, ties given their mean rank."""
+    order = sorted(range(len(values)), key=values.__getitem__)
+    ranks = [0.0] * len(values)
+    start = 0
+    while start < len(order):
+        end = start
+        while end + 1 < len(order) and values[order[end + 1]] == values[order[start]]:
+            end += 1
+        for i in order[start:end + 1]:
+            ranks[i] = (start + end) / 2 + 1
+        start = end + 1
+    return ranks
+
+
+def monotonicity(deciles: tuple[float | None, ...], sign: int) -> float | None:
+    """The Spearman correlation of the decile number with the decile returns, signed by ``sign``, as admission's."""
+    if len(deciles) < 2 or any(r is None for r in deciles) or len(set(deciles)) == 1:
+        return None
+    ranks, n = _ranks(list(deciles)), len(deciles)
+    mean = (n + 1) / 2
+    spread = sum((r - mean) ** 2 for r in ranks) * sum((i + 1 - mean) ** 2 for i in range(n))
+    return sign * sum((r - mean) * (i + 1 - mean) for i, r in enumerate(ranks)) / spread ** 0.5

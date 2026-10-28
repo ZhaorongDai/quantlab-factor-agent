@@ -56,7 +56,7 @@ one round are never both accepted when the second says nothing new.
 
 import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 import pandas as pd
@@ -87,6 +87,15 @@ _SPANNED_NORM = 1e-9
 
 
 @dataclass(frozen=True)
+class DailyIC:
+    """A candidate's daily rank IC and rank IC of its residual (the partial IC) on each day of the label, NaN where unscored."""
+
+    days: tuple[str, ...]
+    ic: tuple[float, ...]
+    partial_ic: tuple[float, ...]
+
+
+@dataclass(frozen=True)
 class Metrics:
     """A candidate's training-segment statistics; see the module docstring.
 
@@ -98,7 +107,8 @@ class Metrics:
     factors).
     ``decile_returns`` holds the mean label of each decile, lowest
     candidate values first. ``coverage`` is the mean daily share of the
-    scored members with a value before any fill.
+    scored members with a value before any fill. ``daily`` holds the daily
+    series the means and t come from; the ledger leaves it out.
     """
 
     ic_mean: float
@@ -114,10 +124,12 @@ class Metrics:
     n_days: int
     start: str
     end: str
+    daily: DailyIC | None = field(default=None, compare=False, repr=False)
 
     def to_dict(self) -> dict:
-        """Return the metrics as the ledger stores them."""
-        return {**vars(self), "decile_returns": list(self.decile_returns)}
+        """Return the metrics as the ledger stores them, without the daily series."""
+        stored = {key: value for key, value in vars(self).items() if key != "daily"}
+        return {**stored, "decile_returns": list(self.decile_returns)}
 
 
 @dataclass(frozen=True)
@@ -495,6 +507,10 @@ class _Scores:
             n_days=int(scored.sum()),
             start=days[0].strftime("%Y-%m-%d") if len(days) else "",
             end=days[-1].strftime("%Y-%m-%d") if len(days) else "",
+            daily=DailyIC(
+                days=tuple(pd.DatetimeIndex(frame.label["timestamp"].values).strftime("%Y-%m-%d")),
+                ic=tuple(float(v) for v in ic), partial_ic=tuple(float(v) for v in partial),
+            ),
         )
 
     def admit(self, k: int, name: str) -> None:

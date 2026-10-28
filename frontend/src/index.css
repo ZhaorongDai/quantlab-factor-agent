@@ -226,3 +226,22 @@ span.y-fold { cursor: default }
 .files nav button.here { background: var(--card); border-color: var(--line) }
 .files section h3 { margin-top: 0 }
 @media (max-width: 760px) { .files { grid-template-columns: 1fr } .files nav { position: static } }
+
+/* A factor's statistics against admission's bars, its decile returns and its cumulative IC */
+.checks { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 10px }
+.check { display: inline-flex; gap: 5px; align-items: baseline; padding: 2px 9px; border-radius: 9px; border: 1px solid currentColor; font-size: 12px }
+.check .bar { color: var(--mut); font-size: 11px }
+.check.pass { color: var(--good); background: color-mix(in srgb, var(--good) 10%, transparent) }
+.check.fail { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent) }
+.check.unknown { color: var(--mut) }
+figure.chart { margin: 6px 0 14px }
+figure.chart figcaption { font-size: 12px; margin-bottom: 4px }
+figure.chart svg { display: block; max-width: 520px; overflow: visible }
+figure.chart .axis { stroke: var(--mut); stroke-width: 1 }
+figure.chart .grid { stroke: var(--line); stroke-width: 1 }
+figure.chart .tick { fill: var(--mut); font-size: 9px; text-anchor: middle }
+figure.chart .tick.start { text-anchor: start }
+figure.chart rect.up { fill: var(--good) } figure.chart rect.down { fill: var(--bad) }
+figure.chart polyline { fill: none; stroke-width: 1.6 }
+figure.chart polyline.ic { stroke: var(--acc) } figure.chart polyline.partial { stroke: #b7791f; stroke-dasharray: 5 3 }
+figure.chart .key { font-weight: 600 } figure.chart .key.ic { color: var(--acc) } figure.chart .key.partial { color: #b7791f }

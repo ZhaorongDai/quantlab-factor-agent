@@ -76,6 +76,7 @@ the file, so a resume, a replay and the snapshot do not depend on it.
 """
 
 import json
+import math
 import os
 import socket
 from dataclasses import asdict, dataclass, field
@@ -83,7 +84,7 @@ from pathlib import Path
 
 from factor_agent import _admission, _feedback, _scheduler
 from factor_agent.config import ROLES, CampaignConfig
-from factor_agent.evaluator import CompileFailure, Evaluator, Metrics
+from factor_agent.evaluator import CompileFailure, DailyIC, Evaluator, Metrics
 from factor_agent.events import (
     FILE as EVENTS_FILE, AdmissionOutcome, EvaluationStart, Events, Plan, Resume, RoundEnd, Start, Stopped,
 )
@@ -416,7 +417,8 @@ class Campaign:
         earlier rounds' plus every candidate of the round that ran, whatever
         its place in the proposal order. They are admitted in that order,
         and the accepted ones are added to ``zoo``. The evaluation's start
-        and each outcome go to ``events``.
+        and each outcome go to ``events``, and each evaluated candidate's
+        daily IC to ``ic/round_NN.json`` (``_keep_daily_ic``).
         """
         evaluated = sum(r.evaluated for r in earlier)
         records = [self._failed(number, p) if p.checked is None else None for p in proposals]
@@ -441,8 +443,11 @@ class Campaign:
                 )
         passed.sort()
 
+        daily = {}
+
         def admit(position: int, metrics: Metrics, ran: int) -> str | None:
             proposal = proposals[passed[position]]
+            daily[passed[position]] = metrics.daily
             record = self._admit(number, proposal, metrics, evaluated + ran)
             records[passed[position]] = record
             events.write(AdmissionOutcome(
@@ -456,6 +461,7 @@ class Campaign:
 
         events.write(EvaluationStart(round=number, slots=list(passed)))
         results = evaluator.evaluate([proposals[i].checked.graph for i in passed], admit)
+        _keep_daily_ic(Path(self.config.run_dir), number, daily)
         for i, result in zip(passed, results):
             if isinstance(result, CompileFailure):
                 records[i] = TrialRecord(
@@ -495,6 +501,26 @@ class Campaign:
             stats=checked.stats, attempts=_attempts(proposal), direction=proposal.direction.to_dict(),
             graph=checked.graph.to_json(),
         )
+
+
+def _keep_daily_ic(run_dir: Path, number: int, daily: dict[int, DailyIC | None]) -> None:
+    """Keep round ``number``'s daily IC and partial IC by slot in ``ic/round_NN.json``, apart from the ledger.
+
+    The days are the label's, shared by the round's candidates; NaN (an unscored day) is written as null.
+    A round run again after a resume writes its file anew.
+    """
+    kept = {slot: series for slot, series in daily.items() if series is not None}
+    if not kept:
+        return
+    (run_dir / "ic").mkdir(exist_ok=True)
+    (run_dir / "ic" / f"round_{number:02d}.json").write_text(json.dumps({
+        "days": list(next(iter(kept.values())).days),
+        "slots": {
+            str(slot): {"ic": [v if math.isfinite(v) else None for v in s.ic],
+                        "partial_ic": [v if math.isfinite(v) else None for v in s.partial_ic]}
+            for slot, s in sorted(kept.items())
+        },
+    }))
 
 
 def _keep_config(config: CampaignConfig, run_dir: Path, opening: int) -> None:

@@ -5,6 +5,8 @@
 // while.
 import { useEffect, useRef, useState } from 'react'
 import type { Placed, Refusal, Run, Trial } from './api'
+import { checks } from './charts'
+import { Checks, CumulativeIC, DecileChart } from './FactorCharts'
 import { CallReader, PendingReader, RoundStrip, type Picked } from './Round'
 
 const W = 720, H = 440, P = 44
@@ -176,11 +178,20 @@ function Version({ a, n }: { a: Attempt; n: number }) {
   )
 }
 
-function Statistics({ p, t }: { p: Placed; t: Trial }) {
+function Statistics({ p, t, run, name }: { p: Placed; t: Trial; run: Run; name: string }) {
   const m = t.metrics ?? {}
+  const items = checks({
+    partial_ic_t: p.partial_ic_t, threshold: p.threshold, largest_correlation: p.largest_correlation, limit: run.correlation_limit,
+    coverage: typeof m.coverage === 'number' ? m.coverage : null, min_coverage: run.admission?.min_coverage ?? null,
+    monotonicity: p.monotonicity, min_monotonicity: run.admission?.min_monotonicity ?? null,
+  })
   const raw = (k: string) => (typeof m[k] === 'number' ? `raw (as the ledger records it): ${(m[k] as number).toFixed(4)}` : 'no raw value')
   const nearest = (label: unknown, rho: unknown) => (label ? <>{String(label)} ρ {fmt(rho as number | null)}</> : <span className="muted">none</span>)
   return (
+    <>
+    <Checks items={items} />
+    <DecileChart deciles={(m.decile_returns as (number | null)[]) ?? []} direction={p.factor_direction} monotonicity={p.monotonicity} />
+    <CumulativeIC name={name} round={t.round} slot={t.slot} direction={p.factor_direction} />
     <dl className="trust">
       <dt>direction</dt>
       <dd>{p.factor_direction > 0 ? '+1: a higher value went with a higher return' : '−1: a lower value went with a higher return'}</dd>
@@ -192,10 +203,11 @@ function Statistics({ p, t }: { p: Placed; t: Trial }) {
       <dt>closest known</dt><dd>{nearest(m.nearest_known, m.nearest_known_correlation)}</dd>
       <dt>coverage</dt><dd>{typeof m.coverage === 'number' ? `${Math.round(m.coverage * 100)}%` : '–'}</dd>
     </dl>
+    </>
   )
 }
 
-function Reader({ t, placed }: { t: Trial; placed: Placed | undefined }) {
+function Reader({ t, placed, run, name }: { t: Trial; placed: Placed | undefined; run: Run; name: string }) {
   const d = t.direction ?? {}
   const before = refusedBefore(t)
   return (
@@ -206,7 +218,7 @@ function Reader({ t, placed }: { t: Trial; placed: Placed | undefined }) {
       <h3>{describe(t)}</h3>
       <span className={`badge ${t.status}`}>{t.status} at {t.stage}</span>
       {t.reasons.map((r, i) => <p key={i} className="reason">{r}</p>)}
-      {placed && <><h4>Statistics, in its direction</h4><Statistics p={placed} t={t} /></>}
+      {placed && <><h4>Statistics, in its direction</h4><Statistics p={placed} t={t} run={run} name={name} /></>}
       <h4>Research direction</h4><p>{d.direction ?? <span className="muted">none recorded</span>}</p>
       <h4>Hypothesis</h4><p>{String(t.candidate.hypothesis ?? '–')}</p>
       <h4>Description</h4><p>{String(t.candidate.description ?? '–')}</p>
@@ -235,7 +247,7 @@ export default function Trials({ run, name, clock }: { run: Run; name: string; c
     reader = <PendingReader p={run.running?.pending.find(p => p.slot === picked.slot)}
                             back={from != null ? { call: from, go: () => setPicked({ call: from }) } : undefined} />
   }
-  else if (open) reader = <Reader t={open} placed={placed.get(key(open))} />
+  else if (open) reader = <Reader t={open} placed={placed.get(key(open))} run={run} name={name} />
   else reader = (
     <p className="muted">
       Click a point on the map, or a trial under “Never evaluated”, to read it: its research direction,

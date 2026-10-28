@@ -96,3 +96,18 @@ def test_a_run_with_no_written_round_has_nothing_to_place(tmp_path):
     (tmp_path / "snapshot.json").write_text("{}")
     empty = RunView.read(tmp_path)
     assert (empty.evaluated, empty.never_evaluated, empty.threshold) == ((), (), None)
+
+
+def test_a_placed_trial_carries_its_decile_monotonicity_as_admission_computes_it(view):
+    view, _ = view
+    trials = {(t.round, t.slot): t for t in view.trials}
+    for p in view.evaluated:
+        deciles = trials[(p.round, p.slot)].metrics["decile_returns"]
+        assert p.monotonicity == pytest.approx(_admission.monotonicity(deciles, p.factor_direction))
+
+
+def test_a_run_with_events_carries_the_coverage_and_monotonicity_admission_requires(view):
+    view, _ = view
+    defaults = AdmissionConfig()
+    assert (view.admission.min_coverage, view.admission.min_monotonicity) == (
+        defaults.min_coverage, defaults.min_monotonicity)

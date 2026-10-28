@@ -10,7 +10,8 @@
       "partial_ic_mean": "<number>",
       "partial_ic_t": "<number>",
       "largest_correlation": "<number>",
-      "threshold": "<number>"
+      "threshold": "<number>",
+      "monotonicity": "<number>"
     }
   ],
   "threshold": "<number>",

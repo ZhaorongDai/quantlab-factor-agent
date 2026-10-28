@@ -3,7 +3,7 @@
 from dataclasses import dataclass
 
 from factor_agent.web._files import Replayed
-from factor_agent.web._ledger import Neighbour, Trial, in_direction, neighbour, thresholds
+from factor_agent.web._ledger import Neighbour, Trial, in_direction, monotonicity, neighbour, thresholds
 
 
 @dataclass(frozen=True)
@@ -49,31 +49,6 @@ class Factor:
     metrics: dict
 
 
-def _ranks(values: list[float]) -> list[float]:
-    """Each value's rank from 1, ties given their mean rank."""
-    order = sorted(range(len(values)), key=values.__getitem__)
-    ranks = [0.0] * len(values)
-    start = 0
-    while start < len(order):
-        end = start
-        while end + 1 < len(order) and values[order[end + 1]] == values[order[start]]:
-            end += 1
-        for i in order[start:end + 1]:
-            ranks[i] = (start + end) / 2 + 1
-        start = end + 1
-    return ranks
-
-
-def _monotonicity(deciles: tuple[float | None, ...], sign: int) -> float | None:
-    """The Spearman correlation of the decile number with the decile returns, signed by ``sign``, as admission's."""
-    if len(deciles) < 2 or any(r is None for r in deciles) or len(set(deciles)) == 1:
-        return None
-    ranks, n = _ranks(list(deciles)), len(deciles)
-    mean = (n + 1) / 2
-    spread = sum((r - mean) ** 2 for r in ranks) * sum((i + 1 - mean) ** 2 for i in range(n))
-    return sign * sum((r - mean) * (i + 1 - mean) for i, r in enumerate(ranks)) / spread ** 0.5
-
-
 def factors(trials: tuple[Trial, ...], replayed: Replayed) -> tuple[Factor, ...]:
     """The accepted factors, in the order they were accepted."""
     by_round = thresholds(trials, replayed)
@@ -91,7 +66,7 @@ def factors(trials: tuple[Trial, ...], replayed: Replayed) -> tuple[Factor, ...]
             hypothesis=candidate.get("hypothesis", ""), description=candidate["description"], code=candidate["code"],
             factor_direction=sign, ic_mean=oriented["ic_mean"], ic_t=oriented["ic_t"],
             partial_ic_mean=oriented["partial_ic_mean"], partial_ic_t=oriented["partial_ic_t"],
-            threshold=threshold, threshold_source=source, monotonicity=_monotonicity(deciles, sign),
+            threshold=threshold, threshold_source=source, monotonicity=monotonicity(deciles, sign),
             nearest=neighbour(metrics.get("nearest"), metrics.get("nearest_correlation")),
             nearest_known=neighbour(metrics.get("nearest_known"), metrics.get("nearest_known_correlation")),
             decile_returns=deciles, coverage=metrics.get("coverage"), metrics=metrics,

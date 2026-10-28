@@ -129,8 +129,9 @@ so. Until a refusal quotes them, the page says they are unknown.
 The cards rank by their drop-one contribution when there is one. A report written by an
 older version, without the contribution table or the selection flag, is shown with what it
 holds. The cards also sort by round, by partial-IC t, by distance from the correlation limit or by
-coverage. Click a factor's description to open it written up: its hypothesis, description
-and code, and its trust facts in sentences. A run that has accepted nothing says so.
+coverage. Click a factor's description to open it written up: its statistics with its
+charts (see below), its hypothesis, description and code, and its trust facts in sentences.
+A run that has accepted nothing says so.
 
 ### The diagnosis
 
@@ -204,6 +205,14 @@ reasons it was refused, the versions refused before it with their reasons and hi
 for an evaluated trial, its statistics in its direction (hover one for the raw value) with
 its round's threshold, nearest factors and coverage. Trials that arrived since the page
 was opened stand out on the map for fifteen seconds.
+
+An evaluated trial, like an accepted factor's write-up, shows:
+
+| Part | Meaning |
+|------|---------|
+| checks | the partial-IC t, the largest correlation, the coverage and the decile monotonicity, each green when it cleared the bar admission set (the round's t threshold, the correlation limit, the least coverage and monotonicity), red when it did not, grey with "?" when the run does not record the bar |
+| decile returns | the mean return of each tenth of the daily cross section, lowest values left, as bars over the deciles' mean: in the factor's direction they should rise towards its end |
+| cumulative IC | the running sum of the daily rank IC and of the daily partial IC (dashed), in the factor's direction, over the training days: a steady climb is a steady effect, a flat stretch one it lost, and a partial IC far below the rank IC an effect the existing factors already explain. A run written before campaigns kept the daily IC has no such chart |
 
 ### The round in progress
 

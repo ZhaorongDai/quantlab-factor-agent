@@ -137,6 +137,7 @@ file has changed.
 | `memory.md`, `memory/round_NN.md` | the distilled memory and every version of it |
 | `snapshot/`, `snapshot.json` | the search files of the first start and their hashes |
 | `config/open-<k>.yaml` | the config of the k-th start or resume, as it was given |
+| `ic/round_NN.json` | each evaluated trial's daily rank IC and partial IC in round NN, by slot, for the frontend's cumulative IC |
 | `zoo.json` | the reference and known factors the Gate covers, and those without a graph it cannot |
 | `acceptance/` | validation and hold-out reports and the model cache |
 | `holdout.lock` | written when the hold-out is opened |

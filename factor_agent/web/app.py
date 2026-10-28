@@ -13,6 +13,8 @@ Routes:
   of its call file, 404 when the run has no call file of that number;
 - ``GET /api/run/files?name=<name>``: the config of each start or resume of a run and its snapshot's
   files (``read_files``), read only when the page shows them;
+- ``GET /api/run/ic?name=<name>&round=<round>&slot=<slot>``: a trial's daily IC and partial IC (``read_ic``),
+  404 when it was not evaluated or the run kept none;
 - ``GET /api/run/version?name=<name>``: a text that changes whenever the run writes (``run_version``),
   which the page polls before reading the run again;
 - ``GET /``: the page, built from ``frontend/`` into ``factor_agent/web/static``.
@@ -24,7 +26,7 @@ the app is made, so the module imports without them.
 import argparse
 from pathlib import Path
 
-from factor_agent.web.run_view import RunView, find_run, list_runs, read_call, read_files, run_version
+from factor_agent.web.run_view import RunView, find_run, list_runs, read_call, read_files, read_ic, run_version
 
 #: The built page: ``npm run build`` in ``frontend/`` writes it, and it is committed.
 STATIC = Path(__file__).parent / "static"
@@ -81,6 +83,13 @@ def create_app(root: str | Path):
     @app.get("/api/run/files")
     def files(name: str):
         return read_files(run_dir(name))
+
+    @app.get("/api/run/ic")
+    def ic(name: str, round: int, slot: int):
+        found = read_ic(run_dir(name), round, slot)
+        if found is None:
+            raise HTTPException(404, f"run {name!r} kept no daily IC of round {round}, slot {slot}")
+        return found
 
     @app.get("/api/run/version")
     def version(name: str):

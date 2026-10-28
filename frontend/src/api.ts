@@ -48,6 +48,9 @@ export type ConfigCopy = { opening: number; opened_at: string | null; text: stri
 // A file of the run snapshot, named fields/<file>, operators/<file> or prompts/<file>.
 export type SnapshotFile = { name: string; text: string }
 // The configs, the latest opening first (none for a run started before configs were kept), and the snapshot.
+// A trial's daily rank IC and partial IC, raw, on each day of the label; null on an unscored day.
+export type TrialIC = { days: string[]; ic: (number | null)[]; partial_ic: (number | null)[] }
+
 export type RunFiles = { configs: ConfigCopy[]; snapshot: SnapshotFile[] }
 
 export type MemoryVersion = { round: number; text: string; changes: MemoryLine[] | null }
@@ -162,6 +165,8 @@ export type Run = {
   trials: Trial[]
   factors: Factor[]
   correlation_limit: number | null
+  // The least coverage and monotonicity admission required, from the run's last start; null without events.
+  admission: { min_coverage: number; min_monotonicity: number } | null
   evaluated: Placed[]
   threshold: number | null
   never_evaluated: Refusal[]
@@ -223,6 +228,7 @@ export type Placed = {
   partial_ic_t: number | null
   largest_correlation: number | null
   threshold: number | null
+  monotonicity: number | null
 }
 
 export type TrialRef = { round: number; slot: number }
@@ -240,5 +246,7 @@ export const runs = () => get<RunSummary[]>('/api/runs')
 export const run = (name: string) => get<Run>(`/api/run?name=${encodeURIComponent(name)}`)
 export const call = (name: string, number: number) =>
   get<LLMCall>(`/api/run/call?name=${encodeURIComponent(name)}&number=${number}`)
+export const ic = (name: string, round: number, slot: number) =>
+  get<TrialIC>(`/api/run/ic?name=${encodeURIComponent(name)}&round=${round}&slot=${slot}`)
 export const files = (name: string) => get<RunFiles>(`/api/run/files?name=${encodeURIComponent(name)}`)
 export const version = (name: string) => get<string>(`/api/run/version?name=${encodeURIComponent(name)}`)

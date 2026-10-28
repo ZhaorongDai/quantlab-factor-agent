@@ -4,6 +4,8 @@ import { useState } from 'react'
 import type { Factor, Neighbour, Run } from './api'
 import Verdict, { ContributionLines, dropOne } from './Verdict'
 import Diagnosis from './Diagnosis'
+import { checks } from './charts'
+import { Checks, CumulativeIC, DecileChart } from './FactorCharts'
 
 const SORTS = {
   contribution: 'drop-one contribution',
@@ -88,7 +90,9 @@ function Margin({ f }: { f: Factor }) {
   )
 }
 
-function Card({ run, f, limit, open, toggle }: { run: Run; f: Factor; limit: number | null; open: boolean; toggle: () => void }) {
+function Card({ run, name, f, limit, open, toggle }: {
+  run: Run; name: string; f: Factor; limit: number | null; open: boolean; toggle: () => void
+}) {
   const rho = closest(f)
   return (
     <article className={`factor${open ? ' open' : ''}`}>
@@ -111,7 +115,7 @@ function Card({ run, f, limit, open, toggle }: { run: Run; f: Factor; limit: num
         <dt>coverage</dt><dd>{percent(f.coverage)}</dd>
       </dl>
       <ContributionLines run={run} label={f.label} />
-      {open && <WriteUp f={f} limit={limit} />}
+      {open && <WriteUp f={f} limit={limit} run={run} name={name} />}
     </article>
   )
 }
@@ -126,10 +130,19 @@ function Correlation({ n, known }: { n: Neighbour | null; known: boolean }) {
   )
 }
 
-function WriteUp({ f, limit }: { f: Factor; limit: number | null }) {
+function WriteUp({ f, limit, run, name }: { f: Factor; limit: number | null; run: Run; name: string }) {
   const rho = closest(f)
+  const items = checks({
+    partial_ic_t: f.partial_ic_t, threshold: f.threshold, largest_correlation: rho, limit,
+    coverage: f.coverage, min_coverage: run.admission?.min_coverage ?? null,
+    monotonicity: f.monotonicity, min_monotonicity: run.admission?.min_monotonicity ?? null,
+  })
   return (
     <div className="write-up">
+      <h4>Statistics, in its direction</h4>
+      <Checks items={items} />
+      <DecileChart deciles={f.decile_returns} direction={f.factor_direction} monotonicity={f.monotonicity} />
+      <CumulativeIC name={name} round={f.round} slot={f.slot} direction={f.factor_direction} />
       <h4>Hypothesis</h4><p>{f.hypothesis}</p>
       <h4>Description</h4><p>{f.description}</p>
       <h4>Code</h4><pre className="code">{f.code}</pre>
@@ -155,7 +168,7 @@ function WriteUp({ f, limit }: { f: Factor; limit: number | null }) {
   )
 }
 
-export default function Results({ run, select }: { run: Run; select: () => void }) {
+export default function Results({ run, name, select }: { run: Run; name: string; select: () => void }) {
   // The cards rank by their drop-one contribution when Acceptance measured it.
   const ranked = run.factors.some(f => dropOne(run, f.label) != null)
   const [chosen, setSort] = useState<Sort | null>(null)
@@ -190,7 +203,7 @@ export default function Results({ run, select }: { run: Run; select: () => void 
           </p>
           <div className="factors">
             {factors.map(f => (
-              <Card key={f.label} run={run} f={f} limit={run.correlation_limit} open={open === f.label}
+              <Card key={f.label} run={run} name={name} f={f} limit={run.correlation_limit} open={open === f.label}
                     toggle={() => setOpen(open === f.label ? null : f.label)} />
             ))}
           </div>

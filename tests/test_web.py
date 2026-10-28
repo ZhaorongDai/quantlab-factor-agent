@@ -38,6 +38,7 @@ HEALTH = Path(__file__).parent / "snapshots" / "web_run_health.json"
 CALL = Path(__file__).parent / "snapshots" / "web_run_call.json"
 RUNNING = Path(__file__).parent / "snapshots" / "web_run_running.json"
 FILES = Path(__file__).parent / "snapshots" / "web_run_files.json"
+IC = Path(__file__).parent / "snapshots" / "web_run_ic.json"
 
 #: Each client's folder of runs, synthetic market components and KunQuant cache.
 CLIENT: dict = {}
@@ -225,6 +226,18 @@ def test_a_runs_config_and_snapshot_files_answer_with_the_snapshot_json(client):
         FILES.write_text(json.dumps(files, indent=2) + "\n")
     assert files == json.loads(FILES.read_text())
     assert client.get("/api/run/files", params={"name": "elsewhere"}).status_code == 404
+
+
+def test_a_trials_daily_ic_answers_with_the_snapshot_json(client):
+    evaluated = next(t for t in client.get("/api/run", params={"name": "example/run"}).json()["trials"] if t["metrics"])
+    params = {"name": "example/run", "round": evaluated["round"], "slot": evaluated["slot"]}
+    series = client.get("/api/run/ic", params=params).json()
+    assert len(series["days"]) == len(series["ic"]) == len(series["partial_ic"]) > 2
+    series = _shape({key: values[:2] for key, values in series.items()})
+    if os.environ.get("FACTOR_AGENT_UPDATE_SNAPSHOTS"):
+        IC.write_text(json.dumps(series, indent=2) + "\n")
+    assert series == json.loads(IC.read_text())
+    assert client.get("/api/run/ic", params={**params, "round": 99}).status_code == 404
 
 
 def test_the_round_in_progress_answers_with_the_snapshot_json(client, tmp_path):

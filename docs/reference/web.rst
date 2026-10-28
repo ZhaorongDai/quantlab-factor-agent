@@ -16,6 +16,7 @@ Reading runs
    factor_agent.web.run_view.run_version
    factor_agent.web.run_view.read_call
    factor_agent.web.run_view.read_files
+   factor_agent.web.run_view.read_ic
    factor_agent.web.run_view.RunView
    factor_agent.web.run_view.RunSummary
    factor_agent.web.run_view.Health
@@ -44,6 +45,8 @@ Reading runs
    factor_agent.web.run_view.RunFiles
    factor_agent.web.run_view.ConfigCopy
    factor_agent.web.run_view.SnapshotFile
+   factor_agent.web.run_view.TrialIC
+   factor_agent.web.run_view.AdmissionLimits
 
 Serving
 -------

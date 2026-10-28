@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 
 from factor_agent.web._files import Replayed
-from factor_agent.web._ledger import Trial, in_direction, thresholds
+from factor_agent.web._ledger import Trial, in_direction, monotonicity, thresholds
 
 
 @dataclass(frozen=True)
@@ -19,6 +19,7 @@ class Placed:
     with the nearest reference or accepted factor and the nearest known one,
     ``None`` when there was none to compare with. ``threshold`` is the t
     threshold of its round, as ``Factor.threshold`` (``None`` while nothing gives it).
+    ``monotonicity`` is its decile monotonicity in its direction, as admission's.
     """
 
     round: int
@@ -31,6 +32,7 @@ class Placed:
     partial_ic_t: float | None
     largest_correlation: float | None
     threshold: float | None
+    monotonicity: float | None
 
 
 @dataclass(frozen=True)
@@ -92,6 +94,7 @@ def trials_page(trials: tuple[Trial, ...], replayed: Replayed) -> TrialsPage:
             ic_mean=oriented["ic_mean"], ic_t=oriented["ic_t"], partial_ic_mean=oriented["partial_ic_mean"],
             partial_ic_t=oriented["partial_ic_t"], largest_correlation=max(correlations) if correlations else None,
             threshold=by_round[trial.round][0],
+            monotonicity=monotonicity(tuple(metrics.get("decile_returns") or ()), sign),
         ))
     groups: dict[tuple[str, str], list[Trial]] = {}
     for trial in trials:

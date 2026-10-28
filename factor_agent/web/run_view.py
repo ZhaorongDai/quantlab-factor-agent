@@ -69,6 +69,7 @@ from pathlib import Path
 
 from factor_agent import events
 from factor_agent.web._config import ConfigCopy, RunFiles, SnapshotFile, read_files
+from factor_agent.web._ic import TrialIC, read_ic
 from factor_agent.web._acceptance import AcceptanceReports, Comparison, Contribution, HoldoutOpen, acceptance
 from factor_agent.web._diagnosis import Finding, diagnosis
 from factor_agent.web._files import LineChange, Replayed, read_json, utc, written
@@ -82,12 +83,20 @@ from factor_agent.web._round import Check, LLMCall, PendingTrial, RoundCall, Run
 from factor_agent.web._trials import Placed, Refusal, TrialRef, trials_page
 
 __all__ = [
-    "RECENT_ROUNDS", "STALL_ASKING", "STALL_EVALUATING", "AcceptanceReports", "Check", "Collision", "Comparison",
+    "RECENT_ROUNDS", "STALL_ASKING", "STALL_EVALUATING", "AcceptanceReports", "AdmissionLimits", "Check", "Collision", "Comparison",
     "ConfigCopy", "Contribution", "Factor", "Finding", "Health", "HoldoutOpen", "LLMCall", "LineChange", "MemoryLine",
     "MemoryVersion", "Neighbour",
     "PendingTrial", "Placed", "Refusal", "RoundCall", "RoundTokens", "RunFiles", "RunSummary", "RunView", "RunningRound", "SnapshotFile", "Stop",
-    "Tokens", "Trial", "TrialRef", "find_run", "list_runs", "read_call", "read_files", "run_version",
+    "Tokens", "Trial", "TrialIC", "TrialRef", "find_run", "list_runs", "read_call", "read_files", "read_ic", "run_version",
 ]
+
+
+@dataclass(frozen=True)
+class AdmissionLimits:
+    """The least coverage and decile monotonicity admission required, as the run's last start recorded them."""
+
+    min_coverage: float
+    min_monotonicity: float
 
 
 @dataclass(frozen=True)
@@ -131,6 +140,8 @@ class RunView:
     correlation with an existing factor that admission allows: the one the
     run was last opened with, or for a run without events the one its
     latest refusal for it quotes, ``None`` while nothing gives it.
+    ``admission`` holds the least coverage and monotonicity admission
+    required, from the run's last start; ``None`` for a run without events.
     ``evaluated`` places every trial the Evaluator scored, in round and slot
     order, and ``threshold`` is the t threshold of the latest round (see the
     module's notes), ``None`` while nothing gives it.
@@ -157,6 +168,7 @@ class RunView:
     memory: tuple[MemoryVersion, ...]
     acceptance: AcceptanceReports
     diagnosis: tuple[Finding, ...]
+    admission: AdmissionLimits | None
     health: Health
     running: RunningRound | None
     now: datetime
@@ -197,6 +209,8 @@ class RunView:
             correlation_limit=correlation_limit(trials, replayed), evaluated=page.evaluated, threshold=page.threshold,
             never_evaluated=page.never_evaluated, memory=memory(run_dir / "memory"), acceptance=acceptance(run_dir),
             diagnosis=diagnosis(trials),
+            admission=AdmissionLimits(replayed.opened.min_coverage, replayed.opened.min_monotonicity)
+            if replayed.opened else None,
             health=health(run_dir, state, summary.rounds, summary.trials, summary.stop is not None, replayed, now),
             running=None if summary.stop else running(summary.rounds + 1, replayed), now=now,
         )
