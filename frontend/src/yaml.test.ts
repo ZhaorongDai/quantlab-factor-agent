@@ -1,7 +1,7 @@
 // How a line of YAML is split for colouring, run with `npm test`.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { highlight, parts } from './yaml.ts'
+import { folds, highlight, parts } from './yaml.ts'
 
 const kinds = (line: string) => parts(line).map(p => [p.kind, p.text])
 
@@ -53,4 +53,19 @@ test('a list ends at its closing bracket, not at a bracket inside quotes', () =>
 test('the lines of a block scalar are its text until the indentation returns', () => {
   const text = 'description: |\n  first line: not a key\n\n  # not a comment\nnext: 2'
   assert.deepEqual(kindsOf(text), [['key', 'colon', 'block'], ['string'], [], ['string'], ['key', 'colon', 'number']])
+})
+
+test('a key folds the lines indented under it, blank lines between them included', () => {
+  const text = 'data:\n  prices:\n    a: 1\n\n    b: 2\n  label: x\nnext: 3'
+  assert.deepEqual([...folds(text)], [[0, 6], [1, 5]])
+})
+
+test('a key folds a list written at its own indentation, and a list item folds its keys', () => {
+  const text = 'reference:\n- store: a\n  factor_names: [x,\n    y]\n- store: b\nnext: 1'
+  assert.deepEqual([...folds(text)], [[0, 5], [1, 4], [2, 4]])
+})
+
+test('a line with nothing under it, and a comment, do not fold', () => {
+  const text = '# a comment\n  # indented under it\nkey: 1\nother: 2'
+  assert.deepEqual([...folds(text)], [])
 })

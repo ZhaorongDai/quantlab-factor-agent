@@ -254,7 +254,9 @@ shows the changed lines, added ones highlighted and removed ones struck through.
 file browser opens any of those configs in full and the files of the run's snapshot: the
 field files, the operator file and the replaced prompt templates the search was fixed
 with at its first start. YAML is coloured by its parts (keys, strings, numbers, comments)
-with line numbers. A run started before runs kept their config shows its snapshot only.
+with line numbers; a key or list item with lines under it folds them away with the arrow
+beside it, and "fold all" and "unfold all" fold or open every one. A run started before
+runs kept their config shows its snapshot only.
 
 ## On a server
 

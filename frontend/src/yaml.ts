@@ -91,3 +91,26 @@ export function highlight(text: string): Part[][] {
   }
   return out
 }
+
+// The lines each line folds, as start line -> end line (exclusive), the start kept in view: a key or a list item
+// folds the lines indented deeper under it, and a key ending in a colon also a list written at its own indentation.
+export function folds(text: string): Map<number, number> {
+  const lines = text.split('\n')
+  const out = new Map<number, number>()
+  lines.forEach((line, i) => {
+    const own = parts(line)
+    if (!own.some(p => p.kind === 'key' || p.kind === 'dash')) return
+    const indent = indentOf(line)
+    const opens = own[own.length - 1]?.kind === 'colon'
+    let last = i
+    for (let j = i + 1; j < lines.length; j++) {
+      if (!lines[j].trim()) continue
+      const deeper = indentOf(lines[j]) > indent
+      const listUnder = opens && indentOf(lines[j]) === indent && /^\s*-(\s|$)/.test(lines[j])
+      if (!deeper && !listUnder) break
+      last = j
+    }
+    if (last > i) out.set(i, last + 1)
+  })
+  return out
+}

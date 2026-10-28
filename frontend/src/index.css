@@ -199,7 +199,7 @@ aside.reader pre.code { white-space: pre-wrap; overflow-wrap: anywhere; max-heig
 .paused { position: sticky; top: 41px; z-index: 2; margin: 0 0 12px; padding: 6px 10px; border: 1px solid var(--acc); border-radius: 6px; background: color-mix(in srgb, var(--acc) 12%, var(--bg)) }
 
 /* The config page: YAML coloured by its parts, and the file browser */
-pre.yaml div { white-space: pre-wrap; padding-left: 3.4em; text-indent: -3.4em }
+pre.yaml div { white-space: pre-wrap; padding-left: 4.8em; text-indent: -4.8em }
 .y-no { display: inline-block; width: 2.6em; margin-right: .8em; text-align: right; color: var(--mut); opacity: .6; user-select: none; text-indent: 0 }
 .y-key { color: #2557d6 } .y-colon { color: var(--mut) } .y-dash { color: #a16207 }
 .y-string { color: #1f8a4c } .y-number { color: #b45309 } .y-bool, .y-null { color: #9333ea } .y-flow { color: #0e7490 } .y-block { color: var(--mut) }
@@ -208,6 +208,12 @@ pre.yaml div { white-space: pre-wrap; padding-left: 3.4em; text-indent: -3.4em }
   .y-key { color: #7aa2ff } .y-string { color: #86d29b } .y-number { color: #f0a868 }
   .y-bool, .y-null { color: #c4a2ff } .y-flow { color: #67c7d8 } .y-dash { color: #e0b15a }
 }
+.y-fold { display: inline-block; width: 1.2em; margin-right: .2em; padding: 0; border: 0; background: none; color: var(--mut); font: inherit; text-indent: 0; cursor: pointer }
+span.y-fold { cursor: default }
+.y-fold:hover { color: var(--fg) }
+.y-folded { margin-left: .6em; padding: 0 6px; border: 1px solid var(--line); border-radius: 4px; background: var(--card); color: var(--mut); font: inherit; font-size: 11px; text-indent: 0; cursor: pointer }
+.y-tools { display: flex; gap: 8px; justify-content: flex-end; margin: 0 0 4px }
+.y-tools button { padding: 1px 8px; border: 1px solid var(--line); border-radius: 9px; background: var(--card); color: var(--fg); font: inherit; cursor: pointer }
 .files { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; align-items: start }
 .files nav { display: grid; gap: 4px; position: sticky; top: 60px }
 .files nav button { display: grid; gap: 2px; text-align: left; padding: 8px 10px; background: none; border: 1px solid transparent; border-radius: 8px; color: var(--fg); font: inherit; cursor: pointer }

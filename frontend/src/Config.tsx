@@ -1,19 +1,46 @@
 // The config page: the config of each start and resume, the latest first, each with what changed from the one
 // before, then every file the run was set up with to read in full, the YAML coloured.
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 import * as api from './api'
 import type { ConfigCopy, LineChange, RunFiles, SnapshotFile } from './api'
-import { highlight, parts } from './yaml'
+import { folds, highlight, parts } from './yaml'
 
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : 'at an unknown time')
 
+// The YAML coloured, with line numbers; a key or list item with lines under it folds them away and back.
 export function Yaml({ text }: { text: string }) {
+  const body = text.replace(/\n$/, '')
+  const lines = useMemo(() => highlight(body), [body])
+  const ranges = useMemo(() => folds(body), [body])
+  const [folded, setFolded] = useState<Set<number>>(new Set())
+  useEffect(() => setFolded(new Set()), [body])
+  const toggle = (i: number) => setFolded(f => { const next = new Set(f); if (!next.delete(i)) next.add(i); return next })
+  const shown: ReactNode[] = []
+  for (let i = 0; i < lines.length; i++) {
+    const end = ranges.get(i)
+    shown.push(
+      <div key={i}>
+        <span className="y-no">{i + 1}</span>
+        {end != null
+          ? <button className="y-fold" onClick={() => toggle(i)} title={folded.has(i) ? 'Unfold' : 'Fold'}>{folded.has(i) ? '▸' : '▾'}</button>
+          : <span className="y-fold" />}
+        {lines[i].map((p, k) => <span key={k} className={`y-${p.kind}`}>{p.text}</span>)}
+        {end != null && folded.has(i) && <button className="y-folded" onClick={() => toggle(i)}>… {end - i - 1} lines</button>}
+      </div>,
+    )
+    if (end != null && folded.has(i)) i = end - 1
+  }
   return (
-    <pre className="code yaml">
-      {highlight(text.replace(/\n$/, '')).map((line, i) => (
-        <div key={i}><span className="y-no">{i + 1}</span>{line.map((p, k) => <span key={k} className={`y-${p.kind}`}>{p.text}</span>)}</div>
-      ))}
-    </pre>
+    <>
+      {ranges.size > 0 && (
+        <div className="y-tools small">
+          <button onClick={() => setFolded(new Set(ranges.keys()))}>fold all</button>
+          <button onClick={() => setFolded(new Set())}>unfold all</button>
+        </div>
+      )}
+      <pre className="code yaml">{shown}</pre>
+    </>
   )
 }
 
