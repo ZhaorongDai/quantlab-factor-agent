@@ -7,6 +7,13 @@ factor, a subclass of ``GraphFactor`` that fixes ``GRAPHS`` and the
 ``CLASSES`` the campaign's vocabulary built them from;
 ``Acceptance.validate`` uses ``GraphFactor`` itself, with both in
 ``config.kwargs``.
+
+A factor of an intraday family is held in its stages
+(``factor_agent.gate.stages``, ``staged``): its graph is the daily stage,
+reading each session column as an input, and ``SESSIONS`` maps each session
+column to its intraday graph, computed from the intraday dataset of
+``INTRADAY`` by ``factor_agent.session.SessionColumns``, as the Evaluator
+computes it.
 """
 
 from collections.abc import Mapping
@@ -14,9 +21,13 @@ from collections.abc import Mapping
 from KunQuant.Op import OpBase, Output, Rank
 from KunQuant.ops import AddConst, MulConst
 from KunQuant.Stage import Function
+from quantlab.core.component import rebuild
+
 from factor_agent import derived, period_lag
+from factor_agent.gate import stages
 from factor_agent.gate.graph import Graph
-from factor_agent.gate.vocabulary import resolve_classes
+from factor_agent.gate.vocabulary import Vocabulary, resolve_classes
+from factor_agent.session import SessionColumns
 
 
 def ranked_function(
@@ -68,7 +79,11 @@ class GraphFactor(derived.DerivedColumnsFactor):
     ``config.kwargs["period_lags"]`` (``period_lags``), none when neither is
     set; each output's direction, ``DIRECTIONS`` or
     ``config.kwargs["directions"]`` (+1 when unset), turns it so a higher
-    value means a higher return. ``config.data_columns`` must hold every
+    value means a higher return. A graph of an intraday family is its daily
+    stage (``staged``): the intraday graph of each session column it reads
+    is in ``SESSIONS`` or ``config.kwargs["sessions"]``, and the intraday
+    dataset they run on, as a ``get_config()`` dict, in ``INTRADAY`` or
+    ``config.kwargs["intraday"]``. ``config.data_columns`` must hold every
     dataset column the graphs and their lags read (``data_columns``).
     """
 
@@ -80,18 +95,33 @@ class GraphFactor(derived.DerivedColumnsFactor):
     PERIOD_LAGS: dict = {}
     #: Output name -> its direction, +1 or -1; set by an exported subclass.
     DIRECTIONS: dict = {}
+    #: Session column -> its intraday graph, of every session column ``GRAPHS`` reads; set by an exported subclass.
+    SESSIONS: dict = {}
+    #: The intraday dataset ``SESSIONS`` runs on, as a ``get_config()`` dict; set by an exported subclass.
+    INTRADAY: dict = {}
 
     def _recorded(self) -> dict:
         return type(self).GRAPHS or dict((self.config.kwargs or {})["graphs"])
 
+    def _class_paths(self) -> dict:
+        return type(self).CLASSES or dict((self.config.kwargs or {})["classes"])
+
     def _classes(self) -> dict:
-        return resolve_classes(type(self).CLASSES or dict((self.config.kwargs or {})["classes"]))
+        return resolve_classes(self._class_paths())
 
     def _period_lags(self) -> dict:
         return type(self).PERIOD_LAGS or dict((self.config.kwargs or {}).get("period_lags") or {})
 
+    def _sessions(self) -> dict:
+        return type(self).SESSIONS or dict((self.config.kwargs or {}).get("sessions") or {})
+
     def _providers(self) -> list[derived.Provider]:
-        return period_lag.providers(self._period_lags())
+        providers = period_lag.providers(self._period_lags())
+        sessions = self._sessions()
+        if sessions:
+            intraday = type(self).INTRADAY or (self.config.kwargs or {})["intraday"]
+            providers.append(SessionColumns(rebuild(intraday), sessions, self._class_paths(), self.config.njobs))
+        return providers
 
     def _directions(self) -> dict:
         return type(self).DIRECTIONS or dict((self.config.kwargs or {}).get("directions") or {})
@@ -105,9 +135,36 @@ class GraphFactor(derived.DerivedColumnsFactor):
         return ranked_function(graphs, directions=self._directions())
 
     @staticmethod
-    def data_columns(graphs: Mapping[str, list], period_lags: Mapping[str, Mapping] | None = None) -> tuple[str, ...]:
-        """The dataset columns the recorded graphs read, with the columns and keys of their ``period_lags``, sorted."""
-        return derived.data_columns(_inputs(graphs), period_lag.providers(period_lags or {}))
+    def data_columns(
+        graphs: Mapping[str, list], period_lags: Mapping[str, Mapping] | None = None, sessions: Mapping[str, list] | None = None,
+    ) -> tuple[str, ...]:
+        """The daily dataset columns the recorded graphs read, with the columns and keys of their ``period_lags``, sorted.
+
+        The session columns of ``sessions`` are filled from the intraday dataset, not read.
+        """
+        return tuple(sorted(set(derived.data_columns(_inputs(graphs), period_lag.providers(period_lags or {})))
+                            - set(sessions or {})))
+
+    @staticmethod
+    def staged(graphs: Mapping[str, list], vocabulary: Vocabulary) -> tuple[dict, dict]:
+        """Recorded graphs in their stages: each one's daily graph, by name, and every session column's intraday graph.
+
+        A graph of no intraday family is its own daily graph and reads no
+        session column. Both are ``Graph.to_json()``.
+
+        Raises
+        ------
+        ValueError
+            If a graph breaks a stage rule (``stages.split``).
+        """
+        daily, sessions = {}, {}
+        for name, recorded in graphs.items():
+            split = stages.split(Graph.from_json(recorded, vocabulary.classes), vocabulary)
+            if split.reasons:
+                raise ValueError(f"{name}: the graph breaks the stage rules: {'; '.join(split.reasons)}")
+            daily[name] = split.daily.to_json()
+            sessions |= {column: graph.to_json() for column, graph in split.intraday.items()}
+        return daily, sessions
 
     @staticmethod
     def period_lags(graphs: Mapping[str, list], lag_columns: Mapping[str, Mapping]) -> dict:

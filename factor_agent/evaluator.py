@@ -391,7 +391,7 @@ class Evaluator:
         factor = _RoundGraph(
             FactorConfig(
                 warmup_bars=self._warmup_bars, dataset=self._prices, mode="batch",
-                data_columns=derived.data_columns(inputs, providers) or self._axes(), njobs=self._njobs,
+                data_columns=derived.data_columns(inputs, providers), njobs=self._njobs,
             ),
             daily,
             providers,
@@ -418,11 +418,6 @@ class Evaluator:
         if not graphs:
             return []
         return [SessionColumns(self._intraday, graphs, self._vocabulary.class_paths(graphs.values()), self._njobs)]
-
-    def _axes(self) -> tuple[str, ...]:
-        """A daily field's column, read for the panel's dates and symbols when the graphs read only session columns."""
-        return tuple(sorted(f.column for f in self._vocabulary.fields.values() if f.column is not None
-                            and f.family != self._vocabulary.intraday_family))[:1]
 
 
 @dataclass(frozen=True)
