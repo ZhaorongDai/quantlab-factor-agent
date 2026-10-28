@@ -217,7 +217,7 @@ output and of those spent reasoning), the reply (JSON laid out to read), the mod
 reasoning when the provider returns it (open when the reply is empty) and the prompt
 (folded). A flag says when the reply was cut off at the output limit, a sign to raise
 the backend's output token limit, or when it was empty. The slots the call concerned are
-listed; click one to read its pending trial.
+listed; click one to read its pending trial, and "back to call" returns to the call.
 
 "Pending trials" opens one card per slot of the round's plan (see
 [Concepts](concepts.md)) with the stage it reached: planned, proposed, fixed after the

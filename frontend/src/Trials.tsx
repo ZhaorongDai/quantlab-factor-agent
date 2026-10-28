@@ -230,7 +230,11 @@ export default function Trials({ run, name, clock }: { run: Run; name: string; c
   const open = pickedTrial ? trials.get(pickedTrial) : undefined
   let reader
   if (picked && 'call' in picked) reader = <CallReader name={name} number={picked.call} pick={setPicked} />
-  else if (picked && 'slot' in picked) reader = <PendingReader p={run.running?.pending.find(p => p.slot === picked.slot)} />
+  else if (picked && 'slot' in picked) {
+    const from = picked.from
+    reader = <PendingReader p={run.running?.pending.find(p => p.slot === picked.slot)}
+                            back={from != null ? { call: from, go: () => setPicked({ call: from }) } : undefined} />
+  }
   else if (open) reader = <Reader t={open} placed={placed.get(key(open))} />
   else reader = (
     <p className="muted">

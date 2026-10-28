@@ -164,6 +164,7 @@ section.round h3 { font-size: 14px; margin: 0 0 6px }
 .timeline .mark { position: absolute; top: 1px; height: 14px; padding: 0; border: 0; border-radius: 3px; background: var(--acc); cursor: pointer }
 .timeline .mark.out { background: color-mix(in srgb, var(--acc) 30%, transparent); outline: 1px dashed var(--acc); cursor: default }
 .timeline .mark.failed { background: var(--bad); cursor: default }
+aside.reader .back { display: block; margin-bottom: 6px }
 .timeline .mark.picked { outline: 2px solid var(--fg); outline-offset: 1px }
 .timeline .mark.evaluating { background: color-mix(in srgb, var(--good) 45%, transparent); cursor: default }
 .timeline .axis { display: flex; justify-content: space-between; margin-left: 80px }

@@ -8,8 +8,9 @@ import { duration } from './Health'
 import { rows } from './lanes'
 import { formatted } from './reply'
 
-// What the side panel reads: a trial (by "round.slot"), a call (by its call file's number) or a pending trial (slot).
-export type Picked = { trial: string } | { call: number } | { slot: number } | null
+// What the side panel reads: a trial (by "round.slot"), a call (by its call file's number) or a pending trial (slot),
+// with the call it was opened from, so that the panel can go back to that call.
+export type Picked = { trial: string } | { call: number } | { slot: number; from?: number } | null
 
 export const STAGES: Record<Stage, string> = {
   planned: 'planned',
@@ -133,12 +134,12 @@ export function RoundStrip({ running, clock, crashed, picked, pick }: {
   )
 }
 
-function Slots({ slots, pick }: { slots: number[]; pick: (p: Picked) => void }) {
+function Slots({ slots, from, pick }: { slots: number[]; from: number; pick: (p: Picked) => void }) {
   if (!slots.length) return <p className="small muted">It concerned the whole round.</p>
   return (
     <p className="small">
       Slots:{' '}
-      {slots.map(s => <button key={s} className="link" onClick={() => pick({ slot: s })}>{s + 1}</button>)
+      {slots.map(s => <button key={s} className="link" onClick={() => pick({ slot: s, from })}>{s + 1}</button>)
         .reduce<React.ReactNode[]>((all, b, i) => (i ? [...all, ', ', b] : [b]), [])}
     </p>
   )
@@ -168,7 +169,7 @@ export function CallReader({ name, number, pick }: { name: string; number: numbe
       </p>
       {call.truncated && <p className="flag">The reply was cut off at the output limit: raise the backend's output token limit.</p>}
       {call.empty && <p className="flag">The reply is empty.</p>}
-      <Slots slots={call.slots} pick={pick} />
+      <Slots slots={call.slots} from={call.number} pick={pick} />
       <h4>Reply</h4>
       {call.reply ? <pre className="code">{formatted(call.reply)}</pre> : <p className="muted small">(empty)</p>}
       {call.reasoning && (
@@ -198,12 +199,15 @@ function CheckLine({ c }: { c: Check }) {
   )
 }
 
-export function PendingReader({ p }: { p: PendingTrial | undefined }) {
-  if (!p) return <p className="muted">This slot's round has been written: find its trial on the map or in the list.</p>
+// `back`, when the pending trial was opened from a call's slots: return to that call.
+export function PendingReader({ p, back }: { p: PendingTrial | undefined; back?: { call: number; go: () => void } }) {
+  const backButton = back && <button className="link back small" onClick={back.go}>← back to call {back.call}</button>
+  if (!p) return <>{backButton}<p className="muted">This slot's round has been written: find its trial on the map or in the list.</p></>
   const item = p.latest
   const candidate = item && typeof item === 'object' ? item as Record<string, unknown> : null
   return (
     <>
+      {backButton}
       <div className="muted small">
         pending trial, slot {p.slot + 1} · {p.direction.mechanism_type} · {p.direction.action}
         {p.direction.parent ? ` of ${p.direction.parent}` : ''}
