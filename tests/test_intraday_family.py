@@ -10,6 +10,7 @@ planted signal, beside daily candidates, which cannot see it.
 
 import json
 
+import pandas as pd
 import pytest
 
 from factor_agent.gate.vocabulary import VocabularyError
@@ -37,11 +38,11 @@ NESTED = candidate("nested aggregation", "alpha = SessionStd(SessionMean(bar_clo
 CANDIDATES = [LATE_SHARE, MIXED, DAILY_VOLUME, DAILY_PRICE, NESTED]
 
 
-def _config(root, components=None, fields=(PRICE_VOLUME, MINUTE_BARS), **data):
+def _config(root, components=None, fields=(PRICE_VOLUME, MINUTE_BARS), training=market.TRAINING, **data):
     components = components or market.build(root / "data")
     return write_config(
         root, {**components, "exposures": None},  # scored without neutralisation, below
-        segments={"training": {"start": market.TRAINING[0], "end": market.TRAINING[1]}},
+        segments={"training": {"start": training[0], "end": training[1]}},
         data={**{name: components[name] for name in ("prices", "label", "membership", "intraday")}, **data},
         scoring={"neutralize": None},
         fields=[str(path) for path in fields],
@@ -137,6 +138,22 @@ def test_an_intraday_field_reading_a_column_the_minute_bars_lack_fails_at_start(
     with pytest.raises(VocabularyError, match="column 'sell_volume_typo' is not in the intraday dataset"):
         run(config_path, fake, tmp_path / "kunquant_cache")
     assert fake.requests == []
+
+
+def test_a_training_segment_starting_at_the_first_session_counts_the_days_before_a_window_fills_as_missing(
+    campaign, tmp_path,
+):
+    training = (market.MINUTE_START, market.TRAINING[1])
+    config_path, _ = _config(tmp_path, components=campaign["components"], training=training)
+    fake = FakeLLM(lambda number, directions: CANDIDATES[:len(directions)])
+    result = run(config_path, fake, tmp_path / "kunquant_cache")
+    record = next(r for r in result.records if r.candidate["description"] == "late volume share")
+    assert record.metrics is not None, record.reasons
+    # The five-day mean has no value on the segment's first four days, which have no session before them.
+    days = len(pd.bdate_range(*training))
+    # Not a day more or less.
+    assert record.metrics["coverage"] == pytest.approx((days - 4) / days, abs=3e-3)
+    assert record.metrics["ic_t"] > 3
 
 
 def _resume_in(campaign, config_path) -> None:

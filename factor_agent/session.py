@@ -34,10 +34,15 @@ aggregations of one subgraph in one function, in one graph or in two, share
 their sums (``SessionMean(x)`` and ``SessionStd(x)``: the count, the first
 value and the shifted sums of ``x`` and of its square).
 
+All the graphs of one factor are one KunQuant function, and an operator
+whose canonical hash an earlier one has (in the same graph or another) is
+that operator, so a subtree two candidates share is computed once, however
+each wrote it.
+
 ``SessionColumns`` is the provider of session columns to a daily factor
 (``factor_agent.derived``): it computes the intraday graphs of a stage split
-(``factor_agent.gate.stages``) with ``SessionFactor`` and puts each session's
-value on its day of the daily panel.
+(``factor_agent.gate.stages``) with ``SessionFactor``, in chunks of sessions,
+and puts each session's value on its day of the daily panel.
 """
 
 from collections.abc import Callable, Mapping
@@ -50,6 +55,7 @@ from KunQuant.ops import (
     Accumulator, And, Equals, LessEqual, LessThan, Max, Min, Not, Select, SetAccumulator, SetInfOrNanToValue, Sqrt,
 )
 from KunQuant.Stage import Function
+from quantlab.factor.chunking import ChunkedBuilder
 from quantlab.factor.config import FactorConfig
 from quantlab.factor.kunquant import FactorKunQuant
 from quantlab.factor.predefined.intraday import LAST_PRICE, SESSION_BARS_LEFT, SESSION_POSITION, session_inputs
@@ -84,6 +90,16 @@ def _missing(value: OpBase) -> OpBase:
     return LessEqual(_present(value), ConstantOp(0.0))
 
 
+def _beside(column: OpBase, value: OpBase) -> OpBase:
+    """``column``, computed in the stage of ``value``.
+
+    KunQuant keeps a comparison in the stage of what it compares and cannot
+    pass its result to another stage, where it is a mask, not a number: a
+    mask of the session position must be made beside what it selects.
+    """
+    return column + _zero_if_missing(value) * 0.0
+
+
 def _nan_unless(condition: OpBase, value: OpBase) -> OpBase:
     """Return ``value`` where ``condition`` holds, else NaN."""
     return Select(condition, value, ConstantOp("nan"))
@@ -102,18 +118,23 @@ class _Expansion:
             self._inputs[name] = Input(name)
         return self._inputs[name]
 
-    def running(self, name: str, step: Callable[[OpBase], OpBase], start: float | str = 0.0) -> OpBase:
+    def running(
+        self, name: str, step: Callable[[OpBase], OpBase], reads: OpBase, start: float | str = 0.0,
+    ) -> OpBase:
         """The running value ``name`` over the session's bars up to the current one: ``step`` of its value before.
 
-        The value before the session's first bar is ``start``. It is the
-        KunQuant accumulator ``name``, which must say what it holds: a
-        second call under the same name in one function gives the first's
-        value, whatever its ``step``.
+        ``step`` reads ``reads`` besides the value before, which is
+        ``start`` before the session's first bar. It is the KunQuant
+        accumulator ``name``, which must say what it holds: a second call
+        under the same name in one function gives the first's value,
+        whatever its ``step``.
         """
         if name not in self._running:
-            position = self.input(SESSION_POSITION)
+            # KunQuant needs an accumulator and its update in one stage, and places the accumulator with its
+            # input: on the position alone, it would come before a cross-sectional operator whose values it sums.
+            total = Accumulator(reads, name, is_whole_time_required=True)
+            position = _beside(self.input(SESSION_POSITION), reads)
             first = LessEqual(position, ConstantOp(0.0))
-            total = Accumulator(position, name, is_whole_time_required=True)
             always = Equals(position, position)  # the position is finite
             self._running[name] = SetAccumulator(total, always, step(Select(first, ConstantOp(start), total)))
         return self._running[name]
@@ -121,13 +142,13 @@ class _Expansion:
     def session_sum(self, term: OpBase, name: str) -> OpBase:
         """The running sum of ``term`` over the session's bars up to the current one, a missing term adding 0."""
         value = _zero_if_missing(term)
-        return self.running(name, lambda before: before + value)
+        return self.running(name, lambda before: before + value, value)
 
     def session_fold(self, x: OpBase, name: str, combine: Callable[[OpBase, OpBase], OpBase]) -> OpBase:
         """``combine(held, x)`` over the values of ``x`` present in the session so far; NaN before the first."""
         def step(held: OpBase) -> OpBase:
             return Select(_missing(x), held, Select(_missing(held), x, combine(held, x)))
-        return self.running(name, step, "nan")
+        return self.running(name, step, x, "nan")
 
     def first(self, x: OpBase, key: str) -> OpBase:
         """The first value of ``x`` present in the session so far, NaN before it: ``SessionFirst``'s and the shift."""
@@ -241,8 +262,12 @@ def session_function(graphs: Mapping[str, Graph]) -> Function:
     """One KunQuant function with an output per graph, named after it: its value at each session's last bar.
 
     Every aggregation is expanded into its session sums; the bars before a
-    session's last are NaN. The graphs share their ``Input`` operators, so
-    an aggregation of one subgraph in two of them sums it once.
+    session's last are NaN. A subtree is computed once however often the
+    graphs hold it: an operator whose canonical hash an earlier one of any
+    graph has is that operator (``Mul(close, volume)`` and
+    ``Mul(volume, close)`` are one), so an aggregation of one subgraph in
+    two graphs sums it once. Operators in or after a loop are kept as
+    built, a loop's body being its own.
 
     Raises
     ------
@@ -252,30 +277,52 @@ def session_function(graphs: Mapping[str, Graph]) -> Function:
     inputs: dict[str, OpBase] = {}
     expansion = _Expansion(inputs)
     ops: list[OpBase] = []
+    # The operator computing each canonical hash, over every graph so far.
+    built: dict[str, OpBase] = {}
     for name, graph in graphs.items():
         if not _is_aggregation(graph, graph.nodes[-1]):
             raise ValueError(f"SessionFactor: graph {name} does not end in a session aggregation")
         hashes = canonical_hashes(graph)
-        # Graph.build makes the operators in node order, so the aggregations' keys follow it too.
-        keys = iter([[hashes[i] for i in node.inputs] for node in graph.nodes if _is_aggregation(graph, node)])
+        shared = _shareable(graph)
+        # Graph.build makes an operator per node other than an Input, in node order.
+        nodes = iter([i for i, node in enumerate(graph.nodes) if node.op != "Input"])
         output, new = graph.build(inputs)
         replaced: dict[OpBase, OpBase] = {}
         for op in new:
-            op.replace_inputs(replaced)
-            if not isinstance(op, SessionAggregation):
+            if isinstance(op, Input):
                 ops.append(op)
                 continue
-            builder = Builder()
-            with builder:
-                replaced[op] = _EXPANSIONS[type(op)](expansion, op.inputs, next(keys))
-            ops += builder.ops
+            i = next(nodes)
+            if shared[i] and hashes[i] in built:
+                replaced[op] = built[hashes[i]]
+                continue
+            op.replace_inputs(replaced)
+            if isinstance(op, SessionAggregation):
+                keys = [hashes[j] for j in graph.nodes[i].inputs]
+                builder = Builder()
+                with builder:
+                    replaced[op] = _EXPANSIONS[type(op)](expansion, op.inputs, keys)
+                ops += builder.ops
+            else:
+                ops.append(op)
+            if shared[i]:
+                built[hashes[i]] = replaced.get(op, op)
         value = replaced.get(output, output)
         builder = Builder()
         with builder:
-            last = LessEqual(expansion.input(SESSION_BARS_LEFT), ConstantOp(0.0))
+            last = LessEqual(_beside(expansion.input(SESSION_BARS_LEFT), value), ConstantOp(0.0))
             Output(Select(last, value, ConstantOp("nan")), name)
         ops += builder.ops
     return Function(ops)
+
+
+def _shareable(graph: Graph) -> list[bool]:
+    """Whether each node of ``graph`` may be taken from another graph: neither a loop, in one nor after one."""
+    loops = {node.parent for node in graph.nodes if node.parent is not None}
+    shareable: list[bool] = []
+    for i, node in enumerate(graph.nodes):
+        shareable.append(i not in loops and node.parent is None and all(shareable[j] for j in node.inputs))
+    return shareable
 
 
 def _is_aggregation(graph: Graph, node: Node) -> bool:
@@ -348,13 +395,27 @@ class SessionColumns(Provider):
     the intraday dataset does not hold are NaN. It reads no column of the
     daily dataset and needs no warm-up: an intraday graph sees its own
     session only.
+
+    The graphs run as one ``SessionFactor``, so a subtree several of them
+    hold is computed once, and in chunks of whole sessions through
+    quantlab's ``ChunkedBuilder``: only one chunk's bars are in memory at a
+    time, beside the daily values. ``granularity`` is the chunks' calendar
+    period (``"month"``, ``"day"``...); ``None`` computes the days whole
+    when they fit in the memory available and otherwise in the coarsest
+    period whose chunks do. The values do not depend on it. The dataset must
+    read a store (``stored_symbols``), as a campaign's intraday dataset
+    does.
     """
 
-    def __init__(self, dataset, graphs: Mapping[str, list], classes: Mapping[str, str], njobs: int = 1):
+    def __init__(
+        self, dataset, graphs: Mapping[str, list], classes: Mapping[str, str], njobs: int = 1,
+        granularity: str | None = None,
+    ):
         self._dataset = dataset
         self._graphs = {name: list(graph) for name, graph in graphs.items()}
         self._classes = dict(classes)
         self._njobs = njobs
+        self._granularity = granularity
         self.columns = tuple(self._graphs)
 
     def fill(self, dataset, panel, arrays, symbols, timestamps) -> dict[str, np.ndarray]:
@@ -364,7 +425,8 @@ class SessionColumns(Provider):
             data_columns=SessionFactor.data_columns(self._graphs),
             kwargs={"graphs": self._graphs, "classes": self._classes},
         ))
-        daily = factor.resample("1d", "last").compute(days[0].strftime("%Y-%m-%d"), days[-1].strftime("%Y-%m-%d"))
+        builder = ChunkedBuilder(factor.resample("1d", "last"), granularity=self._granularity)
+        daily = builder.compute(days[0].strftime("%Y-%m-%d"), days[-1].strftime("%Y-%m-%d"))
         rows = pd.DatetimeIndex(daily["timestamp"].values).normalize().get_indexer(days)
         columns = pd.Index([str(s) for s in daily["symbol"].values]).get_indexer([str(s) for s in symbols])
         found = np.ix_(rows >= 0, columns >= 0)
