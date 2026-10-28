@@ -30,8 +30,8 @@ export function DecileChart({ deciles, direction, monotonicity }: { deciles: (nu
   return (
     <figure className="chart">
       <figcaption>
-        Decile returns over their mean{monotonicity != null && <>, monotonicity <b>{monotonicity.toFixed(2)}</b></>}
-        <span className="muted small"> · lowest value left; in its direction ({direction > 0 ? '+1' : '−1'}) the {direction > 0 ? 'right' : 'left'} end should be highest</span>
+        Deciles{monotonicity != null && <> · monotonicity <b>{monotonicity.toFixed(2)}</b></>}
+        <span className="muted small"> · direction {direction > 0 ? '+1' : '−1'}</span>
       </figcaption>
       <svg viewBox={`0 0 ${w} ${h}`} width="100%" role="img" aria-label="decile returns over their mean">
         <line x1={0} x2={w} y1={mid} y2={mid} className="axis" />
@@ -69,9 +69,9 @@ export function CumulativeIC({ name, round, slot, direction }: { name: string; r
     api.ic(name, round, slot).then(s => live && setSeries(s), () => live && setSeries(null))
     return () => { live = false }
   }, [name, round, slot])
-  if (series === undefined) return <p className="muted small">Reading the daily IC…</p>
+  if (series === undefined) return <p className="muted small">Loading cumulative IC…</p>
   if (series === null) {
-    return <p className="muted small">No cumulative IC: the run did not keep this trial's daily IC (a campaign of an older version).</p>
+    return <p className="muted small">No cumulative IC (not kept by this run).</p>
   }
   const ic = cumulative(series.ic, direction), partial = cumulative(series.partial_ic, direction)
   const all = [...ic, ...partial, 0]
@@ -83,9 +83,8 @@ export function CumulativeIC({ name, round, slot, direction }: { name: string; r
   return (
     <figure className="chart">
       <figcaption>
-        Cumulative IC in its direction: <span className="key ic">rank IC</span> ends at <b>{ic[ic.length - 1].toFixed(2)}</b>,{' '}
-        <span className="key partial">partial IC</span> at <b>{partial[partial.length - 1].toFixed(2)}</b>
-        <span className="muted small"> · a steady climb is a steady effect; a flat stretch is one it lost</span>
+        Cumulative IC · <span className="key ic">rank IC</span> <b>{ic[ic.length - 1].toFixed(2)}</b>{' '}
+        <span className="key partial">partial IC</span> <b>{partial[partial.length - 1].toFixed(2)}</b>
       </figcaption>
       <svg viewBox={`0 0 ${w} ${h + 12}`} width="100%" role="img" aria-label="cumulative rank IC and partial IC">
         <line x1={0} x2={w} y1={y(0)} y2={y(0)} className="axis" />

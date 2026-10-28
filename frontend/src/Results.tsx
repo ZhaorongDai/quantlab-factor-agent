@@ -11,7 +11,7 @@ const SORTS = {
   contribution: 'drop-one contribution',
   round: 'round',
   t: 'partial-IC t',
-  limit: 'distance from the correlation limit',
+  limit: 'ρ margin',
   coverage: 'coverage',
 } as const
 type Sort = keyof typeof SORTS
@@ -70,8 +70,8 @@ function NeighbourName({ n }: { n: Neighbour }) {
 
 // Where a threshold the run did not record came from, for a run without an events file.
 const SOURCES: Record<string, string> = {
-  refusals: "as its round's refusals quote it",
-  carried_over: 'carried over from an earlier round: no refusal of its round quoted one',
+  refusals: "quoted by its round's refusals",
+  carried_over: 'carried over from an earlier round',
 }
 
 function Margin({ f }: { f: Factor }) {
@@ -108,9 +108,9 @@ function Card({ run, name, f, limit, open, toggle }: {
       <dl className="trust">
         <dt>monotonicity</dt><dd>{fmt(f.monotonicity)}</dd>
         <dt>closest</dt>
-        <dd>{f.nearest ? <><NeighbourName n={f.nearest} /> ρ {fmt(f.nearest.correlation)}</> : <span className="muted">none in the pool</span>}</dd>
+        <dd>{f.nearest ? <><NeighbourName n={f.nearest} /> ρ {fmt(f.nearest.correlation)}</> : <span className="muted">none</span>}</dd>
         <dt>closest known</dt>
-        <dd>{f.nearest_known ? <><NeighbourName n={f.nearest_known} /> ρ {fmt(f.nearest_known.correlation)}</> : <span className="muted">no known factors</span>}</dd>
+        <dd>{f.nearest_known ? <><NeighbourName n={f.nearest_known} /> ρ {fmt(f.nearest_known.correlation)}</> : <span className="muted">none</span>}</dd>
         {limit != null && rho != null && <><dt>ρ limit</dt><dd>{fmt(limit - rho)} below {limit}</dd></>}
         <dt>coverage</dt><dd>{percent(f.coverage)}</dd>
       </dl>
@@ -120,50 +120,25 @@ function Card({ run, name, f, limit, open, toggle }: {
   )
 }
 
-function Correlation({ n, known }: { n: Neighbour | null; known: boolean }) {
-  if (!n) return <>{known ? 'The run has no known factors to compare it with.' : 'There was no reference or accepted factor to compare it with.'} </>
-  const kind = known ? 'known factor' : 'reference or accepted factor'
-  const accepted = n.accepted_round != null ? 'the factor accepted in ' : ''
-  return (
-    <>Its closest {kind} is {accepted}<span title={n.label}>{n.name}</span>,
-      with a cross-sectional correlation of {fmt(n.correlation)}{known ? ' (sampled on some training dates)' : ''}. </>
-  )
-}
-
 function WriteUp({ f, limit, run, name }: { f: Factor; limit: number | null; run: Run; name: string }) {
-  const rho = closest(f)
   const items = checks({
-    partial_ic_t: f.partial_ic_t, threshold: f.threshold, largest_correlation: rho, limit,
+    partial_ic_t: f.partial_ic_t, threshold: f.threshold, largest_correlation: closest(f), limit,
     coverage: f.coverage, min_coverage: run.admission?.min_coverage ?? null,
     monotonicity: f.monotonicity, min_monotonicity: run.admission?.min_monotonicity ?? null,
   })
   return (
     <div className="write-up">
-      <h4>Statistics, in its direction</h4>
       <Checks items={items} />
       <DecileChart deciles={f.decile_returns} direction={f.factor_direction} monotonicity={f.monotonicity} />
       <CumulativeIC name={name} round={f.round} slot={f.slot} direction={f.factor_direction} />
+      <dl className="trust">
+        <dt>IC, t</dt><dd><span title={raw(f, 'ic_mean')}>{fmt(f.ic_mean, 4)}</span>, <span title={raw(f, 'ic_t')}>{fmt(f.ic_t)}</span></dd>
+        <dt>partial IC, t</dt>
+        <dd><span title={raw(f, 'partial_ic_mean')}>{fmt(f.partial_ic_mean, 4)}</span>, <span title={raw(f, 'partial_ic_t')}>{fmt(f.partial_ic_t)}</span></dd>
+      </dl>
       <h4>Hypothesis</h4><p>{f.hypothesis}</p>
       <h4>Description</h4><p>{f.description}</p>
       <h4>Code</h4><pre className="code">{f.code}</pre>
-      <h4>How far to trust it</h4>
-      <p>
-        It was accepted in round {f.round} as {f.mechanism_type ?? 'a factor of no recorded mechanism type'}. Its factor direction is{' '}
-        {signed(f.factor_direction)}: {f.factor_direction > 0 ? 'a higher value went with a higher' : 'a lower value went with a higher'} training
-        return, and every IC and t here is read in that direction.{' '}
-        Its training IC is <span title={raw(f, 'ic_mean')}>{fmt(f.ic_mean, 4)}</span> with a t of <span title={raw(f, 'ic_t')}>{fmt(f.ic_t)}</span>;
-        its partial IC, after the reference set and the factors accepted before it, is <span title={raw(f, 'partial_ic_mean')}>{fmt(f.partial_ic_mean, 4)}</span>{' '}
-        with a Newey-West t of <span title={raw(f, 'partial_ic_t')}>{fmt(f.partial_ic_t)}</span>
-        {f.threshold != null && f.partial_ic_t != null
-          ? <>, {fmt(f.partial_ic_t - f.threshold)} over the threshold of {fmt(f.threshold)} it had to clear
-            {f.threshold_source && SOURCES[f.threshold_source] ? <> ({SOURCES[f.threshold_source]})</> : null}. </>
-          : <>; the threshold it had to clear is unknown. </>}
-        Its decile returns rise with the decile, in its direction, with a monotonicity of {fmt(f.monotonicity)} (1 is a steady rise).{' '}
-        <Correlation n={f.nearest} known={false} />
-        <Correlation n={f.nearest_known} known />
-        {rho != null && limit != null && <>Its largest correlation is {fmt(limit - rho)} below the limit of {limit}. </>}
-        On an average training day it has a value for {percent(f.coverage)} of the members.
-      </p>
     </div>
   )
 }
@@ -182,7 +157,7 @@ export default function Results({ run, name, select }: { run: Run; name: string;
       <Diagnosis run={run} />
       {!factors.length ? (
         <p className="muted">
-          {run.summary.stop ? 'The run accepted no factor.' : 'No factor accepted yet.'}
+          {run.summary.stop ? 'No factor accepted.' : 'No factor accepted yet.'}
         </p>
       ) : (
         <>
@@ -192,15 +167,9 @@ export default function Results({ run, name, select }: { run: Run; name: string;
             {sorts.map(s => (
               <button key={s} className={sort === s ? 'on' : ''} onClick={() => setSort(s)}>{SORTS[s]}</button>
             ))}
-            <button className="select" onClick={select}>select factors for Acceptance →</button>
+            <button className="select" onClick={select}>select →</button>
           </div>
-          <p className="muted small">
-            Each threshold is the partial-IC t admission required in the factor's round. The correlation limit{' '}
-            {run.correlation_limit != null
-              ? <>is {run.correlation_limit}.</>
-              : <>is unknown: the run does not record it and no refusal of it quoted it.</>}{' '}
-            Hover an IC or t for its raw value.
-          </p>
+          <p className="muted small">ρ limit {run.correlation_limit ?? 'unknown'} · values in the factor's direction, raw on hover</p>
           <div className="factors">
             {factors.map(f => (
               <Card key={f.label} run={run} name={name} f={f} limit={run.correlation_limit} open={open === f.label}

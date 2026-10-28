@@ -45,7 +45,7 @@ export function Yaml({ text }: { text: string }) {
 // The changed lines alone, a config being long; "…" stands for the kept lines between them.
 function Changes({ lines }: { lines: LineChange[] }) {
   const changed = lines.flatMap((l, i) => (l.change === 'kept' ? [] : [i]))
-  if (!changed.length) return <p className="muted small">The same config as the opening before.</p>
+  if (!changed.length) return <p className="muted small">Unchanged.</p>
   return (
     <pre className="code yaml">
       {changed.flatMap((i, k) => [
@@ -63,7 +63,7 @@ const opened = (c: ConfigCopy) => `${c.opening === 1 ? 'started' : 'resumed'} ${
 
 function Openings({ configs }: { configs: ConfigCopy[] }) {
   if (!configs.length) {
-    return <p className="muted">This run was started before runs kept their config: only the files of its snapshot below are known.</p>
+    return <p className="muted">No config kept (older run).</p>
   }
   return (
     <>
@@ -71,8 +71,8 @@ function Openings({ configs }: { configs: ConfigCopy[] }) {
         <details key={c.opening} className="memory-version" open={i === 0}>
           <summary>{c.opening === 1 ? 'Started' : `Resumed (opening ${c.opening})`} <span className="muted small">{when(c.opened_at)}</span></summary>
           {c.changes ? <Changes lines={c.changes} />
-            : c.opening === 1 ? <p className="muted small">The config the run was started with.</p>
-              : <p className="muted small">The earliest config kept: the run's openings before this one came before runs kept their config, so what this one changed is unknown.</p>}
+            : c.opening === 1 ? null
+              : <p className="muted small">Earliest kept; changes unknown.</p>}
         </details>
       ))}
     </>
@@ -118,9 +118,9 @@ export default function Config({ name }: { name: string }) {
   if (!files) return <p className="muted">Loading…</p>
   return (
     <>
-      <h3>The config of each start and resume <span className="muted small">· the latest first</span></h3>
+      <h3>Starts and resumes</h3>
       <Openings configs={files.configs} />
-      <h3>Files <span className="muted small">· the configs, and the snapshot: the field, operator and template files the search was fixed with at the first start</span></h3>
+      <h3>Files</h3>
       <Browser files={files} />
     </>
   )

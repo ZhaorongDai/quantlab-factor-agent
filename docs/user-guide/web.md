@@ -75,7 +75,7 @@ The page reads the run again by itself whenever the run writes, checking every 5
 so it can stay open while the campaign runs. The browser tab's title counts the factors
 accepted since the page was opened and says when the run has stopped.
 
-While the run has neither stopped nor crashed, **Pause live updates** beside the page names holds the page
+While the run has neither stopped nor crashed, **Pause** beside the page names holds the page
 still, to read or click a running round without anything moving. Paused, the page stands
 at the moment of the pause: the round's timeline, the times since the last call and the
 stall warnings do not move, and the run is not read again. A bar says since when the page
@@ -128,7 +128,7 @@ so. Until a refusal quotes them, the page says they are unknown.
 
 The cards rank by their drop-one contribution when there is one. A report written by an
 older version, without the contribution table or the selection flag, is shown with what it
-holds. The cards also sort by round, by partial-IC t, by distance from the correlation limit or by
+holds. The cards also sort by round, by partial-IC t, by distance from the correlation limit (ρ margin) or by
 coverage. Click a factor's description to open it written up: its statistics with its
 charts (see below), its hypothesis, description and code, and its trust facts in sentences.
 A run that has accepted nothing says so.
@@ -159,7 +159,7 @@ compared with.
 
 ## The selection view
 
-The results page's *select factors for Acceptance* opens a table of the accepted factors,
+The results page's *select →* opens a table of the accepted factors,
 one row each with a tick box: its round, factor direction, partial-IC t and how far over
 its threshold, decile monotonicity, closest reference or accepted factor and closest known
 factor with their correlations, coverage, and, when validation measured them, its drop-one
@@ -250,7 +250,7 @@ into the memory that every later prompt carries (see {doc}`campaign`). The memor
 lists every version it wrote in the run, named by the round after which it was written,
 the latest first and open. From the second version on, a version shows its lines beside
 those of the version before: added lines are highlighted, removed ones struck through,
-and "Text alone" shows the version as the prompts carry it. A version the distiller left
+and "Text" shows the version as the prompts carry it. A version the distiller left
 as it was says it is unchanged. A run whose distiller has not written a version yet says
 so; an empty or unreadable distiller reply writes no version, and the memory before it is
 kept.

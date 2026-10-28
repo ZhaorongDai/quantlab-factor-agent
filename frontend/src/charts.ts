@@ -34,20 +34,20 @@ export function checks(s: {
 }): Check[] {
   const out: Check[] = []
   if (s.partial_ic_t != null) {
-    out.push({ label: 'partial-IC t', value: num(s.partial_ic_t), bar: s.threshold == null ? 'threshold unknown' : `at least ${num(s.threshold)}`,
+    out.push({ label: 'partial-IC t', value: num(s.partial_ic_t), bar: s.threshold == null ? 'bar unknown' : `≥ ${num(s.threshold)}`,
       passed: s.threshold == null ? null : s.partial_ic_t >= s.threshold })
   }
   if (s.largest_correlation != null) {
-    out.push({ label: 'largest |ρ|', value: num(s.largest_correlation), bar: s.limit == null ? 'limit unknown' : `at most ${num(s.limit)}`,
+    out.push({ label: 'largest |ρ|', value: num(s.largest_correlation), bar: s.limit == null ? 'bar unknown' : `≤ ${num(s.limit)}`,
       passed: s.limit == null ? null : s.largest_correlation <= s.limit })
   }
   if (s.coverage != null) {
     out.push({ label: 'coverage', value: `${Math.round(s.coverage * 100)}%`,
-      bar: s.min_coverage == null ? 'least unknown' : `at least ${Math.round(s.min_coverage * 100)}%`,
+      bar: s.min_coverage == null ? 'bar unknown' : `≥ ${Math.round(s.min_coverage * 100)}%`,
       passed: s.min_coverage == null ? null : s.coverage >= s.min_coverage })
   }
   if (s.monotonicity != null) {
-    out.push({ label: 'monotonicity', value: num(s.monotonicity), bar: s.min_monotonicity == null ? 'least unknown' : `at least ${num(s.min_monotonicity)}`,
+    out.push({ label: 'monotonicity', value: num(s.monotonicity), bar: s.min_monotonicity == null ? 'bar unknown' : `≥ ${num(s.min_monotonicity)}`,
       passed: s.min_monotonicity == null ? null : s.monotonicity >= s.min_monotonicity })
   }
   return out

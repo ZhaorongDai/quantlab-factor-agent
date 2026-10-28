@@ -62,19 +62,15 @@ function Holdout({ run }: { run: Run }) {
   const opens = run.acceptance.holdout_opens
   if (!opens.length) {
     return (
-      <p className="holdout-state closed">
-        The hold-out is closed: nobody has opened it. Open it once, on the selection you keep; the open is recorded, and
-        a second one needs force.
-      </p>
+      <p className="holdout-state closed">Hold-out not opened. Open it once, on the selection you keep.</p>
     )
   }
   const last = opens[opens.length - 1]
   return (
     <p className="holdout-state opened">
-      The hold-out was opened {opens.length === 1 ? 'once' : `${opens.length} times`}, last on{' '}
-      {last.opened_at.replace('T', ' ').slice(0, 16)}{opens.some(o => o.forced) ? ', with force' : ''}. It is no longer
-      untouched: a new selection judged on it was chosen knowing what it said, so its hold-out figures overstate how the
-      selection does out of sample.
+      Hold-out opened {opens.length === 1 ? 'once' : `${opens.length} times`}
+      {` (last ${last.opened_at.replace('T', ' ').slice(0, 16)}${opens.some(o => o.forced) ? ', with force' : ''})`}: no longer
+      untouched for a new selection.
     </p>
   )
 }
@@ -96,7 +92,7 @@ export default function Selection({ run }: { run: Run }) {
     setCopied(false)
   }
   if (!factors.length) {
-    return <p className="muted">{run.summary.stop ? 'The run accepted no factor: there is nothing to select.' : 'No factor accepted yet: there is nothing to select.'}</p>
+    return <p className="muted">{run.summary.stop ? 'No factor accepted.' : 'No factor accepted yet.'}</p>
   }
   const all = selection.length === factors.length
   return (
@@ -107,11 +103,7 @@ export default function Selection({ run }: { run: Run }) {
           {all ? 'untick all' : 'tick all'}
         </button>
       </div>
-      <p className="muted small">
-        Every IC and t is in the factor's direction. Contribution is the rank IC difference Acceptance measured on
-        validation with every accepted factor (drop-one: without this one; add-one: your model with only this one), and
-        how many seeds agree on its sign. Open a factor for its hypothesis and code.
-      </p>
+      <p className="muted small">In the factor's direction · contribution: rank IC difference, seeds agreeing</p>
       <div className="table-scroll">
         <table className="pick">
           <thead>
@@ -128,15 +120,12 @@ export default function Selection({ run }: { run: Run }) {
           </tbody>
         </table>
       </div>
-      <h2>The Acceptance calls for this selection</h2>
+      <h2>Acceptance calls</h2>
       <Holdout run={run} />
       {!selection.length ? <p className="muted">Tick at least one factor.</p> : (
         <>
           {validated && (
-            <p className="small">
-              Acceptance has validated exactly this selection already ({validated.name}, written{' '}
-              {validated.written.replace('T', ' ').slice(0, 16)}): validating it again reads its cached models.
-            </p>
+            <p className="small">Already validated ({validated.name}, {validated.written.replace('T', ' ').slice(0, 16)}).</p>
           )}
           <div className="calls">
             <button onClick={() => navigator.clipboard?.writeText(calls).then(() => setCopied(true))}>
@@ -144,11 +133,7 @@ export default function Selection({ run }: { run: Run }) {
             </button>
             <pre className="code">{calls}</pre>
           </div>
-          <p className="muted small">
-            The page runs none of these: paste them into Python on the machine that holds the run, with the config the
-            campaign ran with. Replace the export names with your own; each becomes a module and a store, and an
-            existing one is never overwritten.
-          </p>
+          <p className="muted small">Not run by the page: paste into Python where the run is; rename the exports.</p>
         </>
       )}
     </div>

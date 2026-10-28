@@ -71,8 +71,7 @@ function Figures({ c }: { c: Comparison }) {
 function Window({ c }: { c: Comparison }) {
   return (
     <p className="muted small">
-      Predicted {c.test_window.join(' to ')}, trained up to {c.train_window[1] ?? '–'}; the mean of{' '}
-      {plural(c.seeds.length, 'seed')}{c.top_k != null && <>, a plain top-{c.top_k} book</>}; returns fee-free over the label's horizon.
+      test {c.test_window.join(' – ')} · trained to {c.train_window[1] ?? '–'} · {plural(c.seeds.length, 'seed')}{c.top_k != null && <> · top-{c.top_k}</>} · fee-free
     </p>
   )
 }
@@ -84,7 +83,7 @@ function sentence(c: Comparison, subject: string): string {
   if (c.verdict === 'mixed') return rank && !excess
     ? `${subject} raise your model's rank IC but not its top-k excess return.`
     : `${subject} raise your model's top-k excess return but not its rank IC.`
-  return `Acceptance could not say whether ${subject.toLowerCase()} improve your model.`
+  return `Undecided whether ${subject.toLowerCase()} improve your model.`
 }
 
 function Opens({ opens }: { opens: HoldoutOpen[] }) {
@@ -100,16 +99,12 @@ function Opens({ opens }: { opens: HoldoutOpen[] }) {
 function Holdout({ c, opens }: { c: Comparison; opens: HoldoutOpen[] }) {
   return (
     <aside className={`holdout${c.forced ? ' forced' : ''}`}>
-      <h3>On the hold-out</h3>
-      {c.forced && (
-        <p className="warning">
-          Opened again with force: this hold-out was seen before, so it no longer tests the factors out of sample.
-        </p>
-      )}
+      <h3>Hold-out</h3>
+      {c.forced && <p className="warning">Reopened with force: no longer out of sample.</p>}
       <p>{sentence(c, c.selection ? `The ${plural(c.factors.length, 'selected factor')}` : `The ${plural(c.factors.length, 'factor')}`)}</p>
       <Figures c={c} />
       <Window c={c} />
-      <p className="small">The hold-out lock records {plural(opens.length, 'open')}:</p>
+      <p className="small">Opens:</p>
       <Opens opens={opens} />
     </aside>
   )
@@ -127,15 +122,8 @@ export default function Verdict({ run }: { run: Run }) {
     return (
       <section className="verdict unjudged">
         <h2>Not judged against your model yet</h2>
-        <p>
-          The accepted factors cleared the campaign's statistical bar, but nothing has compared your model with and
-          without them. Run Acceptance on the validation segment, from Python:
-        </p>
         <pre className="code">{HOW}</pre>
-        <p className="muted small">
-          Set <code>acceptance.contribution: both</code> in the config to also measure what each factor adds. The page
-          shows the report once it is written.
-        </p>
+        <p className="muted small">Per-factor contribution: <code>acceptance.contribution: both</code></p>
       </section>
     )
   }
@@ -146,39 +134,30 @@ export default function Verdict({ run }: { run: Run }) {
     <section className={`verdict ${v.verdict ?? 'unknown'}`}>
       <div className="validation">
         <h2>{sentence(v, subject)}</h2>
-        {v.selection && <p className="small">This is the validation of a selection: no report judges every accepted factor.</p>}
+        {v.selection && <p className="small">A selection, not every accepted factor.</p>}
         {!v.selection && judged < run.factors.length && (
-          <p className="small">
-            The report judges {judged} of the {run.factors.length} factors accepted now: the run accepted more since.
-            Run <code>validate()</code> again to judge them all.
-          </p>
+          <p className="small">Judges {judged} of {run.factors.length}: run <code>validate()</code> again.</p>
         )}
-        <h3>On validation, your model without and with them</h3>
+        <h3>Validation, without and with them</h3>
         <Figures c={v} />
         <Window c={v} />
         {v.contribution == null && (
-          <p className="muted small">This report was written before Acceptance measured each factor's contribution.</p>
+          <p className="muted small">No per-factor contribution (older report).</p>
         )}
         {v.contribution?.length === 0 && (
-          <p className="muted small">
-            No contribution per factor: set <code>acceptance.contribution: both</code> in the config and validate again
-            to see what each one adds.
-          </p>
+          <p className="muted small">Per-factor contribution: <code>acceptance.contribution: both</code></p>
         )}
       </div>
       {holdout ? <Holdout c={holdout} opens={opens} /> : opens.length > 0 ? (
         <aside className="holdout">
-          <h3>On the hold-out</h3>
-          <p className="small">
-            The hold-out lock records {plural(opens.length, 'open')} but there is no hold-out report: an open stopped before
-            writing it. The hold-out may have been seen.
-          </p>
+          <h3>Hold-out</h3>
+          <p className="small warning">Opened, no report: it may have been seen.</p>
           <Opens opens={opens} />
         </aside>
       ) : (
         <aside className="holdout none">
-          <h3>On the hold-out</h3>
-          <p className="muted small">Not opened yet. Open it once, on the selection you keep, to test it out of sample.</p>
+          <h3>Hold-out</h3>
+          <p className="muted small">Not opened.</p>
         </aside>
       )}
     </section>

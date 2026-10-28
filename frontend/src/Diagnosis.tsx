@@ -7,7 +7,7 @@ export default function Diagnosis({ run }: { run: Run }) {
   if (!findings.length) return null
   const prominent = run.summary.accepted < 3
   const heading = run.summary.accepted === 0
-    ? (run.summary.stop ? 'Why nothing was accepted' : 'Why nothing was accepted yet')
+    ? (run.summary.stop ? 'Why nothing was accepted' : 'Why nothing yet')
     : 'Worth checking'
   return (
     <section className={`diagnosis${prominent ? ' prominent' : ''}`} aria-label="diagnosis">

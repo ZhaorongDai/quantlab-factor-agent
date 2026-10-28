@@ -72,16 +72,15 @@ function Pages({ page, open, children }: { page: Page; open: (page: Page) => voi
 // The pause of a run that has not stopped: the button, and while paused the bar saying so.
 function PauseButton({ live }: { live: LiveRun }) {
   return live.paused == null
-    ? <button className="pause" onClick={live.pause} title="Stop the page from updating, to read or click without anything moving">Pause live updates</button>
-    : <button className="pause on" onClick={live.resume}>Resume live updates</button>
+    ? <button className="pause" onClick={live.pause} title="Freeze the page">Pause</button>
+    : <button className="pause on" onClick={live.resume}>Resume</button>
 }
 
 function PausedBar({ live }: { live: LiveRun }) {
   if (live.paused == null) return null
   return (
     <p className="paused">
-      Paused since {new Date(live.paused).toLocaleTimeString()}: the page stands as it was then
-      {live.changed ? <>; <b>the run has changed since</b></> : <>; the run has not changed since</>}.{' '}
+      Paused since {new Date(live.paused).toLocaleTimeString()}{live.changed && <> · <b>run changed</b></>}{' '}
       <button className="link" onClick={live.resume}>Resume</button>
     </p>
   )
@@ -140,7 +139,7 @@ function RunList({ open }: { open: (name: string) => void }) {
   useEffect(() => { api.runs().then(setRuns, e => setError(String(e))) }, [])
   if (error) return <p className="error">{error}</p>
   if (!runs) return <p className="muted">Loading…</p>
-  if (!runs.length) return <p className="muted">No run directory under this folder: a run directory holds a snapshot.json from its campaign's first start.</p>
+  if (!runs.length) return <p className="muted">No runs in this folder.</p>
   const best = Math.max(0, ...runs.map(r => (r.trials ? r.accepted / r.trials : 0)))
   return (
     <div className="run-list">

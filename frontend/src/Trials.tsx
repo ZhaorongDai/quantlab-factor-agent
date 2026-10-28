@@ -13,10 +13,10 @@ const W = 720, H = 440, P = 44
 // How long a trial that arrived while the page was open stands out.
 const FRESH_MS = 15000
 const STAGES: Record<string, string> = {
-  parse: 'Parse: the reply could not be read as candidates',
-  gate: 'Gate: the code was refused before evaluation',
-  review: 'Review: the reviewer still found it inconsistent after a rewrite',
-  evaluate: 'Evaluation: the Evaluator could not build the code',
+  parse: 'Parse: unreadable reply',
+  gate: 'Gate: code refused',
+  review: 'Review: inconsistent after a rewrite',
+  evaluate: 'Evaluation: code did not build',
 }
 
 const key = (t: { round: number; slot: number }) => `${t.round}.${t.slot}`
@@ -71,18 +71,18 @@ function AdmissionMap({ run, picked, fresh, pick }: { run: Run; picked: string |
            aria-label="every evaluated trial by its largest correlation with an existing factor and its partial-IC t in its direction">
         {threshold != null && (
           <rect x={X(0)} y={Y(y1)} width={X(limit ?? x1) - X(0)} height={Y(threshold) - Y(y1)} className="zone">
-            <title>Admission accepts a trial in this region, when its coverage and decile monotonicity also pass.</title>
+            <title>Admitted here if coverage and monotonicity also pass</title>
           </rect>
         )}
         <line x1={P} x2={W - P} y1={Y(0)} y2={Y(0)} className="axis" />
         <line x1={P} x2={P} y1={P} y2={H - P} className="axis" />
         {limit != null && <>
           <line x1={X(limit)} x2={X(limit)} y1={P} y2={H - P} className="limit" />
-          <text x={X(limit) + 4} y={P + 12} className="label">correlation limit {limit}</text>
+          <text x={X(limit) + 4} y={P + 12} className="label">ρ limit {limit}</text>
         </>}
         {threshold != null && <>
           <line x1={P} x2={W - P} y1={Y(threshold)} y2={Y(threshold)} className="limit" />
-          <text x={W - P - 4} y={Y(threshold) - 4} textAnchor="end" className="label">final t threshold {fmt(threshold)}</text>
+          <text x={W - P - 4} y={Y(threshold) - 4} textAnchor="end" className="label">t threshold {fmt(threshold)}</text>
         </>}
         {[0, 0.25, 0.5, 0.75, 1].filter(v => v <= x1).map(v => (
           <text key={v} x={X(v)} y={H - P + 14} textAnchor="middle" className="label">{v}</text>
@@ -90,8 +90,8 @@ function AdmissionMap({ run, picked, fresh, pick }: { run: Run; picked: string |
         {ticks.map(v => (
           <text key={v} x={P - 4} y={Y(v) + 4} textAnchor="end" className="label">{v}</text>
         ))}
-        <text x={W / 2} y={H - 8} textAnchor="middle" className="label">largest |correlation| with a reference, accepted or known factor</text>
-        <text x={12} y={H / 2} transform={`rotate(-90 12 ${H / 2})`} textAnchor="middle" className="label">partial-IC t, in the trial's direction</text>
+        <text x={W / 2} y={H - 8} textAnchor="middle" className="label">largest |ρ| with an existing factor</text>
+        <text x={12} y={H / 2} transform={`rotate(-90 12 ${H / 2})`} textAnchor="middle" className="label">partial-IC t</text>
         {points.map(p => (
           <circle key={key(p)} cx={X(p.largest_correlation ?? 0)} cy={Y(p.partial_ic_t!)} r={size(p)}
                   className={`point ${p.status}${fresh.has(key(p)) ? ' fresh' : ''}${picked === key(p) ? ' picked' : ''}`}
@@ -101,14 +101,10 @@ function AdmissionMap({ run, picked, fresh, pick }: { run: Run; picked: string |
         ))}
       </svg>
       <figcaption className="muted small">
-        <span className="key accepted">●</span> accepted <span className="key rejected">●</span> rejected by admission{' '}
-        <span className="key failed">●</span> failed: {failed} trial{failed === 1 ? '' : 's'}, never scored, listed below
-        with the trials the reviewer rejected.{' '}
-        {threshold == null
-          ? 'The t threshold is unknown yet, so it is not drawn. '
-          : 'Each round had its own threshold, rising with the trials evaluated: an early accepted trial can sit below the final line. '}
-        {limit == null && 'The correlation limit is unknown, so it is not drawn. '}
-        A trial with nothing to compare with sits at 0.
+        <span className="key accepted">●</span> accepted <span className="key rejected">●</span> rejected{' '}
+        <span className="key failed">●</span> failed ({failed}, listed below)
+        {threshold == null && ' · t threshold unknown'}
+        {limit == null && ' · ρ limit unknown'}
       </figcaption>
     </figure>
   )
@@ -194,9 +190,9 @@ function Statistics({ p, t, run, name }: { p: Placed; t: Trial; run: Run; name: 
     <CumulativeIC name={name} round={t.round} slot={t.slot} direction={p.factor_direction} />
     <dl className="trust">
       <dt>direction</dt>
-      <dd>{p.factor_direction > 0 ? '+1: a higher value went with a higher return' : '−1: a lower value went with a higher return'}</dd>
+      <dd title={p.factor_direction > 0 ? 'a higher value went with a higher return' : 'a lower value went with a higher return'}>{p.factor_direction > 0 ? '+1' : '−1'}</dd>
       <dt>partial-IC t</dt>
-      <dd title={raw('partial_ic_t')}>{fmt(p.partial_ic_t)}{p.threshold != null && <> against its round's threshold {fmt(p.threshold)}</>}</dd>
+      <dd title={raw('partial_ic_t')}>{fmt(p.partial_ic_t)}</dd>
       <dt>partial IC</dt><dd title={raw('partial_ic_mean')}>{fmt(p.partial_ic_mean, 4)}</dd>
       <dt>IC, t</dt><dd><span title={raw('ic_mean')}>{fmt(p.ic_mean, 4)}</span>, <span title={raw('ic_t')}>{fmt(p.ic_t)}</span></dd>
       <dt>closest</dt><dd>{nearest(m.nearest, m.nearest_correlation)}</dd>
@@ -218,14 +214,14 @@ function Reader({ t, placed, run, name }: { t: Trial; placed: Placed | undefined
       <h3>{describe(t)}</h3>
       <span className={`badge ${t.status}`}>{t.status} at {t.stage}</span>
       {t.reasons.map((r, i) => <p key={i} className="reason">{r}</p>)}
-      {placed && <><h4>Statistics, in its direction</h4><Statistics p={placed} t={t} run={run} name={name} /></>}
+      {placed && <><h4>Statistics</h4><Statistics p={placed} t={t} run={run} name={name} /></>}
       <h4>Research direction</h4><p>{d.direction ?? <span className="muted">none recorded</span>}</p>
       <h4>Hypothesis</h4><p>{String(t.candidate.hypothesis ?? '–')}</p>
       <h4>Description</h4><p>{String(t.candidate.description ?? '–')}</p>
       <h4>Code</h4>
       <pre className="code">{t.candidate.code != null ? String(t.candidate.code) : String(t.candidate.raw ?? '–')}</pre>
       {before.length > 0 && <>
-        <h4>Refused versions before this one</h4>
+        <h4>Earlier refused versions</h4>
         <ol className="versions">{before.map((a, i) => <Version key={i} a={a} n={i + 1} />)}</ol>
       </>}
     </>
@@ -249,11 +245,7 @@ export default function Trials({ run, name, clock }: { run: Run; name: string; c
   }
   else if (open) reader = <Reader t={open} placed={placed.get(key(open))} run={run} name={name} />
   else reader = (
-    <p className="muted">
-      Click a point on the map, or a trial under “Never evaluated”, to read it: its research direction,
-      hypothesis, description, code, the versions refused before it and its statistics.
-      {run.running && ' Click a call of the round in progress, or a pending trial, to read it here too.'}
-    </p>
+    <p className="muted">Click a point, trial{run.running ? ', call or pending trial' : ''} to read it.</p>
   )
   return (
     <>
@@ -264,7 +256,7 @@ export default function Trials({ run, name, clock }: { run: Run; name: string; c
         <div>
           {run.evaluated.length
             ? <AdmissionMap run={run} picked={pickedTrial} fresh={fresh} pick={pick} />
-            : <p className="muted">No trial has been evaluated yet.</p>}
+            : <p className="muted">No trial evaluated yet.</p>}
           <NeverEvaluated groups={run.never_evaluated} trials={trials} picked={pickedTrial} pick={pick} />
         </div>
         <aside className="reader">{reader}</aside>

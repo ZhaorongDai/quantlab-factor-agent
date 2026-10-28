@@ -64,8 +64,8 @@ def diagnosis(trials: tuple[Trial, ...]) -> tuple[Finding, ...]:
     if unreadable > _UNREADABLE_SHARE * n:
         findings.append(Finding(
             "unreadable_replies", unreadable,
-            f"The LLM's replies could not be read as candidates in {_share(unreadable, n)}.",
-            "Change the model, or raise its output limit if its replies are cut off."))
+            f"Unreadable LLM replies: {_share(unreadable, n)}.",
+            "Change the model or raise its output limit."))
     known, accepted = {}, {}
     for trial in trials:
         for collision in {c.label: c for c in trial.collisions}.values():
@@ -78,34 +78,33 @@ def diagnosis(trials: tuple[Trial, ...]) -> tuple[Finding, ...]:
         if len(colliding) > _COLLIDING_TRIALS:
             findings.append(Finding(
                 "known_collisions", len(colliding),
-                f"Candidates collided with your known factor {label} in {_share(len(colliding), n)}.",
-                "Steer the research directions away from it, or check that your known factors are the ones you mean."))
+                f"Collided with your known factor {label}: {_share(len(colliding), n)}.",
+                "Steer the research directions away from it, or check your known factors."))
     merged = {id(t) for colliding in accepted.values() for t in colliding}
     if len(merged) > _COLLIDING_TRIALS:
         names = ", ".join(f"{neighbour(label, None).name} ({len(colliding)})"
                           for label, colliding in sorted(accepted.items(), key=lambda item: -len(item[1])))
         findings.append(Finding(
             "accepted_collisions", len(merged),
-            f"Candidates collided with factors the run accepted earlier in {_share(len(merged), n)}: {names}.",
-            "Nothing to fix: these are the novelty checks at work, refusing what the run already found. "
-            "If it goes on, give later rounds other research directions."))
+            f"Collided with factors the run accepted: {_share(len(merged), n)} ({names}).",
+            "Expected: the novelty checks at work. If it persists, change the research directions."))
     coverage = sum(any(stage == "admission" and r.startswith("coverage ") for stage, r in _refusals(t)) for t in trials)
     if coverage > _COVERAGE_SHARE * n:
         findings.append(Finding(
             "coverage_refusals", coverage,
-            f"Candidates had a value on too few members in {_share(coverage, n)}.",
-            "Check that your data's fields have values for the members and dates the run trains on."))
+            f"Too few members covered: {_share(coverage, n)}.",
+            "Check your data's fields and dates."))
     builds = sum(any(r.startswith(("graph build failed", "graph build crashed")) for _, r in _refusals(t)) for t in trials)
     if builds > _BUILD_SHARE * n:
         findings.append(Finding(
             "graph_build_failures", builds,
-            f"Candidate code failed to build a graph in {_share(builds, n)}.",
-            "Check the operator file's signatures and descriptions, or try a model that writes the operators correctly."))
+            f"Code failed to build: {_share(builds, n)}.",
+            "Check the operator file, or try another model."))
     evaluated = [t for t in trials if t.metrics is not None]
     below = sum(any(THRESHOLD.search(r) for r in t.reasons) for t in evaluated)
     if not any(t.status == "accepted" for t in trials) and below > len(evaluated) / 2:
         findings.append(Finding(
             "below_threshold", below,
-            f"Nothing was accepted: {below} of {len(evaluated)} evaluated trials fell below the partial-IC t threshold.",
-            "This is the statistical bar, not an error: more rounds or other research directions may clear it."))
+            f"Nothing accepted: {below} of {len(evaluated)} evaluated trials below the t threshold.",
+            "The statistical bar, not an error: run more rounds or change the research directions."))
     return tuple(sorted(findings, key=lambda f: -f.trials)[:_FINDINGS])

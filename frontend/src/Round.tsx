@@ -95,7 +95,7 @@ function Timeline({ running, clock, crashed, picked, pick }: {
 }
 
 function PendingCards({ pending, picked, pick }: { pending: PendingTrial[]; picked: Picked; pick: (p: Picked) => void }) {
-  if (!pending.length) return <p className="muted small">No pending trials yet: the planner has not chosen the round's research directions.</p>
+  if (!pending.length) return <p className="muted small">No pending trials yet.</p>
   const by = (stage: Stage) => pending.filter(p => p.stage === stage).length
   const summary = (Object.keys(STAGES) as Stage[]).filter(by).map(s => `${by(s)} ${STAGES[s]}`).join(', ')
   return (
@@ -122,10 +122,10 @@ export function RoundStrip({ running, clock, crashed, picked, pick }: {
   return (
     <section className="round">
       <h3>
-        Round {running.round} {crashed ? 'cut short by the crash' : 'in progress'}{' '}
+        Round {running.round} {crashed ? '(crashed)' : 'in progress'}{' '}
         <span className="muted">
-          · {back} call{back === 1 ? '' : 's'} back{running.evaluation ? ', evaluating' : ''}
-          {crashed && '; a resume drops this round and runs it again'}
+          · {back} call{back === 1 ? '' : 's'} back{running.evaluation ? ' · evaluating' : ''}
+          {crashed && ' · rerun on resume'}
         </span>
       </h3>
       <Timeline running={running} clock={clock} crashed={crashed} picked={picked} pick={pick} />
@@ -135,7 +135,7 @@ export function RoundStrip({ running, clock, crashed, picked, pick }: {
 }
 
 function Slots({ slots, from, pick }: { slots: number[]; from: number; pick: (p: Picked) => void }) {
-  if (!slots.length) return <p className="small muted">It concerned the whole round.</p>
+  if (!slots.length) return <p className="small muted">Whole round.</p>
   return (
     <p className="small">
       Slots:{' '}
@@ -167,19 +167,19 @@ export function CallReader({ name, number, pick }: { name: string; number: numbe
         {count(t.input)} in{t.cache_hits != null && <> ({count(t.cache_hits)} from the cache)</>}, {count(t.output)} out
         {t.reasoning != null && <> ({count(t.reasoning)} reasoning)</>}
       </p>
-      {call.truncated && <p className="flag">The reply was cut off at the output limit: raise the backend's output token limit.</p>}
-      {call.empty && <p className="flag">The reply is empty.</p>}
+      {call.truncated && <p className="flag">Cut off at the output limit.</p>}
+      {call.empty && <p className="flag">Empty reply.</p>}
       <Slots slots={call.slots} from={call.number} pick={pick} />
       <h4>Reply</h4>
       {call.reply ? <pre className="code">{formatted(call.reply)}</pre> : <p className="muted small">(empty)</p>}
       {call.reasoning && (
         <details open={call.empty}>
-          <summary className="small">The model's reasoning ({call.reasoning.length.toLocaleString()} characters)</summary>
+          <summary className="small">Reasoning ({call.reasoning.length.toLocaleString()} chars)</summary>
           <pre className="code">{call.reasoning}</pre>
         </details>
       )}
       <details>
-        <summary className="small">Prompt ({call.prompt.length.toLocaleString()} characters)</summary>
+        <summary className="small">Prompt ({call.prompt.length.toLocaleString()} chars)</summary>
         <pre className="code">{call.prompt}</pre>
       </details>
     </>
@@ -202,7 +202,7 @@ function CheckLine({ c }: { c: Check }) {
 // `back`, when the pending trial was opened from a call's slots: return to that call.
 export function PendingReader({ p, back }: { p: PendingTrial | undefined; back?: { call: number; go: () => void } }) {
   const backButton = back && <button className="link back small" onClick={back.go}>← back to call {back.call}</button>
-  if (!p) return <>{backButton}<p className="muted">This slot's round has been written: find its trial on the map or in the list.</p></>
+  if (!p) return <>{backButton}<p className="muted">Round written: see the map or list.</p></>
   const item = p.latest
   const candidate = item && typeof item === 'object' ? item as Record<string, unknown> : null
   return (
