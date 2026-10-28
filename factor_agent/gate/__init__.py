@@ -8,11 +8,15 @@ run in this order:
 1. static checks on the code (syntax allow-list, names in the vocabulary, ``alpha`` assigned);
 2. the graph build in a sandboxed subprocess (timeout, memory limit,
    bubblewrap filesystem isolation where it is installed);
-3. the graph's size, parameter values, dimensions and complexity, all reported together;
-4. originality against the zoo: not a rewrite of a zoo factor, not one with
+3. the stage rules of an intraday family's candidate (``stages.split``):
+   an intraday field reaches the daily stage only through a session
+   aggregation, the intraday stage reads no daily field, each operator is
+   used only in its stages;
+4. the graph's size, parameter values, dimensions and complexity, all reported together;
+5. originality against the zoo: not a rewrite of a zoo factor, not one with
    other windows or parameters only, and no common subtree with one larger
    than the limit. The reasons name the zoo factor and quote the subtree;
-5. not a duplicate of a candidate this gate passed before: the same canonical
+6. not a duplicate of a candidate this gate passed before: the same canonical
    graph up to what keeps or reverses its ranking (``Graph.ranking``): a
    factor and its negation predict alike, in opposite directions.
 """
@@ -36,7 +40,7 @@ from typing import TYPE_CHECKING
 import psutil
 
 from factor_agent.candidate import Candidate
-from factor_agent.gate import _constraints, _originality
+from factor_agent.gate import _constraints, _originality, stages
 from factor_agent.gate._checks import static_reasons
 from factor_agent.gate.graph import Graph
 
@@ -121,6 +125,9 @@ class Gate:
         if isinstance(reply, Rejected):
             return self._written_badly(reply.reasons)
         graph = Graph.from_json(reply, self.vocabulary.classes)
+        reasons = stages.split(graph, self.vocabulary).reasons
+        if reasons:
+            return Rejected(reasons)
         reasons, stats = _constraints.check(graph, self.config, self.vocabulary)
         if reasons:
             return Rejected(tuple(reasons))

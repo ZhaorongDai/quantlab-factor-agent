@@ -16,6 +16,14 @@ runs inside quantlab's ``missing_bars_only`` over those columns, so the
 NaN-preserving stand-ins of ``quantlab.factor.kunquant_nan`` keep such a
 bar NaN.
 
+A field file marked ``intraday`` is the campaign's intraday family: its
+fields read columns of the intraday dataset (the bars of each session, the
+session inputs ``factor_agent.session`` adds among them), not of the price
+dataset, and it gives the window lengths, in bars, its stage may use
+(``intraday: {windows: [...]}``). A campaign opens one at most. Candidate
+code reaches the daily stage from its fields only through a session
+aggregation (``factor_agent.gate.stages``).
+
 A family may declare a period lag (``period_lag``): the column pattern of
 its lags (``{column}`` and ``{k}`` fill it, ``"{column}__q{k}"`` as
 quantlab's ``FundamentalAlpha`` names its report lags), the allowed ``k``
@@ -39,6 +47,10 @@ operator class with why it is excluded. A class or a callable must come from Kun
 ``quantlab.factor`` or a module the config lists in ``operator_modules``:
 the path is checked before it is imported, no attribute hop may go through
 another module, and the object must be defined under one of them.
+Each operator names the stages it may be used in (``stages``): a list of
+``intraday`` and ``daily``, ``daily`` alone when it names none; a session
+aggregation (``factor_agent.aggregations``) is its own kind,
+``[aggregation]``.
 
 ``load`` reports every problem of the files at once (``VocabularyError``).
 The sandbox rebuilds the same vocabulary from ``sources``, the files' text.
@@ -63,6 +75,7 @@ import yaml
 from KunQuant.Op import Builder, Input, OpBase
 from quantlab.factor import kunquant_nan
 
+from factor_agent.aggregations import SessionAggregation
 from factor_agent.gate import _checks, _dimension
 from factor_agent.gate._canonical import canonical_hashes, effective_parameters
 from factor_agent.gate.graph import Graph
@@ -81,6 +94,11 @@ BUILTINS = {
 #: Kinds of a series argument: a number series, a comparison, or a ``ForeachBackWindow`` loop.
 INPUT_KINDS = ("series", "condition", "loop")
 
+#: The stages an operator may be used in: on each session's intraday bars, or on one value per day.
+STAGES = ("intraday", "daily")
+#: The stages of a session aggregation, which leads from one stage to the other.
+AGGREGATION = "aggregation"
+
 #: The parameter set of an attribute that is bookkeeping, never checked.
 FLAG = "flag"
 
@@ -91,7 +109,8 @@ _RESERVED = frozenset({"Builder", "Input", "PeriodLag", "alpha"})
 _UNIT_BASES = ("dollars", "shares")
 _UNIT_FACTOR = re.compile(r"(dollars|shares|1)(?:\^(-?\d+))?")
 
-_FIELD_FILE_KEYS = {"family", "description", "bar", "fields", "period_lag"}
+_FIELD_FILE_KEYS = {"family", "description", "bar", "fields", "period_lag", "intraday"}
+_INTRADAY_KEYS = {"windows"}
 _PERIOD_LAG_KEYS = {"column", "k", "period"}
 _PERIOD_KEYS = {"description", "key", "days", "tolerance_days", "bars"}
 _FIELD_KEYS = {"name", "column", "formula", "unit", "description"}
@@ -99,7 +118,7 @@ _OPERATOR_FILE_KEYS = {"parameters", "operators", "excluded", "fixes"}
 _FIX_KEYS = {"match", "hint"}
 #: The names ``_ArithmeticCalls`` writes ``-x`` and ``a ** b`` as; candidate code may not use such names.
 _NEGATE, _POWER = "__negate__", "__power__"
-_OPERATOR_KEYS = {"name", "class", "call", "signature", "inputs", "params", "dimension", "description"}
+_OPERATOR_KEYS = {"name", "class", "call", "signature", "inputs", "params", "dimension", "description", "stages"}
 
 
 class PeriodLagError(ValueError):
@@ -135,7 +154,8 @@ class OpSpec:
     """One registered operator; see the module docstring.
 
     ``path`` is the class's dotted path; ``params`` maps each attribute to
-    its parameter set, or ``FLAG``.
+    its parameter set, or ``FLAG``; ``stages`` are the stages it may be used
+    in (of ``STAGES``), or ``(AGGREGATION,)``.
     """
 
     name: str
@@ -147,6 +167,7 @@ class OpSpec:
     params: dict
     dimension: str
     description: str
+    stages: tuple[str, ...] = ("daily",)
 
 
 @dataclass(frozen=True)
@@ -168,7 +189,7 @@ class PeriodLag:
 
 
 #: ``Input``, which every graph records and no candidate calls.
-INPUT = OpSpec("Input", Input, "KunQuant.Op.Input", None, "", (), {"name": FLAG}, "input", "")
+INPUT = OpSpec("Input", Input, "KunQuant.Op.Input", None, "", (), {"name": FLAG}, "input", "", STAGES)
 
 
 class Vocabulary:
@@ -180,7 +201,9 @@ class Vocabulary:
         If the files have any problem; every problem is listed.
     """
 
-    def __init__(self, sources: dict, columns: Iterable[str] | None = None):
+    def __init__(
+        self, sources: dict, columns: Iterable[str] | None = None, intraday_columns: Iterable[str] | None = None,
+    ):
         #: The files' paths and text and the operator modules: what the sandbox rebuilds from.
         self.sources = sources
         #: The parameter sets of the operator file, by kind.
@@ -199,6 +222,10 @@ class Vocabulary:
         self._bar_columns: list[str] = []
         #: The declared period lags, by family.
         self.period_lags: dict[str, PeriodLag] = {}
+        #: The intraday family, None when no field file is marked intraday.
+        self.intraday_family: str | None = None
+        #: The window lengths, in bars, the intraday stage may use.
+        self.intraday_windows: tuple[int, ...] = ()
         operators = sources["operators"]
         self._read_operators(operators["path"], self._yaml(operators))
         for document in sources["fields"]:
@@ -210,11 +237,19 @@ class Vocabulary:
             available = set(columns)
             self._problems += [
                 f"field {f.name} ({f.family}): column {f.column!r} is not in the price dataset"
-                for f in self.fields.values() if f.column is not None and f.column not in available
+                for f in self.fields.values()
+                if f.column is not None and f.family != self.intraday_family and f.column not in available
             ]
             self._problems += [
                 f"period lag of {lag.family}: key column {lag.key!r} is not in the price dataset"
                 for lag in self.period_lags.values() if lag.key not in available
+            ]
+        if intraday_columns is not None:
+            available = set(intraday_columns)
+            self._problems += [
+                f"field {f.name} ({f.family}): column {f.column!r} is not in the intraday dataset"
+                for f in self.fields.values()
+                if f.column is not None and f.family == self.intraday_family and f.column not in available
             ]
         if self._problems:
             raise VocabularyError(self._problems)
@@ -222,14 +257,16 @@ class Vocabulary:
     @classmethod
     def load(
         cls, fields: Iterable[str | Path], operators: str | Path, operator_modules: Iterable[str] = (),
-        columns: Iterable[str] | None = None,
+        columns: Iterable[str] | None = None, intraday_columns: Iterable[str] | None = None,
     ) -> "Vocabulary":
         """Read the field files ``fields`` and the operator file ``operators``.
 
         ``operator_modules`` are the modules besides KunQuant and
         ``quantlab.factor`` a class or a callable may come from; ``columns``,
-        when given, are the price dataset's columns, among which every
-        field's column must be.
+        when given, are the price dataset's columns, among which every daily
+        field's column must be, and ``intraday_columns`` the intraday
+        dataset's (the session inputs included), among which every intraday
+        field's must be.
 
         Raises
         ------
@@ -243,7 +280,7 @@ class Vocabulary:
             "fields": [document(path) for path in fields], "operators": document(operators),
             "operator_modules": list(operator_modules),
         }
-        return cls(sources, columns)
+        return cls(sources, columns, intraday_columns)
 
     @classmethod
     def from_sources(cls, sources: dict) -> "Vocabulary":
@@ -360,6 +397,13 @@ class Vocabulary:
         return any(
             math.isclose(magnitude, v, rel_tol=1e-9, abs_tol=0.0) or magnitude == v
             for v in self.parameters.get(kind, ())
+        )
+
+    @property
+    def intraday_columns(self) -> frozenset[str]:
+        """The columns the intraday family's fields read; empty without an intraday family."""
+        return frozenset(
+            f.column for f in self.fields.values() if f.family == self.intraday_family and f.column is not None
         )
 
     def field_name(self, column: str) -> str:
@@ -678,11 +722,26 @@ class Vocabulary:
         dimension = entry.get("dimension")
         if dimension not in _dimension.OPERATOR_RULES:
             self._problem(where, f"dimension rule {dimension!r} is not one of {list(_dimension.OPERATOR_RULES)}")
-        if ok and cls is not None and call is not None:
+        stages = self._read_stages(where, cls, entry.get("stages"))
+        if ok and cls is not None and call is not None and stages is not None:
             self._operators[name] = OpSpec(
                 name, cls, entry["class"], call, str(entry.get("signature", name)), inputs, params, dimension,
-                str(entry.get("description", "")),
+                str(entry.get("description", "")), stages,
             )
+
+    def _read_stages(self, where: str, cls: type | None, stages) -> tuple[str, ...] | None:
+        """The stages an operator entry names, or its default; None, with the problem recorded, if they are wrong."""
+        if isinstance(cls, type) and issubclass(cls, SessionAggregation):
+            if stages is not None and stages != [AGGREGATION]:
+                self._problem(where, f"a session aggregation's stages are [{AGGREGATION}], not {stages!r}")
+                return None
+            return (AGGREGATION,)
+        if stages is None:
+            return ("daily",)
+        if not isinstance(stages, list) or not stages or not set(stages) <= set(STAGES) or len(set(stages)) < len(stages):
+            self._problem(where, f"stages {stages!r} must be a non-empty list of {' and '.join(STAGES)}")
+            return None
+        return tuple(stage for stage in STAGES if stage in stages)
 
     def _read_fields(self, path: str, document: dict | None) -> None:
         if document is None:
@@ -698,7 +757,9 @@ class Vocabulary:
                 mine.append(name)
             if isinstance(entry, dict) and isinstance(entry.get("name"), str):
                 declared.append(entry["name"])
-        if document.get("bar"):
+        if document.get("intraday") is not None:
+            self._read_intraday(f"{path}: intraday", family, document)
+        elif document.get("bar"):
             self._bar_columns += [self.fields[n].column for n in mine if self.fields[n].column is not None]
         if document.get("period_lag") is not None:
             self._read_period_lag(f"{path}: period_lag", family, document["period_lag"])
@@ -739,6 +800,25 @@ class Vocabulary:
             return None
         self.fields[name] = Field(name, family, column, formula, dimension, str(entry.get("description", "")))
         return name
+
+    def _read_intraday(self, where: str, family: str, document: dict) -> None:
+        """Make ``family`` the intraday family, with its window set."""
+        if self.intraday_family is not None:
+            self._problem(where, f"{family} is a second intraday family; a campaign opens one, {self.intraday_family}")
+            return
+        self.intraday_family = family
+        if document.get("bar"):
+            self._problem(where, "an intraday family cannot be bar: true; a bar without a trade has no price but is a bar")
+        entry = document["intraday"]
+        if not isinstance(entry, dict):
+            self._problem(where, "must be a mapping holding windows, the window lengths in bars")
+            return
+        self._unknown_keys(where, entry, _INTRADAY_KEYS)
+        windows = entry.get("windows")
+        if not isinstance(windows, list) or not windows or not all(_number(v) and v == int(v) and v > 0 for v in windows):
+            self._problem(where, f"intraday windows must be a list of positive whole numbers of bars, got {windows!r}")
+            return
+        self.intraday_windows = tuple(int(v) for v in windows)
 
     def _read_period_lag(self, where: str, family: str, entry) -> None:
         if not isinstance(entry, dict):

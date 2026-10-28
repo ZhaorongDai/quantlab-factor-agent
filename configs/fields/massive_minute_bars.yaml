@@ -1,0 +1,71 @@
+# One-minute trade bars: Massive's trades cut into one-minute bars of each regular session, on
+# permatickers, as quantlab's PermatickerTradeBarDataset reads them; the campaign config names the
+# dataset as data.intraday, beside the daily prices.
+#
+# An intraday family: candidate code computes on each session's bars (its intraday stage) and reduces
+# each session to one value per stock and day with a session aggregation (SessionMean, ...), which the
+# daily stage then works on like any daily field. A field reads a column of the intraday dataset, or
+# one of the session inputs the campaign adds to it from the bar timestamps and prices:
+# session_position, session_bars_left and last_price.
+#
+# - A price is missing on a bar without a trade; a volume, a dollar volume or a trade count is 0 there.
+# - No bar count is assumed: a half day has fewer bars, and a stock that did not trade at a session's
+#   start or end has no price there, but the bars are there.
+#
+# `intraday` marks the family and holds `windows`, the window lengths, in bars, the intraday stage
+# may use; a campaign opens one intraday family. An intraday family cannot be `bar: true`. See
+# sharadar_price_volume.yaml for the keys of a field file.
+family: minute_bars
+description: one-minute trade bars of each regular session
+intraday:
+  windows: [5, 10, 15, 30, 60, 120]
+
+fields:
+  - name: bar_open
+    column: open
+    unit: dollars/shares
+    description: first trade price of the bar; missing on a bar without a trade
+  - name: bar_high
+    column: high
+    unit: dollars/shares
+    description: highest trade price of the bar; missing on a bar without a trade
+  - name: bar_low
+    column: low
+    unit: dollars/shares
+    description: lowest trade price of the bar; missing on a bar without a trade
+  - name: bar_close
+    column: close
+    unit: dollars/shares
+    description: last trade price of the bar; missing on a bar without a trade
+  - name: bar_volume
+    column: volume
+    unit: shares
+    description: shares traded in the bar; 0 without a trade
+  - name: bar_dollar_volume
+    column: dollar_volume
+    unit: dollars
+    description: dollars traded in the bar; 0 without a trade
+  - name: bar_trades
+    column: n_trades
+    unit: 1
+    description: number of trades in the bar; 0 without a trade
+  - name: bar_buy_volume
+    column: buy_volume
+    unit: shares
+    description: shares of the bar's trades signed buys by the tick rule (an uptick, or a zero tick after one); 0 without a trade
+  - name: bar_sell_volume
+    column: sell_volume
+    unit: shares
+    description: shares of the bar's trades signed sells by the tick rule (a downtick, or a zero tick after one); 0 without a trade
+  - name: session_position
+    column: session_position
+    unit: 1
+    description: the bar's position in its session, 0 for the first bar
+  - name: session_bars_left
+    column: session_bars_left
+    unit: 1
+    description: bars from this bar to the session's last, 0 for the last bar
+  - name: last_price
+    column: last_price
+    unit: dollars/shares
+    description: the last trade price at or before the bar within the session; missing before the session's first trade

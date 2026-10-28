@@ -15,6 +15,11 @@
 #                pure, match, product, quotient, scale, square, sqrt, transcendental,
 #                repeated_product, power, select, compare, compare_constant, logic, loop
 #   description  one line in the prompt
+#   stages       the stages candidate code may use it in: intraday (on each session's bars, in an
+#                intraday family's candidates) and daily (on one value per day); daily when it names
+#                none. Operators of unbounded memory (exponential averages) and month-based ones are
+#                daily only. A session aggregation, which reduces each session to one value per day,
+#                is its own kind: [aggregation].
 #
 # Each fix: `match`, a regular expression a refusal's text matches when KunQuant turns code down,
 # and `hint`, how to write it instead; the hint is added to the refusal the proposer is asked to fix.
@@ -50,48 +55,56 @@ operators:
     signature: "Add(x, y)"
     inputs: [series, series]
     dimension: match
+    stages: [intraday, daily]
     description: "sum; also written x + y"
   - name: Sub
     class: KunQuant.ops.Sub
     signature: "Sub(x, y)"
     inputs: [series, series]
     dimension: match
+    stages: [intraday, daily]
     description: "difference; also written x - y"
   - name: Mul
     class: KunQuant.ops.Mul
     signature: "Mul(x, y)"
     inputs: [series, series]
     dimension: product
+    stages: [intraday, daily]
     description: "product; also written x * y"
   - name: Div
     class: KunQuant.ops.Div
     signature: "Div(x, y)"
     inputs: [series, series]
     dimension: quotient
+    stages: [intraday, daily]
     description: "quotient; also written x / y"
   - name: AddConst
     class: KunQuant.ops.AddConst
     signature: "AddConst(x, c)"
     params: {value: constant, swap: flag}
     dimension: same
+    stages: [intraday, daily]
     description: "x plus c; also written x + c"
   - name: SubConst
     class: KunQuant.ops.SubConst
     signature: "SubConst(x, c)"
     params: {value: constant, swap: flag}
     dimension: same
+    stages: [intraday, daily]
     description: "x minus c; also written x - c"
   - name: MulConst
     class: KunQuant.ops.MulConst
     signature: "MulConst(x, c)"
     params: {value: constant, swap: flag}
     dimension: scale
+    stages: [intraday, daily]
     description: "x times c; also written x * c"
   - name: DivConst
     class: KunQuant.ops.DivConst
     signature: "DivConst(x, c)"
     params: {value: constant, swap: flag}
     dimension: scale
+    stages: [intraday, daily]
     description: "x divided by c; also written x / c"
   - name: ConstantOp
     class: KunQuant.Op.ConstantOp
@@ -99,37 +112,44 @@ operators:
     inputs: []
     params: {value: constant}
     dimension: constant
+    stages: [intraday, daily]
     description: the constant c as a series
   - name: Abs
     class: KunQuant.ops.Abs
     signature: "Abs(x)"
     dimension: same
+    stages: [intraday, daily]
     description: absolute value
   - name: Sign
     class: KunQuant.ops.Sign
     signature: "Sign(x)"
     dimension: pure
+    stages: [intraday, daily]
     description: -1, 0 or 1 by the sign of x
   - name: Exp
     class: KunQuant.ops.Exp
     signature: "Exp(x)"
     dimension: transcendental
+    stages: [intraday, daily]
     description: exponential
   - name: Log
     class: KunQuant.ops.Log
     signature: "Log(x)"
     dimension: transcendental
+    stages: [intraday, daily]
     description: natural logarithm
   - name: Sqrt
     class: KunQuant.ops.Sqrt
     signature: "Sqrt(x)"
     dimension: sqrt
+    stages: [intraday, daily]
     description: square root
   - name: Pow
     class: KunQuant.ops.Pow
     signature: "Pow(x, y)"
     inputs: [series, series]
     dimension: power
+    stages: [intraday, daily]
     description: x to the power y
   - name: Max
     class: KunQuant.ops.Max
@@ -137,6 +157,7 @@ operators:
     signature: "Max(x, y)"
     inputs: [series, series]
     dimension: match
+    stages: [intraday, daily]
     description: elementwise maximum of x and y
   - name: Min
     class: KunQuant.ops.Min
@@ -144,6 +165,7 @@ operators:
     signature: "Min(x, y)"
     inputs: [series, series]
     dimension: match
+    stages: [intraday, daily]
     description: elementwise minimum of x and y
   - name: Clip
     class: KunQuant.ops.Clip
@@ -151,6 +173,7 @@ operators:
     signature: "Clip(x, c)"
     params: {value: constant}
     dimension: same
+    stages: [intraday, daily]
     description: x clipped to [-c, c]
   - name: SetInfOrNanToValue
     class: KunQuant.ops.SetInfOrNanToValue
@@ -158,6 +181,7 @@ operators:
     signature: "SetInfOrNanToValue(x, c=0.0)"
     params: {value: constant}
     dimension: same
+    stages: [intraday, daily]
     description: x with NaN and infinity set to c where the bar has data
   - name: Select
     class: KunQuant.ops.Select
@@ -165,108 +189,126 @@ operators:
     signature: "Select(condition, x, y)"
     inputs: [condition, series, series]
     dimension: select
+    stages: [intraday, daily]
     description: x where the condition holds, else y
   - name: GreaterThan
     class: KunQuant.ops.GreaterThan
     signature: "GreaterThan(x, y)"
     inputs: [series, series]
     dimension: compare
+    stages: [intraday, daily]
     description: "true where x is above y; also written x > y"
   - name: GreaterEqual
     class: KunQuant.ops.GreaterEqual
     signature: "GreaterEqual(x, y)"
     inputs: [series, series]
     dimension: compare
+    stages: [intraday, daily]
     description: "true where x is at least y; also written x >= y"
   - name: LessThan
     class: KunQuant.ops.LessThan
     signature: "LessThan(x, y)"
     inputs: [series, series]
     dimension: compare
+    stages: [intraday, daily]
     description: "true where x is below y; also written x < y"
   - name: LessEqual
     class: KunQuant.ops.LessEqual
     signature: "LessEqual(x, y)"
     inputs: [series, series]
     dimension: compare
+    stages: [intraday, daily]
     description: "true where x is at most y; also written x <= y"
   - name: Equals
     class: KunQuant.ops.Equals
     signature: "Equals(x, y)"
     inputs: [series, series]
     dimension: compare
+    stages: [intraday, daily]
     description: true where x equals y
   - name: GreaterThanConst
     class: KunQuant.ops.GreaterThanConst
     signature: "GreaterThanConst(x, c)"
     params: {value: constant, swap: flag}
     dimension: compare_constant
+    stages: [intraday, daily]
     description: "true where x is above c"
   - name: LessThanConst
     class: KunQuant.ops.LessThanConst
     signature: "LessThanConst(x, c)"
     params: {value: constant, swap: flag}
     dimension: compare_constant
+    stages: [intraday, daily]
     description: "true where x is below c"
   - name: And
     class: KunQuant.ops.And
     signature: "And(a, b)"
     inputs: [condition, condition]
     dimension: logic
+    stages: [intraday, daily]
     description: both conditions hold
   - name: Or
     class: KunQuant.ops.Or
     signature: "Or(a, b)"
     inputs: [condition, condition]
     dimension: logic
+    stages: [intraday, daily]
     description: either condition holds
   - name: Not
     class: KunQuant.ops.Not
     signature: "Not(a)"
     inputs: [condition]
     dimension: logic
+    stages: [intraday, daily]
     description: the condition does not hold
   - name: BackRef
     class: KunQuant.ops.BackRef
     signature: "BackRef(x, lag)"
     params: {window: lag}
     dimension: same
+    stages: [intraday, daily]
     description: x lag bars ago
   - name: WindowedAvg
     class: KunQuant.ops.WindowedAvg
     signature: "WindowedAvg(x, window)"
     params: {window: window}
     dimension: same
+    stages: [intraday, daily]
     description: mean of x over the last window bars
   - name: WindowedSum
     class: KunQuant.ops.WindowedSum
     signature: "WindowedSum(x, window)"
     params: {window: window}
     dimension: same
+    stages: [intraday, daily]
     description: sum of x over the last window bars
   - name: WindowedStddev
     class: KunQuant.ops.WindowedStddev
     signature: "WindowedStddev(x, window)"
     params: {window: window}
     dimension: same
+    stages: [intraday, daily]
     description: standard deviation of x over the last window bars
   - name: WindowedVar
     class: KunQuant.ops.WindowedVar
     signature: "WindowedVar(x, window)"
     params: {window: window}
     dimension: square
+    stages: [intraday, daily]
     description: variance of x over the last window bars
   - name: WindowedMax
     class: KunQuant.ops.WindowedMax
     signature: "WindowedMax(x, window)"
     params: {window: window}
     dimension: same
+    stages: [intraday, daily]
     description: maximum of x over the last window bars
   - name: WindowedMin
     class: KunQuant.ops.WindowedMin
     signature: "WindowedMin(x, window)"
     params: {window: window}
     dimension: same
+    stages: [intraday, daily]
     description: minimum of x over the last window bars
   - name: WindowedCorrelation
     class: KunQuant.ops.WindowedCorrelation
@@ -274,6 +316,7 @@ operators:
     inputs: [series, series]
     params: {window: window}
     dimension: pure
+    stages: [intraday, daily]
     description: correlation of x and y over the last window bars
   - name: WindowedCovariance
     class: KunQuant.ops.WindowedCovariance
@@ -281,108 +324,126 @@ operators:
     inputs: [series, series]
     params: {window: window}
     dimension: product
+    stages: [intraday, daily]
     description: covariance of x and y over the last window bars
   - name: WindowedSkew
     class: KunQuant.ops.WindowedSkew
     signature: "WindowedSkew(x, window)"
     params: {window: window}
     dimension: pure
+    stages: [intraday, daily]
     description: skewness of x over the last window bars
   - name: WindowedKurt
     class: KunQuant.ops.WindowedKurt
     signature: "WindowedKurt(x, window)"
     params: {window: window}
     dimension: pure
+    stages: [intraday, daily]
     description: kurtosis of x over the last window bars
   - name: WindowedQuantile
     class: KunQuant.ops.WindowedQuantile
     signature: "WindowedQuantile(x, window, q)"
     params: {window: window, q: quantile}
     dimension: same
+    stages: [intraday, daily]
     description: the q quantile of x over the last window bars
   - name: WindowedProduct
     class: KunQuant.ops.WindowedProduct
     signature: "WindowedProduct(x, window)"
     params: {window: window}
     dimension: repeated_product
+    stages: [intraday, daily]
     description: product of x over the last window bars
   - name: WindowedMaxDrawdown
     class: KunQuant.ops.WindowedMaxDrawdown
     signature: "WindowedMaxDrawdown(x, window)"
     params: {window: window}
     dimension: pure
+    stages: [intraday, daily]
     description: largest fall of x from a running peak over the last window bars
   - name: WindowedLinearRegressionSlope
     class: KunQuant.ops.WindowedLinearRegressionSlope
     signature: "WindowedLinearRegressionSlope(x, window)"
     params: {window: window}
     dimension: same
+    stages: [intraday, daily]
     description: slope of x regressed on time over the last window bars
   - name: WindowedLinearRegressionRSqaure
     class: KunQuant.ops.WindowedLinearRegressionRSqaure
     signature: "WindowedLinearRegressionRSqaure(x, window)"
     params: {window: window}
     dimension: pure
+    stages: [intraday, daily]
     description: R squared of x regressed on time over the last window bars
   - name: WindowedLinearRegressionResi
     class: KunQuant.ops.WindowedLinearRegressionResi
     signature: "WindowedLinearRegressionResi(x, window)"
     params: {window: window}
     dimension: same
+    stages: [intraday, daily]
     description: last residual of x regressed on time over the last window bars
   - name: TsRank
     class: KunQuant.ops.TsRank
     signature: "TsRank(x, window)"
     params: {window: window}
     dimension: pure
+    stages: [intraday, daily]
     description: rank of the latest x among the last window bars
   - name: TsArgMax
     class: KunQuant.ops.TsArgMax
     signature: "TsArgMax(x, window)"
     params: {window: window}
     dimension: pure
+    stages: [intraday, daily]
     description: bars since the maximum of x in the last window bars
   - name: TsArgMin
     class: KunQuant.ops.TsArgMin
     signature: "TsArgMin(x, window)"
     params: {window: window}
     dimension: pure
+    stages: [intraday, daily]
     description: bars since the minimum of x in the last window bars
   - name: DecayLinear
     class: KunQuant.ops.DecayLinear
     signature: "DecayLinear(x, window)"
     params: {window: window}
     dimension: same
+    stages: [intraday, daily]
     description: linearly decaying weighted mean of x over the last window bars
   - name: ExpMovingAvg
     class: KunQuant.ops.ExpMovingAvg
     signature: "ExpMovingAvg(x, window)"
     params: {window: window}
     dimension: same
+    stages: [daily]
     description: exponential moving average of x with span window
   - name: WindowedZScore
     class: quantlab.factor.kunquant_ts.WindowedZScore
     signature: "WindowedZScore(x, window)"
     params: {window: window}
     dimension: pure
+    stages: [intraday, daily]
     description: (x - its mean) / its standard deviation over the last window bars
   - name: EWSum
     class: quantlab.factor.kunquant_ts.EWSum
     signature: "EWSum(x, window, half_life)"
     params: {window: window, half_life: half_life}
     dimension: same
+    stages: [intraday, daily]
     description: exponentially weighted sum of x over window bars with the given half-life
   - name: EWMean
     class: quantlab.factor.kunquant_ts.EWMean
     signature: "EWMean(x, window, half_life)"
     params: {window: window, half_life: half_life}
     dimension: same
+    stages: [intraday, daily]
     description: exponentially weighted mean of x over window bars with the given half-life
   - name: EWVar
     class: quantlab.factor.kunquant_ts.EWVar
     signature: "EWVar(x, window, half_life)"
     params: {window: window, half_life: half_life}
     dimension: square
+    stages: [intraday, daily]
     description: exponentially weighted variance of x over window bars with the given half-life
   - name: EWCov
     class: quantlab.factor.kunquant_ts.EWCov
@@ -390,6 +451,7 @@ operators:
     inputs: [series, series]
     params: {window: window, half_life: half_life}
     dimension: product
+    stages: [intraday, daily]
     description: exponentially weighted covariance of y and x
   - name: EWBeta
     class: quantlab.factor.kunquant_ts.EWBeta
@@ -397,6 +459,7 @@ operators:
     inputs: [series, series]
     params: {window: window, half_life: half_life}
     dimension: quotient
+    stages: [intraday, daily]
     description: exponentially weighted regression slope of y on x
   - name: EWAlpha
     class: quantlab.factor.kunquant_ts.EWAlpha
@@ -404,6 +467,7 @@ operators:
     inputs: [series, series]
     params: {window: window, half_life: half_life}
     dimension: first
+    stages: [intraday, daily]
     description: exponentially weighted regression intercept of y on x
   - name: EWResidualStd
     class: quantlab.factor.kunquant_ts.EWResidualStd
@@ -411,98 +475,122 @@ operators:
     inputs: [series, series]
     params: {window: window, half_life: half_life}
     dimension: first
+    stages: [intraday, daily]
     description: standard deviation of the residual of the exponentially weighted regression of y on x
   - name: CMRA
     class: quantlab.factor.kunquant_ts.CMRA
     signature: "CMRA(x, months=12, month_length=21)"
     params: {months: months, month_length: month_length}
     dimension: same
+    stages: [daily]
     description: cumulative range of monthly log returns of x (Barra CMRA)
   - name: ForeachBackWindow
     class: KunQuant.Op.ForeachBackWindow
     signature: "ForeachBackWindow(x, window, *more_series)"
     params: {window: window}
     dimension: loop
+    stages: [intraday, daily]
     description: a loop over the last window bars of x (and more series); read it inside `with Builder(loop):`
   - name: IterValue
     class: KunQuant.Op.IterValue
     signature: "IterValue(loop, x)"
     inputs: [loop, series]
     dimension: second
+    stages: [intraday, daily]
     description: the value of x at the loop's current bar, inside `with Builder(loop):`
   - name: WindowLoopIndex
     class: KunQuant.Op.WindowLoopIndex
     signature: "WindowLoopIndex(loop)"
     inputs: [loop]
     dimension: pure
+    stages: [intraday, daily]
     description: the loop's current position, inside `with Builder(loop):`
   - name: ReduceAdd
     class: KunQuant.ops.ReduceAdd
     signature: "ReduceAdd(item)"
     dimension: same
+    stages: [intraday, daily]
     description: sum of a loop item over the loop's window
   - name: ReduceMul
     class: KunQuant.ops.ReduceMul
     signature: "ReduceMul(item)"
     dimension: repeated_product
+    stages: [intraday, daily]
     description: product of a loop item over the loop's window
   - name: ReduceMax
     class: KunQuant.ops.ReduceMax
     signature: "ReduceMax(item)"
     dimension: same
+    stages: [intraday, daily]
     description: maximum of a loop item over the loop's window
   - name: ReduceMin
     class: KunQuant.ops.ReduceMin
     signature: "ReduceMin(item)"
     dimension: same
+    stages: [intraday, daily]
     description: minimum of a loop item over the loop's window
   - name: ReduceArgMax
     class: KunQuant.ops.ReduceArgMax
     signature: "ReduceArgMax(item)"
     dimension: pure
+    stages: [intraday, daily]
     description: position of the maximum of a loop item
   - name: ReduceArgMin
     class: KunQuant.ops.ReduceArgMin
     signature: "ReduceArgMin(item)"
     dimension: pure
+    stages: [intraday, daily]
     description: position of the minimum of a loop item
   - name: ReduceRank
     class: KunQuant.ops.ReduceRank
     signature: "ReduceRank(item)"
     dimension: pure
+    stages: [intraday, daily]
     description: rank of the latest loop item among the window
   - name: ReduceDecayLinear
     class: KunQuant.ops.ReduceDecayLinear
     signature: "ReduceDecayLinear(item)"
     dimension: same
+    stages: [intraday, daily]
     description: linearly decaying weighted mean of a loop item
   - name: Rank
     class: KunQuant.Op.Rank
     signature: "Rank(x)"
     dimension: pure
+    stages: [intraday, daily]
     description: rank of x across the whole market each day, in [0, 1]
   - name: Scale
     class: KunQuant.Op.Scale
     signature: "Scale(x)"
     dimension: pure
+    stages: [intraday, daily]
     description: x divided by the sum of its absolute values across the market
   - name: CrossSectionalZScore
     class: quantlab.factor.kunquant_cs.CrossSectionalZScore
     signature: "CrossSectionalZScore(x)"
     dimension: pure
+    stages: [intraday, daily]
     description: z-score of x across the whole market each day
   - name: CrossSectionalWinsorize
     class: quantlab.factor.kunquant_cs.CrossSectionalWinsorize
     signature: "CrossSectionalWinsorize(x, lower=0.01, upper=0.99)"
     params: {lower: lower, upper: upper}
     dimension: same
+    stages: [intraday, daily]
     description: x clipped to its lower and upper quantiles across the market
   - name: CrossSectionalTrim
     class: quantlab.factor.kunquant_cs.CrossSectionalTrim
     signature: "CrossSectionalTrim(x, lower=0.01, upper=0.99)"
     params: {lower: lower, upper: upper}
     dimension: same
+    stages: [intraday, daily]
     description: x set to NaN outside its lower and upper quantiles across the market
+  - name: SessionMean
+    class: factor_agent.aggregations.SessionMean
+    signature: "SessionMean(x)"
+    dimension: same
+    stages: [aggregation]
+    description: mean of x over the session's bars where it has a value, one value per day
 
 excluded:
   KunQuant.Op.UnaryElementwiseOp: an abstract base class, never in a graph
@@ -550,4 +638,3 @@ excluded:
   KunQuant.predefined.talib.ATR: a KunQuant predefined composite; candidates write the formula themselves
   KunQuant.predefined.talib.SAR: a KunQuant predefined composite; candidates write the formula themselves
   factor_agent.aggregations.SessionAggregation: an abstract base class, never in a graph
-  factor_agent.aggregations.SessionMean: a session aggregation, for an intraday family, which no campaign opens yet
