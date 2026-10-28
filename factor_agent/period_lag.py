@@ -1,9 +1,10 @@
 """Period lags read from data: the lag columns ``PeriodLag(x, k)`` reads, computed when a factor is.
 
 A lag column (``Vocabulary.lag_columns``) is no column of the price
-dataset: ``PeriodLagFactor`` reads the field's column and the key column of
-its family (the period end of the report each bar shows) and computes it
-with quantlab's ``report_lags``, as ``FundamentalAlpha`` computes its report
+dataset but a derived column (``factor_agent.derived``): its provider,
+``PeriodLags``, reads the field's column and the key column of its family
+(the period end of the report each bar shows) and computes it with
+quantlab's ``report_lags``, as ``FundamentalAlpha`` computes its report
 lags. On a bar showing report r, the value ``k`` periods ago is the last
 value shown during the k-th earlier report shown; it is missing unless that
 report's period ends ``k * days`` (within ``tolerance_days``) before the
@@ -24,8 +25,10 @@ from collections.abc import Iterable, Mapping
 
 import numpy as np
 import xarray as xr
-from quantlab.factor.kunquant import FactorKunQuant
+from quantlab.dataset.base import BaseDataset
 from quantlab.factor.predefined.fundamental_alpha import report_lags
+
+from factor_agent import derived
 
 
 def read(inputs: Iterable[str], lag_columns: Mapping[str, Mapping]) -> dict[str, dict]:
@@ -33,49 +36,31 @@ def read(inputs: Iterable[str], lag_columns: Mapping[str, Mapping]) -> dict[str,
     return {name: dict(lag_columns[name]) for name in sorted(inputs) if name in lag_columns}
 
 
-def data_columns(inputs: Iterable[str], lags: Mapping[str, Mapping]) -> tuple[str, ...]:
-    """The dataset columns to read for graph ``inputs``: each lag column becomes its field's column and key, sorted."""
-    columns = set()
-    for name in inputs:
-        if name in lags:
-            columns |= {lags[name]["column"], lags[name]["key"]}
-        else:
-            columns.add(name)
-    return tuple(sorted(columns))
-
-
 def warmup_bars(lags: Mapping[str, Mapping]) -> int:
     """The bars before the first computed bar the ``lags`` read; 0 without any."""
     return max(((int(lag["k"]) + 2) * int(lag["bars"]) for lag in lags.values()), default=0)
 
 
-class PeriodLagFactor(FactorKunQuant):
-    """A KunQuant factor whose graph may read lag columns, computed from its dataset; see the module docstring.
+class PeriodLags(derived.Provider):
+    """The lag columns ``lags`` (``read``), filled from the daily panel; see the module docstring.
 
-    A subclass says which lag columns its graph reads (``_period_lags``) and
-    holds their fields' columns and keys in ``config.data_columns``
-    (``data_columns``). The factor reads at least the warm-up its lags need.
+    It reads the fields' columns and keys (``data_columns``), the keys from
+    the panel only, and the warm-up the lags need (``warmup_bars``).
     """
 
-    def _period_lags(self) -> Mapping[str, Mapping]:
-        """The lag columns the graph reads, each with how it is computed; none by default."""
-        return {}
+    def __init__(self, lags: Mapping[str, Mapping]):
+        self._lags = {name: dict(lag) for name, lag in lags.items()}
+        self.columns = tuple(self._lags)
+        self.data_columns = tuple(sorted({c for lag in self._lags.values() for c in (lag["column"], lag["key"])}))
+        self.panel_columns = tuple(sorted({lag["key"] for lag in self._lags.values()}))
+        self.warmup_bars = warmup_bars(self._lags)
 
-    @property
-    def warmup_bars(self) -> int:
-        """``config.warmup_bars``, or the warm-up the lags need when that is longer."""
-        return max(self.config.warmup_bars, warmup_bars(self._period_lags()))
-
-    def _kunquant_inputs(self, inputs: xr.Dataset) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
-        lags = self._period_lags()
-        if not lags:
-            return super()._kunquant_inputs(inputs)
-        keys = {lag["key"] for lag in lags.values()}
-        values = tuple(c for c in self.config.data_columns if c not in keys)
-        arrays, symbols, timestamps = self.config.dataset.to_kunquant(data_columns=values, panel=inputs)
-        panel = self.config.dataset.to_shared_names(inputs)
+    def fill(
+        self, dataset: BaseDataset, panel: xr.Dataset, arrays: dict[str, np.ndarray],
+        symbols: np.ndarray, timestamps: np.ndarray,
+    ) -> dict[str, np.ndarray]:
         groups: dict[tuple, dict[str, list]] = {}
-        for name, lag in lags.items():
+        for name, lag in self._lags.items():
             group = groups.setdefault((lag["key"], float(lag["days"]), float(lag["tolerance_days"])), {})
             group.setdefault(lag["column"], []).append((int(lag["k"]), name))
         lagged = {}
@@ -88,7 +73,12 @@ class PeriodLagFactor(FactorKunQuant):
             for column, ks in wanted.items():
                 for k, name in ks:
                     lagged[name] = out[f"{column}__q{k}"]
-        return {**arrays, **lagged}, symbols, timestamps
+        return lagged
+
+
+def providers(lags: Mapping[str, Mapping]) -> list[derived.Provider]:
+    """The provider of the lag columns ``lags``, in a list; none without any."""
+    return [PeriodLags(lags)] if lags else []
 
 
 def _key_values(key: xr.DataArray) -> np.ndarray:

@@ -14,7 +14,7 @@ from collections.abc import Mapping
 from KunQuant.Op import OpBase, Output, Rank
 from KunQuant.ops import AddConst, MulConst
 from KunQuant.Stage import Function
-from factor_agent import period_lag
+from factor_agent import derived, period_lag
 from factor_agent.gate.graph import Graph
 from factor_agent.gate.vocabulary import resolve_classes
 
@@ -57,7 +57,7 @@ def ranked_function(
     return Function(ops)
 
 
-class GraphFactor(period_lag.PeriodLagFactor):
+class GraphFactor(derived.DerivedColumnsFactor):
     """Recorded graphs, each ranked across the market, as one factor.
 
     The graphs, name to ``Graph.to_json()``, are the class's ``GRAPHS`` (an
@@ -90,6 +90,9 @@ class GraphFactor(period_lag.PeriodLagFactor):
     def _period_lags(self) -> dict:
         return type(self).PERIOD_LAGS or dict((self.config.kwargs or {}).get("period_lags") or {})
 
+    def _providers(self) -> list[derived.Provider]:
+        return period_lag.providers(self._period_lags())
+
     def _directions(self) -> dict:
         return type(self).DIRECTIONS or dict((self.config.kwargs or {}).get("directions") or {})
 
@@ -104,7 +107,7 @@ class GraphFactor(period_lag.PeriodLagFactor):
     @staticmethod
     def data_columns(graphs: Mapping[str, list], period_lags: Mapping[str, Mapping] | None = None) -> tuple[str, ...]:
         """The dataset columns the recorded graphs read, with the columns and keys of their ``period_lags``, sorted."""
-        return period_lag.data_columns(_inputs(graphs), period_lags or {})
+        return derived.data_columns(_inputs(graphs), period_lag.providers(period_lags or {}))
 
     @staticmethod
     def period_lags(graphs: Mapping[str, list], lag_columns: Mapping[str, Mapping]) -> dict:
