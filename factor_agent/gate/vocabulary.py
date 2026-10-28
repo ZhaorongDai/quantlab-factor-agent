@@ -67,8 +67,9 @@ from factor_agent.gate import _checks, _dimension
 from factor_agent.gate._canonical import canonical_hashes, effective_parameters
 from factor_agent.gate.graph import Graph
 
-#: Modules a class or a callable may always come from; the config's ``operator_modules`` add to them.
-FRAMEWORK_MODULES = ("KunQuant", "quantlab.factor")
+#: Modules a class or a callable may always come from, factor-agent's session aggregations among them; the
+#: config's ``operator_modules`` add to them.
+FRAMEWORK_MODULES = ("KunQuant", "quantlab.factor", "factor_agent.aggregations")
 
 #: The builtins candidate code may call.
 BUILTINS = {

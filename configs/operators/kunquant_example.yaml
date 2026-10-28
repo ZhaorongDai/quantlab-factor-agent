@@ -549,3 +549,5 @@ excluded:
   KunQuant.predefined.talib.TRANGE: a KunQuant predefined composite; candidates write the formula themselves
   KunQuant.predefined.talib.ATR: a KunQuant predefined composite; candidates write the formula themselves
   KunQuant.predefined.talib.SAR: a KunQuant predefined composite; candidates write the formula themselves
+  factor_agent.aggregations.SessionAggregation: an abstract base class, never in a graph
+  factor_agent.aggregations.SessionMean: a session aggregation, for an intraday family, which no campaign opens yet
