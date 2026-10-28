@@ -100,11 +100,13 @@ INPUT_KINDS = ("series", "condition", "loop")
 STAGES = ("intraday", "daily")
 #: The stages of a session aggregation, which leads from one stage to the other.
 AGGREGATION = "aggregation"
+#: The stages of an operator whose entry names none.
+DAILY_ONLY = ("daily",)
 #: With an intraday family, the prompt's groups of operators: each operator's stages and the group's heading.
 _STAGE_HEADINGS = (
     (STAGES, "In both stages:"),
     (("intraday",), "In the intraday stage only:"),
-    (("daily",), "In the daily stage only:"),
+    (DAILY_ONLY, "In the daily stage only:"),
     ((AGGREGATION,), "Session aggregations, each from the intraday stage to the daily stage:"),
 )
 
@@ -176,7 +178,12 @@ class OpSpec:
     params: dict
     dimension: str
     description: str
-    stages: tuple[str, ...] = ("daily",)
+    stages: tuple[str, ...] = DAILY_ONLY
+
+    @property
+    def is_aggregation(self) -> bool:
+        """Whether the operator is a session aggregation."""
+        return self.stages == (AGGREGATION,)
 
 
 @dataclass(frozen=True)
@@ -254,7 +261,7 @@ class Vocabulary:
             self._problems += [
                 f"field {f.name} ({f.family}): column {f.column!r} is not in the price dataset"
                 for f in self.fields.values()
-                if f.column is not None and f.family != self.intraday_family and f.column not in available
+                if f.column is not None and not self._is_intraday(f) and f.column not in available
             ]
             self._problems += [
                 f"period lag of {lag.family}: key column {lag.key!r} is not in the price dataset"
@@ -265,7 +272,7 @@ class Vocabulary:
             self._problems += [
                 f"field {f.name} ({f.family}): column {f.column!r} is not in the intraday dataset"
                 for f in self.fields.values()
-                if f.column is not None and f.family == self.intraday_family and f.column not in available
+                if f.column is not None and self._is_intraday(f) and f.column not in available
             ]
         if self._problems:
             raise VocabularyError(self._problems)
@@ -427,7 +434,7 @@ class Vocabulary:
     def intraday_columns(self) -> frozenset[str]:
         """The columns the intraday family's fields read; empty without an intraday family."""
         return frozenset(
-            f.column for f in self.fields.values() if f.family == self.intraday_family and f.column is not None
+            f.column for f in self.fields.values() if self._is_intraday(f) and f.column is not None
         )
 
     def field_name(self, column: str) -> str:
@@ -498,7 +505,7 @@ class Vocabulary:
             lines = []
             for stages, heading in _STAGE_HEADINGS:
                 listed = [operator(spec) for spec in self._usable.values() if spec.stages == stages]
-                if stages == ("daily",):
+                if stages == DAILY_ONLY:
                     listed += self._period_lag_lines()
                 if listed:
                     lines += [heading, *listed]
@@ -511,8 +518,8 @@ class Vocabulary:
                 f"{', '.join(map(str, self.intraday_windows))}",
                 f"- intraday lag (in bars, every lag of the intraday stage): {', '.join(map(str, self.intraday_lags))}",
             ]
-        daily = [name for name, f in self.fields.items() if f.family != self.intraday_family]
-        intraday = [name for name, f in self.fields.items() if f.family == self.intraday_family]
+        daily = [name for name, f in self.fields.items() if not self._is_intraday(f)]
+        intraday = [name for name, f in self.fields.items() if self._is_intraday(f)]
         return {
             "inputs": ", ".join(self.fields) if not intraday else (
                 f"daily {', '.join(daily)}; intraday {', '.join(intraday)}"
@@ -541,12 +548,16 @@ class Vocabulary:
 
     # Internals.
 
+    def _is_intraday(self, field: Field) -> bool:
+        """Whether ``field`` is of the intraday family."""
+        return field.family == self.intraday_family
+
     @property
     def _usable(self) -> dict[str, OpSpec]:
         """The operators candidate code may call: the session aggregations only with an intraday family."""
         if self.intraday_family is not None:
             return self._operators
-        return {name: spec for name, spec in self._operators.items() if spec.stages != (AGGREGATION,)}
+        return {name: spec for name, spec in self._operators.items() if not spec.is_aggregation}
 
     @cached_property
     def _column_fields(self) -> dict[str, str]:
@@ -649,7 +660,7 @@ class Vocabulary:
         stage are the stage rules' (``stages``).
         """
         reasons = []
-        aggregations = frozenset(name for name, spec in self._operators.items() if spec.stages == (AGGREGATION,))
+        aggregations = frozenset(name for name, spec in self._operators.items() if spec.is_aggregation)
         for op, kind, value in effective_parameters(graph, lags_below=aggregations):
             checked = self.lag_set if kind == "lag" else self.constant_set
             if checked is None:
@@ -808,7 +819,7 @@ class Vocabulary:
                 return None
             return (AGGREGATION,)
         if stages is None:
-            return ("daily",)
+            return DAILY_ONLY
         if not isinstance(stages, list) or not stages or not set(stages) <= set(STAGES) or len(set(stages)) < len(stages):
             self._problem(where, f"stages {stages!r} must be a non-empty list of {' and '.join(STAGES)}")
             return None
