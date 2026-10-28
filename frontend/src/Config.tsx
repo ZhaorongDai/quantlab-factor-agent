@@ -3,15 +3,15 @@
 import { useEffect, useState } from 'react'
 import * as api from './api'
 import type { ConfigCopy, LineChange, RunFiles, SnapshotFile } from './api'
-import { parts } from './yaml'
+import { highlight, parts } from './yaml'
 
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : 'at an unknown time')
 
 export function Yaml({ text }: { text: string }) {
   return (
     <pre className="code yaml">
-      {text.replace(/\n$/, '').split('\n').map((line, i) => (
-        <div key={i}><span className="y-no">{i + 1}</span>{parts(line).map((p, k) => <span key={k} className={`y-${p.kind}`}>{p.text}</span>)}</div>
+      {highlight(text.replace(/\n$/, '')).map((line, i) => (
+        <div key={i}><span className="y-no">{i + 1}</span>{line.map((p, k) => <span key={k} className={`y-${p.kind}`}>{p.text}</span>)}</div>
       ))}
     </pre>
   )

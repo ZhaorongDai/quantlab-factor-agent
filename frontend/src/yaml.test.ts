@@ -1,7 +1,7 @@
 // How a line of YAML is split for colouring, run with `npm test`.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { parts } from './yaml.ts'
+import { highlight, parts } from './yaml.ts'
 
 const kinds = (line: string) => parts(line).map(p => [p.kind, p.text])
 
@@ -36,4 +36,21 @@ test('a plain value with a colon inside is not a key, a time is no number', () =
   assert.deepEqual(kinds('base_url: "https://api.deepseek.com"'),
     [['key', 'base_url'], ['colon', ': '], ['string', '"https://api.deepseek.com"']])
   assert.deepEqual(kinds('- 2016-10-11'), [['dash', '- '], ['plain', '2016-10-11']])
+})
+
+const kindsOf = (text: string) => highlight(text).map(line => line.filter(p => p.kind !== 'indent').map(p => p.kind))
+
+test('the lines of a flow list carried over several lines are all the list', () => {
+  const text = 'factor_names: [a, b,\n    c, d,\n    e]\nnext: 1'
+  assert.deepEqual(kindsOf(text), [['key', 'colon', 'flow'], ['flow'], ['flow'], ['key', 'colon', 'number']])
+})
+
+test('a list ends at its closing bracket, not at a bracket inside quotes', () => {
+  const text = 'names: ["a]", b,\n  c]\nnext: x'
+  assert.deepEqual(kindsOf(text), [['key', 'colon', 'flow'], ['flow'], ['key', 'colon', 'plain']])
+})
+
+test('the lines of a block scalar are its text until the indentation returns', () => {
+  const text = 'description: |\n  first line: not a key\n\n  # not a comment\nnext: 2'
+  assert.deepEqual(kindsOf(text), [['key', 'colon', 'block'], ['string'], [], ['string'], ['key', 'colon', 'number']])
 })
