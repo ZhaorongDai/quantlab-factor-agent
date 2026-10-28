@@ -121,7 +121,10 @@ The first start copies the field, operator and replaced template files into
 files differ fails: a new search space needs a new run directory. A resume on other
 commits of factor_agent or quantlab only warns, and `state.json` lists the commits of every
 start and resume. `round.groups` may change on a resume; `context.recent_rounds` may not.
-The reference set and the known factors are read from the config on every start.
+The reference set and the known factors are read from the config on every start. Every
+start and resume also keeps the config it was given as `config/open-<k>.yaml` (the first
+start is `open-1.yaml`), so a run says which settings it ran with even after the config
+file has changed.
 
 ## The run directory
 
@@ -133,6 +136,7 @@ The reference set and the known factors are read from the config on every start.
 | `events.jsonl` | what the campaign did, one event per line as it happened (see [The events file](#the-events-file)) |
 | `memory.md`, `memory/round_NN.md` | the distilled memory and every version of it |
 | `snapshot/`, `snapshot.json` | the search files of the first start and their hashes |
+| `config/open-<k>.yaml` | the config of the k-th start or resume, as it was given |
 | `zoo.json` | the reference and known factors the Gate covers, and those without a graph it cannot |
 | `acceptance/` | validation and hold-out reports and the model cache |
 | `holdout.lock` | written when the hold-out is opened |

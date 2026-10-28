@@ -3,7 +3,8 @@
     {
       "opening": 1,
       "opened_at": "<time>",
-      "text": "<config>"
+      "text": "<config>",
+      "changes": null
     }
   ],
   "snapshot": [

@@ -61,3 +61,11 @@ def test_a_run_written_before_configs_were_kept_shows_only_its_snapshot(runs, tm
     shutil.rmtree(old / "config")
     files = read_files(old)
     assert files.configs == () and files.snapshot
+
+
+def test_each_config_after_the_first_says_what_changed_from_the_opening_before(runs):
+    root, _, _ = runs
+    latest, first = read_files(root / "run" / "run").configs
+    changed = [(line.change, line.line.strip()) for line in latest.changes if line.change != "kept"]
+    assert changed == [("removed", "max_rounds: 1"), ("added", "max_rounds: 2")]
+    assert first.changes is None

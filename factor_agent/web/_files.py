@@ -1,10 +1,37 @@
 """The run directory's files as every part of the reader opens them, and its events replayed once."""
 
+import difflib
 import json
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 
 from factor_agent import events
+
+
+@dataclass(frozen=True)
+class LineChange:
+    """One line of a text compared with the text before it.
+
+    ``change`` is ``"kept"``, ``"added"`` (not in the text before) or
+    ``"removed"`` (in the text before, not in this one).
+    """
+
+    change: str
+    line: str
+
+
+def line_changes(before: str, after: str) -> tuple[LineChange, ...]:
+    """The lines of ``before`` and ``after`` in order, each marked kept, added or removed."""
+    old, new = before.splitlines(), after.splitlines()
+    lines = []
+    for tag, i1, i2, j1, j2 in difflib.SequenceMatcher(a=old, b=new, autojunk=False).get_opcodes():
+        if tag == "equal":
+            lines += [LineChange("kept", line) for line in new[j1:j2]]
+            continue
+        lines += [LineChange("removed", line) for line in old[i1:i2]]
+        lines += [LineChange("added", line) for line in new[j1:j2]]
+    return tuple(lines)
 
 
 def loads(text: str):

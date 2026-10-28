@@ -71,7 +71,7 @@ from factor_agent import events
 from factor_agent.web._config import ConfigCopy, RunFiles, SnapshotFile, read_files
 from factor_agent.web._acceptance import AcceptanceReports, Comparison, Contribution, HoldoutOpen, acceptance
 from factor_agent.web._diagnosis import Finding, diagnosis
-from factor_agent.web._files import Replayed, read_json, utc, written
+from factor_agent.web._files import LineChange, Replayed, read_json, utc, written
 from factor_agent.web._health import (
     RECENT_ROUNDS, STALL_ASKING, STALL_EVALUATING, Health, RoundTokens, Stop, Tokens, health, process_state, stop,
 )
@@ -83,7 +83,8 @@ from factor_agent.web._trials import Placed, Refusal, TrialRef, trials_page
 
 __all__ = [
     "RECENT_ROUNDS", "STALL_ASKING", "STALL_EVALUATING", "AcceptanceReports", "Check", "Collision", "Comparison",
-    "ConfigCopy", "Contribution", "Factor", "Finding", "Health", "HoldoutOpen", "LLMCall", "MemoryLine", "MemoryVersion", "Neighbour",
+    "ConfigCopy", "Contribution", "Factor", "Finding", "Health", "HoldoutOpen", "LLMCall", "LineChange", "MemoryLine",
+    "MemoryVersion", "Neighbour",
     "PendingTrial", "Placed", "Refusal", "RoundCall", "RoundTokens", "RunFiles", "RunSummary", "RunView", "RunningRound", "SnapshotFile", "Stop",
     "Tokens", "Trial", "TrialRef", "find_run", "list_runs", "read_call", "read_files", "run_version",
 ]

@@ -197,3 +197,20 @@ aside.reader pre.code { white-space: pre-wrap; overflow-wrap: anywhere; max-heig
 .pages button.pause { margin-left: auto; font: inherit; font-size: 12px; padding: 2px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer }
 .pages button.pause.on { background: var(--acc); border-color: var(--acc); color: var(--bg) }
 .paused { position: sticky; top: 41px; z-index: 2; margin: 0 0 12px; padding: 6px 10px; border: 1px solid var(--acc); border-radius: 6px; background: color-mix(in srgb, var(--acc) 12%, var(--bg)) }
+
+/* The config page: YAML coloured by its parts, and the file browser */
+pre.yaml div { white-space: pre-wrap; padding-left: 3.4em; text-indent: -3.4em }
+.y-no { display: inline-block; width: 2.6em; margin-right: .8em; text-align: right; color: var(--mut); opacity: .6; user-select: none; text-indent: 0 }
+.y-key { color: #2557d6 } .y-colon { color: var(--mut) } .y-dash { color: #a16207 }
+.y-string { color: #1f8a4c } .y-number { color: #b45309 } .y-bool, .y-null { color: #9333ea } .y-flow { color: #0e7490 } .y-block { color: var(--mut) }
+.y-comment { color: var(--mut); font-style: italic }
+@media (prefers-color-scheme: dark) {
+  .y-key { color: #7aa2ff } .y-string { color: #86d29b } .y-number { color: #f0a868 }
+  .y-bool, .y-null { color: #c4a2ff } .y-flow { color: #67c7d8 } .y-dash { color: #e0b15a }
+}
+.files { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 16px; align-items: start }
+.files nav { display: grid; gap: 4px; position: sticky; top: 60px }
+.files nav button { display: grid; gap: 2px; text-align: left; padding: 8px 10px; background: none; border: 1px solid transparent; border-radius: 8px; color: var(--fg); font: inherit; cursor: pointer }
+.files nav button.here { background: var(--card); border-color: var(--line) }
+.files section h3 { margin-top: 0 }
+@media (max-width: 760px) { .files { grid-template-columns: 1fr } .files nav { position: static } }

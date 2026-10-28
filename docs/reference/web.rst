@@ -15,6 +15,7 @@ Reading runs
    factor_agent.web.run_view.find_run
    factor_agent.web.run_view.run_version
    factor_agent.web.run_view.read_call
+   factor_agent.web.run_view.read_files
    factor_agent.web.run_view.RunView
    factor_agent.web.run_view.RunSummary
    factor_agent.web.run_view.Health
@@ -39,7 +40,10 @@ Reading runs
    factor_agent.web.run_view.Finding
    factor_agent.web.run_view.Stop
    factor_agent.web.run_view.MemoryVersion
-   factor_agent.web.run_view.MemoryLine
+   factor_agent.web.run_view.LineChange
+   factor_agent.web.run_view.RunFiles
+   factor_agent.web.run_view.ConfigCopy
+   factor_agent.web.run_view.SnapshotFile
 
 Serving
 -------

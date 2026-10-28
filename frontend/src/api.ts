@@ -40,7 +40,15 @@ export type Trial = {
   collisions: Collision[]
 }
 
-export type MemoryLine = { change: 'kept' | 'added' | 'removed'; line: string }
+export type LineChange = { change: 'kept' | 'added' | 'removed'; line: string }
+export type MemoryLine = LineChange
+
+// The config of one start or resume of a run; changes is null for the earliest kept.
+export type ConfigCopy = { opening: number; opened_at: string | null; text: string; changes: LineChange[] | null }
+// A file of the run snapshot, named fields/<file>, operators/<file> or prompts/<file>.
+export type SnapshotFile = { name: string; text: string }
+// The configs, the latest opening first (none for a run started before configs were kept), and the snapshot.
+export type RunFiles = { configs: ConfigCopy[]; snapshot: SnapshotFile[] }
 
 export type MemoryVersion = { round: number; text: string; changes: MemoryLine[] | null }
 
@@ -232,4 +240,5 @@ export const runs = () => get<RunSummary[]>('/api/runs')
 export const run = (name: string) => get<Run>(`/api/run?name=${encodeURIComponent(name)}`)
 export const call = (name: string, number: number) =>
   get<LLMCall>(`/api/run/call?name=${encodeURIComponent(name)}&number=${number}`)
+export const files = (name: string) => get<RunFiles>(`/api/run/files?name=${encodeURIComponent(name)}`)
 export const version = (name: string) => get<string>(`/api/run/version?name=${encodeURIComponent(name)}`)

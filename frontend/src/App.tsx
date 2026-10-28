@@ -6,6 +6,7 @@ import type { RunSummary } from './api'
 import Health from './Health'
 import { useLiveRun, useTabTitle } from './live'
 import type { LiveRun } from './live'
+import Config from './Config'
 import Memory from './Memory'
 import Results from './Results'
 import Selection from './Selection'
@@ -28,7 +29,7 @@ function useRunParam(): [string, (name: string) => void] {
 }
 
 // A run's page (&page=<page>): its results by default. The selection view is reached from the results.
-const PAGES = ['results', 'selection', 'trials', 'memory'] as const
+const PAGES = ['results', 'selection', 'trials', 'memory', 'config'] as const
 type Page = (typeof PAGES)[number]
 
 const pageParam = (): Page => {
@@ -169,7 +170,7 @@ function RunPage({ name }: { name: string }) {
       <PausedBar live={live} />
       <Health run={run} clock={clock} />
       {error && <p className="error small">{error}</p>}
-      {page === 'memory' ? <Memory versions={run.memory} /> : page === 'trials' ? <Trials run={run} name={name} clock={clock} />
+      {page === 'config' ? <Config name={name} /> : page === 'memory' ? <Memory versions={run.memory} /> : page === 'trials' ? <Trials run={run} name={name} clock={clock} />
         : page === 'selection' ? <Selection run={run} /> : <Results run={run} select={() => openPage('selection')} />}
     </>
   )

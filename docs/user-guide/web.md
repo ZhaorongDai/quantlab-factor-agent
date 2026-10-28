@@ -246,6 +246,16 @@ as it was says it is unchanged. A run whose distiller has not written a version 
 so; an empty or unreadable distiller reply writes no version, and the memory before it is
 kept.
 
+## The config page
+
+The config page shows what a run was set up with. At the top is the config of every start
+and resume, the latest first: a resume that changed the config (a raised round limit, say)
+shows the changed lines, added ones highlighted and removed ones struck through. Below, a
+file browser opens any of those configs in full and the files of the run's snapshot: the
+field files, the operator file and the replaced prompt templates the search was fixed
+with at its first start. YAML is coloured by its parts (keys, strings, numbers, comments)
+with line numbers. A run started before runs kept their config shows its snapshot only.
+
 ## On a server
 
 When the campaign runs on a server, start the frontend there and forward its port to your
