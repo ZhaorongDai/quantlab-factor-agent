@@ -63,13 +63,19 @@ period_lag:
 The repository ships `sharadar_price_volume.yaml` (Sharadar SEP's adjusted bars) and
 `sharadar_fundamentals.yaml` (SF1 trailing-twelve-month items and DAILY valuations).
 
+A field file with an `intraday` key opens an **intraday family**: its fields are values of
+each intraday bar, which candidate code computes on and reduces to one value per session.
+See [intraday families](intraday.md).
+
 ## High-frequency families
 
 A **high-frequency family** is an input family whose fields are daily statistics of a
 minute dataset: one value per stock and session, such as the realized volatility of the
 session's minute returns or its order imbalance. The campaign computes nothing from minute
 bars; it reads a store of the statistics built beforehand, beside the daily prices, and
-candidate code applies its own windows to the daily values like to any other field.
+candidate code applies its own windows to the daily values like to any other field. For
+candidates that compute on the minute bars themselves, open an
+[intraday family](intraday.md) instead, or beside it.
 
 A new source takes two steps, and no change to factor-agent:
 
@@ -142,6 +148,12 @@ operators:
     dimension: same
     description: "mean over the last window bars"
 ```
+
+With an intraday family open, an operator's `stages` say where code may use it:
+`[intraday, daily]`, `[daily]` (the default when an entry names none) or, for a session
+aggregation, `[aggregation]`. An operator whose memory has no end may not name `intraday`.
+See [the rules the Gate enforces](intraday.md#the-rules-the-gate-enforces). A daily
+campaign ignores the key and its prompt lists no aggregation.
 
 The dimension rule tells the Gate the unit of the operator's output (`same`, `match`,
 `product`, `quotient`, `pure`, `compare`, ...), so it can infer a candidate's output unit;

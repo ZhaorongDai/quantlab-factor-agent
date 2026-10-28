@@ -104,6 +104,7 @@ Below that is one card per accepted factor, with what decides how far to trust i
 | On the card | Meaning |
 |-------------|---------|
 | round, mechanism type | the round that accepted it and its research direction's mechanism type |
+| intraday | an [intraday](intraday.md) factor: its graph holds a session aggregation |
 | +1 or −1 | its factor direction: +1 when a higher value went with a higher training return, −1 when with a lower one |
 | decile returns | each decile's mean return over the deciles' mean, from decile 1 (the lowest values) to decile 10 |
 | partial-IC t | its partial IC's Newey-West t against the threshold it had to clear, and by how much it cleared it |
@@ -201,8 +202,9 @@ one line; click the row to list its trials.
 
 Click a point or a trial to read it in the side panel: its round, mechanism type and
 research direction, the hypothesis, description and code of its final version, the
-reasons it was refused, the versions refused before it with their reasons and hints, and,
-for an evaluated trial, its statistics in its direction (hover one for the raw value) with
+reasons it was refused, the versions refused before it with their reasons and hints, an
+`intraday` tag when its graph holds a session aggregation (a trial refused before the Gate
+built its graph has none, and is never tagged), and, for an evaluated trial, its statistics in its direction (hover one for the raw value) with
 its round's threshold, nearest factors and coverage. Trials that arrived since the page
 was opened stand out on the map for fifteen seconds.
 

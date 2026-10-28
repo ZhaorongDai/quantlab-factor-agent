@@ -14,11 +14,14 @@ graph), the reviewer (an LLM's consistency check) and the Evaluator with admissi
 2. **Build**: the code builds its KunQuant graph in a sandboxed subprocess, within
    `gate.timeout_seconds` and `gate.memory_mb`. A KunQuant refusal comes back with the
    operator file's matching fixes.
-3. **Constraints**: every parameter is in its set, the graph has at most `gate.max_nodes`
+3. **Stages**: a candidate of an [intraday family](intraday.md) keeps its intraday and
+   daily stages apart, each operator in its stages and each window and lag in its stage's
+   set (see [the rules](intraday.md#the-rules-the-gate-enforces)).
+4. **Constraints**: every parameter is in its set, the graph has at most `gate.max_nodes`
    nodes, at most `gate.max_free_parameter_ratio` hand-set constants per operator and at
    most `gate.max_base_fields` input fields; the output's unit is inferred from the
    operators' dimension rules.
-4. **Originality**: the graph is compared with every zoo factor (reference, known and
+5. **Originality**: the graph is compared with every zoo factor (reference, known and
    accepted) after canonicalisation: a rewrite of one, a parameter-only variant of one, or
    a subtree larger than `gate.max_common_subtree_nodes` shared with one is refused, naming
    it. A graph an earlier candidate of the run already had is refused too.
@@ -43,7 +46,9 @@ graphs as one KunQuant graph, computes it on the whole-market dataset over the t
 segment and its warm-up, and scores each candidate through the campaign's scoring: ranked
 across the market, neutralised when `scoring.neutralize` is given, and masked to the day's
 members. A batch that does not compile is bisected until the failing graphs are found;
-they fail at stage `evaluate`.
+they fail at stage `evaluate`. A round's intraday candidates first compute their session
+columns on the intraday bars, in chunks of sessions; see
+[evaluation and its cost](intraday.md#evaluation-and-its-cost).
 
 On each scored date, only the members with a label are scored. The statistics:
 

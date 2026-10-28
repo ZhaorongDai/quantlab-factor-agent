@@ -11,7 +11,7 @@ unknown sections, malformed entries and credentials. `Campaign(config).run()` ru
 | `run_dir` | yes | the directory the run writes to |
 | `market` | yes | the data as the prompts describe it, one line |
 | `segments` | yes | `training`, `validation`, `holdout` (`{start, end}` each) and `purge_bars` |
-| `data` | yes | `prices`, `label` and optionally `membership` |
+| `data` | yes | `prices`, `label` and optionally `membership` and `intraday` |
 | `scoring` | yes | `neutralize`: the exposures to neutralise against, or `null` |
 | `fields`, `operators` | yes | the [vocabulary](vocabulary.md) files; `operator_modules` optionally |
 | `reference` | no | the reference set; empty, candidates are only compared with each other |
@@ -58,9 +58,9 @@ default.
 An output of a known factor that the reference set already holds is taken from the
 reference set only, so whole classes can be listed in `known`.
 
-`intraday` is the dataset an intraday family's fields read (one-minute trade bars, with
-`configs/fields/massive_minute_bars.yaml` as their field file): a campaign that opens an
-intraday family must name it, and the run keeps it with its snapshot, so a resume with
+`intraday` is the dataset an [intraday family](intraday.md)'s fields read (one-minute
+trade bars, with `configs/fields/massive_minute_bars.yaml` as their field file, in
+`configs/us3000_intraday_ret5.yaml`): a campaign that opens an intraday family must name it, and the run keeps it with its snapshot, so a resume with
 another intraday dataset is refused as a resume with other field files is. A candidate's
 session values are matched to the price dataset by date and by symbol label, so
 permatickers of the intraday bars find the same labels of the daily bars.
@@ -73,7 +73,10 @@ reads the fields over the training segment, and acceptance over the validation a
 hold-out segments; a field whose data starts later or ends earlier is missing there, and
 so is every candidate that reads it. A campaign that opens a high-frequency family starts
 its training segment no earlier than the family's statistics: `configs/us3000_hf_ret5.yaml`
-trains from 2016-10-11, the first session of its minute data. The warm-up bars read
+trains from 2016-10-11, the first session of its minute data, and the intraday example
+`configs/us3000_intraday_ret5.yaml` from 2016-10-10, the first session of its minute bars.
+A day before an intraday family's bars begin has no session values and counts against a
+candidate's coverage. The warm-up bars read
 before the training segment may lie outside the data; a long-window candidate is then
 missing on the segment's first bars, and its coverage is measured over the dates that
 have values.

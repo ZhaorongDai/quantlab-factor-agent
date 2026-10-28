@@ -3,8 +3,9 @@
 This page runs a campaign from one of the repository's configs, reads its outcome, and
 judges the accepted factors with acceptance. The configs in `configs/` are complete
 examples: `us3000_ret5.yaml` opens daily price and volume, `us3000_fund_ret5.yaml` adds
-Sharadar fundamentals, and `us3000_hf_ret5.yaml` adds daily statistics of one-minute trade
-bars.
+Sharadar fundamentals, `us3000_hf_ret5.yaml` adds daily statistics of one-minute trade
+bars, and `us3000_intraday_ret5.yaml` adds the one-minute trade bars themselves, which
+candidates compute on (see [intraday families](../user-guide/intraday.md)).
 
 ## 1. Read the config
 

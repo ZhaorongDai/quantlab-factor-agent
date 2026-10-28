@@ -71,6 +71,9 @@ trained through validation. A second open, of any selection, raises `HoldoutLock
 `force=True` runs it, appends to the lock, and the report says the hold-out was opened
 again. The hold-out never measures contribution.
 
+An intraday factor is validated, opened on the hold-out and exported in its stages: its
+session columns are computed from the intraday bars over each segment.
+
 ## Export
 
 ```python
@@ -82,4 +85,6 @@ acceptance.export({"<description>": "my_factor_name"})
 whole-market store `<factor_root>/<name>/` (a quantlab `NeutralizedFactor` of the ranked
 graph) with `README.md` and `component.json`. The README quotes validation's report of the
 exported selection, when there is one. Every exported factor is turned to its direction: a
-higher value, a higher return.
+higher value, a higher return. An intraday factor's class also holds its session columns'
+graphs (`SESSIONS`) and the intraday dataset (`INTRADAY`), and recomputes from the
+intraday bars; see [export and recompute](intraday.md#export-and-recompute).

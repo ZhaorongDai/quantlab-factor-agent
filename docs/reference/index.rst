@@ -18,10 +18,10 @@ see the :doc:`../user-guide/index`; to run a campaign, see the
      - ``CampaignConfig``, ``Campaign``, ``CampaignResult``
      - :doc:`campaign`
    * - Check candidate code
-     - ``Gate``, ``Graph``, ``Vocabulary``, ``Zoo``
+     - ``Gate``, ``Graph``, ``Vocabulary``, ``Zoo``, ``stages.split``
      - :doc:`gate`
    * - Score candidates
-     - ``Evaluator``, ``Metrics``, ``Scoring``
+     - ``Evaluator``, ``Metrics``, ``Scoring``, ``SessionColumns``
      - :doc:`evaluation`
    * - Judge and export accepted factors
      - ``Acceptance``, ``AcceptanceReport``, ``GraphFactor``
