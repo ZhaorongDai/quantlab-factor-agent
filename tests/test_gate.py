@@ -17,6 +17,7 @@ from KunQuant.Op import Input, OpBase
 
 from factor_agent.candidate import Candidate
 from factor_agent.config import GateConfig
+from factor_agent import gate as gate_module
 from factor_agent.gate import Gate, Passed, Rejected
 from factor_agent.zoo import Zoo
 from quantlab.dataset.config import DatasetConfig
@@ -131,6 +132,35 @@ def test_code_that_never_finishes_is_stopped_by_the_timeout():
     result = gate.check(_candidate("while True:\n    pass\nalpha = close"), Zoo())
     assert isinstance(result, Rejected)
     assert any("timed out" in r for r in result.reasons), result.reasons
+
+
+def _slow_start(monkeypatch, seconds: float) -> None:
+    """Make the sandbox take ``seconds`` to start before it runs as usual."""
+    started_late = f"import runpy, time; time.sleep({seconds}); runpy.run_module('factor_agent.gate._sandbox', run_name='__main__')"
+    monkeypatch.setattr(gate_module, "SANDBOX_ARGS", ("-c", started_late))
+
+
+def test_the_timeout_leaves_out_the_sandbox_start(monkeypatch):
+    _slow_start(monkeypatch, 2.0)
+    gate = Gate(GateConfig(timeout_seconds=1.0), price_volume())
+    result = gate.check(_candidate("alpha = close / open"), Zoo())
+    assert isinstance(result, Passed), getattr(result, "reasons", None)
+
+
+def test_code_that_never_finishes_after_a_slow_start_is_stopped_by_the_timeout(monkeypatch):
+    _slow_start(monkeypatch, 2.0)
+    gate = Gate(GateConfig(timeout_seconds=1.0), price_volume())
+    result = gate.check(_candidate("while True:\n    pass\nalpha = close"), Zoo())
+    assert isinstance(result, Rejected)
+    assert result.reasons == ("graph build timed out after 1 s",)
+
+
+def test_a_sandbox_that_does_not_start_is_a_broken_environment_not_a_refusal(monkeypatch):
+    _slow_start(monkeypatch, 5.0)
+    monkeypatch.setattr(gate_module, "STARTUP_SECONDS", 1.0)
+    gate = Gate(GateConfig(timeout_seconds=10.0), price_volume())
+    with pytest.raises(RuntimeError, match="not ready within 1 s"):
+        gate.check(_candidate("alpha = close / open"), Zoo())
 
 
 def test_code_that_allocates_past_the_memory_limit_is_rejected():

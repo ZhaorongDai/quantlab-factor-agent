@@ -12,8 +12,10 @@ graph), the reviewer (an LLM's consistency check) and the Evaluator with admissi
 1. **Syntax**: the code uses only the allowed syntax and the vocabulary's names, and
    assigns `alpha`.
 2. **Build**: the code builds its KunQuant graph in a sandboxed subprocess, within
-   `gate.timeout_seconds` and `gate.memory_mb`. A KunQuant refusal comes back with the
-   operator file's matching fixes.
+   `gate.timeout_seconds` and `gate.memory_mb`. The time counts from when the sandbox
+   is ready, so a slow start on a loaded machine does not count against the candidate; a
+   sandbox not ready within 60 s stops the campaign as a broken environment.
+   A KunQuant refusal comes back with the operator file's matching fixes.
 3. **Stages**: a candidate of an [intraday family](intraday.md) keeps its intraday and
    daily stages apart, each operator in its stages and each window and lag in its stage's
    set (see [the rules](intraday.md#the-rules-the-gate-enforces)).

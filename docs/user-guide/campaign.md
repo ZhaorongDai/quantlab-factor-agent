@@ -93,7 +93,7 @@ known factor at a time.
 |---|---|---|
 | `evaluator.warmup_bars` | 260 | bars read before the segment so every window is filled |
 | `evaluator.njobs` | 51 | KunQuant executor threads |
-| `gate.timeout_seconds` | 10 | seconds the sandboxed graph build may take |
+| `gate.timeout_seconds` | 10 | seconds the sandboxed graph build may take, counted from when the sandbox is ready |
 | `gate.memory_mb` | 1024 | memory the sandboxed build may use |
 | `gate.max_nodes` | 200 | nodes a candidate's graph may have |
 | `gate.max_free_parameter_ratio` | 0.5 | hand-set constants (other than 0 and ±1) per operator |

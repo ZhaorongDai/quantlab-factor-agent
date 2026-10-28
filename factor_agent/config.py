@@ -158,7 +158,7 @@ class EvaluatorConfig:
 class GateConfig:
     """The Gate's sandbox limits and graph constraints."""
 
-    #: Seconds the sandboxed graph build may take.
+    #: Seconds the sandboxed graph build may take, counted from when the sandbox is ready.
     timeout_seconds: float = 10.0
     #: Memory, in MB, the sandboxed graph build may use.
     memory_mb: int = 1024

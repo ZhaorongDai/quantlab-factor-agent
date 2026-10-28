@@ -6,8 +6,8 @@ with readable reasons; only an infrastructure failure raises. The checks
 run in this order:
 
 1. static checks on the code (syntax allow-list, names in the vocabulary, ``alpha`` assigned);
-2. the graph build in a sandboxed subprocess (timeout, memory limit,
-   bubblewrap filesystem isolation where it is installed);
+2. the graph build in a sandboxed subprocess (timeout from when the sandbox is
+   ready, memory limit, bubblewrap filesystem isolation where it is installed);
 3. the stage rules of an intraday family's candidate (``stages.split``):
    an intraday field reaches the daily stage only through a session
    aggregation, the intraday stage reads no daily field, no aggregation of
@@ -29,6 +29,7 @@ import importlib
 import json
 import os
 import re
+import select
 import shutil
 import subprocess
 import sys
@@ -56,6 +57,15 @@ _STDERR_TAIL = 2000
 
 #: Seconds between two looks at the sandbox's memory.
 _POLL_SECONDS = 0.02
+
+#: The interpreter arguments that run the sandbox subprocess.
+SANDBOX_ARGS = ("-m", "factor_agent.gate._sandbox")
+
+#: The line the sandbox writes once it has started, before it runs the candidate's code.
+READY = b"ready\n"
+
+#: Seconds the sandbox may take to be ready (its imports and the vocabulary's rebuild); a graph build's time counts from then.
+STARTUP_SECONDS = 60.0
 
 #: The reason given when a graph build runs out of memory.
 MEMORY_REASON = "graph build used more than the {memory_mb} MB memory limit"
@@ -169,13 +179,13 @@ class Gate:
             stdin.write(request)
             stdin.flush()
             stdin.seek(0)
-            command = [sys.executable, "-I", "-m", "factor_agent.gate._sandbox"]
+            command = [sys.executable, "-I", *SANDBOX_ARGS]
             if shutil.which("bwrap") and _bubblewrap_works():
                 command = _bubblewrap(command, self.vocabulary.sources["operator_modules"])
             try:
                 process = subprocess.Popen(
                     command, stdin=stdin, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                    text=True, cwd=scratch, env={"PATH": os.defpath},
+                    cwd=scratch, env={"PATH": os.defpath},
                 )
             except OSError as exc:
                 raise RuntimeError(f"Gate: cannot start the sandbox: {exc}") from exc
@@ -199,28 +209,83 @@ class Gate:
         return message["graph"]
 
     def _watch(self, process: subprocess.Popen) -> tuple[str, str] | Rejected:
-        """Wait for the reply, killing the sandbox past the time or memory limit."""
-        deadline = time.monotonic() + self.config.timeout_seconds
+        """Wait for the reply, killing the sandbox past the time or memory limit.
+
+        The time limit counts from the sandbox's ``READY``: its start, the
+        imports and the vocabulary's rebuild, is not the candidate's.
+
+        Raises
+        ------
+        RuntimeError
+            If the sandbox is not ready within ``STARTUP_SECONDS``: a broken
+            environment, not a bad candidate.
+        """
         limit = self.config.memory_mb * 2**20
         watched = psutil.Process(process.pid)
+        output = _Output(process)
+        deadline, ready = time.monotonic() + STARTUP_SECONDS, False
         while True:
-            try:
-                return process.communicate(timeout=_POLL_SECONDS)
-            except subprocess.TimeoutExpired:
-                pass
+            output.read(_POLL_SECONDS)
+            if output.closed:
+                process.wait()
+                return output.stdout, output.stderr
+            if output.ready and not ready:
+                deadline, ready = time.monotonic() + self.config.timeout_seconds, True
             try:
                 used = sum(_memory(p) for p in [watched, *watched.children(recursive=True)])
             except psutil.Error:
                 continue
             if used > limit:
-                reason = MEMORY_REASON.format(memory_mb=self.config.memory_mb)
+                outcome = Rejected((MEMORY_REASON.format(memory_mb=self.config.memory_mb),))
+            elif time.monotonic() > deadline and ready:
+                outcome = Rejected((f"graph build timed out after {self.config.timeout_seconds:g} s",))
             elif time.monotonic() > deadline:
-                reason = f"graph build timed out after {self.config.timeout_seconds:g} s"
+                outcome = RuntimeError(f"Gate: the sandbox was not ready within {STARTUP_SECONDS:g} s")
             else:
                 continue
             process.kill()
-            process.communicate()
-            return Rejected((reason,))
+            process.wait()
+            if isinstance(outcome, RuntimeError):
+                raise outcome
+            return outcome
+
+
+class _Output:
+    """The sandbox's standard output and error, read to their end as they come, so neither pipe fills."""
+
+    def __init__(self, process: subprocess.Popen):
+        self._stdout, self._stderr = process.stdout.fileno(), process.stderr.fileno()
+        self._open = [self._stdout, self._stderr]
+        self._read = {fd: b"" for fd in self._open}
+
+    def read(self, timeout: float) -> None:
+        """Read what the sandbox writes within ``timeout`` seconds."""
+        for fd in select.select(self._open, [], [], timeout)[0]:
+            chunk = os.read(fd, 65536)
+            self._read[fd] += chunk
+            if not chunk:
+                self._open.remove(fd)
+
+    @property
+    def closed(self) -> bool:
+        """Whether the sandbox has closed both pipes: it has exited."""
+        return not self._open
+
+    @property
+    def ready(self) -> bool:
+        """Whether the sandbox has written ``READY``: it has started."""
+        return READY in self._read[self._stdout]
+
+    @property
+    def stdout(self) -> str:
+        """The standard output after ``READY``, all of it if the sandbox exited before."""
+        before, ready, after = self._read[self._stdout].partition(READY)
+        return (after if ready else before).decode()
+
+    @property
+    def stderr(self) -> str:
+        """The standard error."""
+        return self._read[self._stderr].decode(errors="replace")
 
 
 def _memory(process: psutil.Process) -> int:

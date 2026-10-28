@@ -1,7 +1,8 @@
 """The sandbox subprocess: run candidate code once and send back its graph.
 
-Reads ``{"code": ..., "memory_mb": ..., "vocabulary": ...}`` on standard input and writes one
-JSON object on standard output: ``{"graph": [...]}`` or ``{"reasons": [...]}``.
+Reads ``{"code": ..., "memory_mb": ..., "vocabulary": ...}`` on standard input and writes on
+standard output the ``READY`` line once it has started, then one JSON object:
+``{"graph": [...]}`` or ``{"reasons": [...]}``.
 The parent runs it with ``python -I``, an empty environment, a scratch
 working directory, a timeout, a memory watchdog and, where bubblewrap is
 installed, its own filesystem view; the code sees only the namespace of
@@ -17,7 +18,7 @@ import sys
 from KunQuant.Op import OpBase, Output
 from KunQuant.Stage import Function
 
-from factor_agent.gate import MEMORY_REASON
+from factor_agent.gate import MEMORY_REASON, READY
 from factor_agent.gate.graph import Graph
 from factor_agent.gate.vocabulary import PeriodLagError, Vocabulary
 
@@ -69,6 +70,8 @@ def main() -> None:
     sys.stdout = sys.stderr  # nothing the code does can corrupt the reply
     vocabulary = Vocabulary.from_sources(request["vocabulary"])
     _cap_address_space(request["memory_mb"])
+    out.write(READY.decode())
+    out.flush()  # started: the graph build's time counts from here
     json.dump(build(request["code"], request["memory_mb"], vocabulary), out)
     out.flush()
 
