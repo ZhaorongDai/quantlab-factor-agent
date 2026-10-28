@@ -371,6 +371,13 @@ def test_an_exported_factor_equals_the_evaluated_graph_bit_for_bit(campaign, exp
     assert np.array_equal(stored, neutral.compute(*window)["evaluated"].values, equal_nan=True)
 
 
+def test_an_exported_daily_factor_holds_its_recorded_graph_and_no_session_column(campaign, exported):
+    factor = load_component(exported["folder"]).config.factor
+    assert type(factor).GRAPHS == {"volume_shock": exported["record"].graph}
+    source = (campaign["root"] / "packages" / PACKAGE / "volume_shock.py").read_text()
+    assert "SESSIONS" not in source and "INTRADAY" not in source
+
+
 def test_the_exported_store_has_its_readme_and_component(exported):
     folder = exported["folder"]
     assert folder.name == "volume_shock"

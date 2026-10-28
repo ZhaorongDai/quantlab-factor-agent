@@ -61,7 +61,8 @@
         "n_days": 515,
         "start": "2010-01-01",
         "end": "2011-12-22"
-      }
+      },
+      "intraday": false
     }
   ],
   "correlation_limit": "<number>"

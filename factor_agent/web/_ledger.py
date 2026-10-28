@@ -3,10 +3,13 @@
 import json
 import re
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 
+import yaml
+
 from factor_agent import events
-from factor_agent.web._files import Replayed, loads
+from factor_agent.web._files import Replayed, loads, read_json
 
 
 @dataclass(frozen=True)
@@ -39,6 +42,8 @@ class Trial:
     the trial record's (``factor_agent.ledger.TrialRecord``); ``metrics`` is
     ``None`` for a trial the Evaluator never scored. ``collisions`` holds
     every collision of the trial's versions, each factor and kind once.
+    ``intraday`` is true when the graph the Gate built holds a session
+    aggregation, false for a daily graph and a trial the Gate built none for.
     """
 
     round: int
@@ -52,6 +57,7 @@ class Trial:
     stats: dict | None
     metrics: dict | None
     collisions: tuple[Collision, ...] = ()
+    intraday: bool = False
 
 
 @dataclass(frozen=True)
@@ -92,8 +98,12 @@ def statuses(ledger: Path, rounds: int) -> list[str]:
     return [record["status"] for record in _records(ledger, rounds)]
 
 
-def read_trials(ledger: Path, rounds: int) -> tuple[Trial, ...]:
-    """The trials of the first ``rounds`` rounds, each given its slot in its round."""
+def read_trials(ledger: Path, rounds: int, aggregations: frozenset[str] = frozenset()) -> tuple[Trial, ...]:
+    """The trials of the first ``rounds`` rounds, each given its slot in its round.
+
+    ``aggregations`` are the names the run's graphs record its session
+    aggregations under (``aggregations``): a trial whose graph holds one is intraday.
+    """
     trials, slots = [], {}
     for record in _records(ledger, rounds):
         slot = slots[record["round"]] = slots.get(record["round"], -1) + 1
@@ -102,8 +112,52 @@ def read_trials(ledger: Path, rounds: int) -> tuple[Trial, ...]:
             reasons=tuple(record["reasons"]), candidate=record["candidate"], direction=record.get("direction"),
             attempts=tuple(record.get("attempts") or ()), stats=record.get("stats"), metrics=record.get("metrics"),
             collisions=_trial_collisions(record),
+            intraday=any(node[0] in aggregations for node in record.get("graph") or ()),
         ))
     return tuple(trials)
+
+
+def aggregations(run_dir: Path) -> frozenset[str]:
+    """The names the run's operator file registers its session aggregations under; none for a daily run.
+
+    Only a run whose snapshot records an intraday dataset has an intraday
+    family, and only it may use an aggregation. An operator is one when its
+    class, from the modules an aggregation may come from, is a
+    ``SessionAggregation``; a class of another module is not imported.
+    """
+    manifest = read_json(run_dir / "snapshot.json") or {}
+    if "intraday" not in (manifest.get("settings") or {}):
+        return frozenset()
+    operators = next((name for name in manifest.get("files") or {} if name.startswith("operators/")), None)
+    try:
+        return _aggregations((run_dir / "snapshot" / operators).read_text()) if operators else frozenset()
+    except OSError:
+        return frozenset()
+
+
+@lru_cache(maxsize=16)
+def _aggregations(text: str) -> frozenset[str]:
+    """The aggregations of the operator file ``text``, by their names; see ``aggregations``."""
+    # Imported here, so a daily run's view never imports the operator classes.
+    from factor_agent.aggregations import SessionAggregation
+    from factor_agent.gate.vocabulary import FRAMEWORK_MODULES, resolve
+
+    try:
+        entries = (yaml.safe_load(text) or {}).get("operators") or []
+    except (yaml.YAMLError, AttributeError):
+        return frozenset()
+    found = set()
+    for entry in entries:
+        path = entry.get("class") if isinstance(entry, dict) else None
+        if not isinstance(path, str) or not any(path.startswith(root + ".") for root in FRAMEWORK_MODULES):
+            continue
+        try:
+            cls = resolve(path, FRAMEWORK_MODULES)
+        except (ImportError, AttributeError):
+            continue
+        if isinstance(cls, type) and issubclass(cls, SessionAggregation):
+            found.add(entry.get("name"))
+    return frozenset(found)
 
 
 #: The partial-IC t threshold an admission refusal quotes.

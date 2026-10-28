@@ -98,6 +98,13 @@ INPUT_KINDS = ("series", "condition", "loop")
 STAGES = ("intraday", "daily")
 #: The stages of a session aggregation, which leads from one stage to the other.
 AGGREGATION = "aggregation"
+#: With an intraday family, the prompt's groups of operators: each operator's stages and the group's heading.
+_STAGE_HEADINGS = (
+    (STAGES, "In both stages:"),
+    (("intraday",), "In the intraday stage only:"),
+    (("daily",), "In the daily stage only:"),
+    ((AGGREGATION,), "Session aggregations, each from the intraday stage to the daily stage:"),
+)
 
 #: The parameter set of an attribute that is bookkeeping, never checked.
 FLAG = "flag"
@@ -459,11 +466,47 @@ class Vocabulary:
     # What the prompts show.
 
     def prompt(self) -> dict[str, str]:
-        """The prompt's description of the vocabulary: inputs, operators, parameter values, builtins."""
+        """The prompt's description of the vocabulary: inputs, operators, parameter values, builtins.
+
+        With an intraday family the operators are listed by the stages they may be used in, the
+        session aggregations last, and the parameter values end with the intraday window set.
+        """
         def operator(spec: OpSpec) -> str:
             return f"- {spec.signature}: {spec.description}" if spec.description else f"- {spec.signature}"
 
-        lines = [operator(spec) for spec in self._usable.values()]
+        if self.intraday_family is None:
+            lines = [operator(spec) for spec in self._usable.values()]
+            lines += self._period_lag_lines()
+        else:
+            lines = []
+            for stages, heading in _STAGE_HEADINGS:
+                listed = [operator(spec) for spec in self._usable.values() if spec.stages == stages]
+                if stages == ("daily",):
+                    listed += self._period_lag_lines()
+                if listed:
+                    lines += [heading, *listed]
+        parameters = [
+            f"- {kind}: {', '.join(f'{v:g}' for v in values)}" for kind, values in self.parameters.items()
+        ]
+        if self.intraday_family is not None:
+            parameters.append(
+                f"- intraday window (in bars, every window and lag of the intraday stage): "
+                f"{', '.join(map(str, self.intraday_windows))}"
+            )
+        daily = [name for name, f in self.fields.items() if f.family != self.intraday_family]
+        intraday = [name for name, f in self.fields.items() if f.family == self.intraday_family]
+        return {
+            "inputs": ", ".join(self.fields) if not intraday else (
+                f"daily {', '.join(daily)}; intraday {', '.join(intraday)}"
+            ),
+            "operators": "\n".join(lines),
+            "parameters": "\n".join(parameters),
+            "builtins": ", ".join(sorted(BUILTINS)),
+        }
+
+    def _period_lag_lines(self) -> list[str]:
+        """The prompt's lines on ``PeriodLag``: none without a family declaring a period lag."""
+        lines = []
         if self.period_lags:
             lines.append(
                 "- PeriodLag(x, k): field x as of the k-th earlier period, counted in periods, not in bars; "
@@ -476,14 +519,7 @@ class Vocabulary:
                     f"  - {', '.join(names)} ({lag.family}): k one of {', '.join(map(str, lag.k))}; "
                     f"a period is {lag.description}"
                 )
-        return {
-            "inputs": ", ".join(self.fields),
-            "operators": "\n".join(lines),
-            "parameters": "\n".join(
-                f"- {kind}: {', '.join(f'{v:g}' for v in values)}" for kind, values in self.parameters.items()
-            ),
-            "builtins": ", ".join(sorted(BUILTINS)),
-        }
+        return lines
 
     # Internals.
 

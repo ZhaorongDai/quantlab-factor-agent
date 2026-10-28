@@ -97,7 +97,8 @@ function Card({ run, name, f, limit, open, toggle }: {
   return (
     <article className={`factor${open ? ' open' : ''}`}>
       <header>
-        <span className="muted">round {f.round} · {f.mechanism_type ?? 'no mechanism type'}</span>
+        <span className="muted">round {f.round} · {f.mechanism_type ?? 'no mechanism type'}
+          {f.intraday && <> <span className="badge intraday">intraday</span></>}</span>
         <span className="direction" title={f.factor_direction > 0 ? 'a higher value went with a higher return' : 'a lower value went with a higher return'}>
           {signed(f.factor_direction)}
         </span>

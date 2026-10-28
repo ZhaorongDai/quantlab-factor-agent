@@ -56,6 +56,10 @@ alone know them, and read them while a campaign may be writing them:
   The trials it never scored are grouped by the stage that refused them and
   the reason: reasons that differ only in their numbers, or in the reply or
   code they quote, are one reason.
+- A trial, and an accepted factor, is intraday when the graph the Gate
+  built for it holds a session aggregation: an operator of the run's
+  snapshotted operator file whose class is a ``SessionAggregation``. A run
+  whose snapshot records no intraday dataset has none.
 - The memory's versions are the distiller's files ``memory/round_NN.md``,
   each written before round ``NN``, so after round ``NN - 1``. A version
   after the first is compared with the one before it line by line.
@@ -76,7 +80,9 @@ from factor_agent.web._files import LineChange, Replayed, read_json, utc, writte
 from factor_agent.web._health import (
     RECENT_ROUNDS, STALL_ASKING, STALL_EVALUATING, Health, RoundTokens, Stop, Tokens, health, process_state, stop,
 )
-from factor_agent.web._ledger import Collision, Neighbour, Trial, correlation_limit, read_trials, statuses
+from factor_agent.web._ledger import (
+    Collision, Neighbour, Trial, aggregations, correlation_limit, read_trials, statuses,
+)
 from factor_agent.web._memory import MemoryLine, MemoryVersion, memory
 from factor_agent.web._results import Factor, factors
 from factor_agent.web._round import Check, LLMCall, PendingTrial, RoundCall, RunningRound, read_call, running
@@ -200,7 +206,7 @@ class RunView:
             raise FileNotFoundError(f"web: {run_dir} is not a run directory: it holds no snapshot.json")
         now = now or datetime.now(timezone.utc)
         state = read_json(run_dir / "state.json") or {}
-        trials = read_trials(run_dir / "ledger.jsonl", state.get("rounds", 0))
+        trials = read_trials(run_dir / "ledger.jsonl", state.get("rounds", 0), aggregations(run_dir))
         replayed = Replayed.read(run_dir)
         summary = _summary(run_dir, name or run_dir.name, state, replayed, [t.status for t in trials])
         page = trials_page(trials, replayed)

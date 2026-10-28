@@ -63,6 +63,8 @@ class DerivedColumnsFactor(FactorKunQuant):
     A subclass says which providers fill the derived columns its graph reads
     (``_providers``) and holds their dataset columns in ``config.data_columns``
     (``data_columns``). The factor reads at least the warm-up its providers need.
+    A graph reading derived columns only (session columns, say) reads one
+    column of the dataset still, for the panel's dates and symbols.
     """
 
     def _providers(self) -> Sequence[Provider]:
@@ -73,6 +75,13 @@ class DerivedColumnsFactor(FactorKunQuant):
     def warmup_bars(self) -> int:
         """``config.warmup_bars``, or the longest warm-up a provider needs when that is longer."""
         return max([self.config.warmup_bars, *(provider.warmup_bars for provider in self._providers())])
+
+    def _input_variables(self) -> list[str]:
+        read = super()._input_variables()
+        if read:
+            return read
+        names = [n for n in self.config.dataset.head(0).collect_schema().names() if n not in ("timestamp", "symbol")]
+        return self.config.dataset.own_names(names[:1])
 
     def _kunquant_inputs(self, inputs: xr.Dataset) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray]:
         providers = self._providers()
