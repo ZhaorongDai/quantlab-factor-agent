@@ -48,8 +48,9 @@ from typing import TYPE_CHECKING
 
 from KunQuant.Op import ForeachBackWindow, WindowedTrait
 from KunQuant.ops import Add
+from quantlab.factor.predefined.intraday import SESSION_POSITION
 
-from factor_agent.aggregations import SESSION_POSITION, SessionAggregation, WithinSession
+from factor_agent.aggregations import SessionAggregation, WithinSession
 from factor_agent.gate._canonical import canonical_hashes, computation_hashes, effective_parameters
 from factor_agent.gate.graph import Graph, Node
 

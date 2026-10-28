@@ -100,14 +100,10 @@ class SessionCorr(SessionAggregation):
         super().__init__(x, y)
 
 
-#: The session input of a bar's position in its session, 0 for the first (quantlab's ``SESSION_POSITION``).
-SESSION_POSITION = "session_position"
-
-
 class WithinSession(CompositiveOp):
     """``x`` on the bars at least ``bars`` bars into their session, NaN on the session's first ``bars``.
 
-    ``position`` is the bar's position in its session (``SESSION_POSITION``).
+    ``position`` is the bar's position in its session (quantlab's ``SESSION_POSITION``).
     The stage split (``factor_agent.gate.stages``) wraps each window of the
     intraday stage in it, ``bars`` the bars the window reaches back, its
     inputs' windows included, so the window is missing until it fits in the

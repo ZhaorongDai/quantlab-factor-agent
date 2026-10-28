@@ -135,11 +135,3 @@ def test_a_cross_sectional_rank_in_the_intraday_stage_ranks_across_all_symbols_o
         bars = per_bar[session_of(panel, day)]
         expected = np.array([np.nanmean(bars[:, j]) if np.isfinite(bars[:, j]).any() else np.nan for j in range(len(SYMBOLS))])
         np.testing.assert_allclose(ranks[i], expected, rtol=1e-5)
-
-
-def test_the_rewrite_reads_the_session_position_the_session_factor_adds():
-    from quantlab.factor.predefined import intraday as quantlab_intraday
-
-    from factor_agent.aggregations import SESSION_POSITION
-
-    assert SESSION_POSITION == quantlab_intraday.SESSION_POSITION
