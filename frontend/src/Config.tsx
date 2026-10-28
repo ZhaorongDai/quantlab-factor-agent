@@ -1,10 +1,9 @@
 // The config page: the config of each start and resume, the latest first, each with what changed from the one
 // before, then every file the run was set up with to read in full, the YAML coloured.
 import { useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
 import * as api from './api'
 import type { ConfigCopy, LineChange, RunFiles, SnapshotFile } from './api'
-import { folds, highlight, parts } from './yaml'
+import { folds, highlight, parts, visible } from './yaml'
 
 const when = (iso: string | null) => (iso ? new Date(iso).toLocaleString() : 'at an unknown time')
 
@@ -16,21 +15,20 @@ export function Yaml({ text }: { text: string }) {
   const [folded, setFolded] = useState<Set<number>>(new Set())
   useEffect(() => setFolded(new Set()), [body])
   const toggle = (i: number) => setFolded(f => { const next = new Set(f); if (!next.delete(i)) next.add(i); return next })
-  const shown: ReactNode[] = []
-  for (let i = 0; i < lines.length; i++) {
-    const end = ranges.get(i)
-    shown.push(
-      <div key={i}>
-        <span className="y-no">{i + 1}</span>
+  // Each line its own constant: a handler must toggle the line it was drawn for.
+  const shown = visible(lines.length, ranges, folded).map(line => {
+    const end = ranges.get(line)
+    return (
+      <div key={line}>
+        <span className="y-no">{line + 1}</span>
         {end != null
-          ? <button className="y-fold" onClick={() => toggle(i)} title={folded.has(i) ? 'Unfold' : 'Fold'}>{folded.has(i) ? '▸' : '▾'}</button>
+          ? <button className="y-fold" onClick={() => toggle(line)} title={folded.has(line) ? 'Unfold' : 'Fold'}>{folded.has(line) ? '▸' : '▾'}</button>
           : <span className="y-fold" />}
-        {lines[i].map((p, k) => <span key={k} className={`y-${p.kind}`}>{p.text}</span>)}
-        {end != null && folded.has(i) && <button className="y-folded" onClick={() => toggle(i)}>… {end - i - 1} lines</button>}
-      </div>,
+        {lines[line].map((p, k) => <span key={k} className={`y-${p.kind}`}>{p.text}</span>)}
+        {end != null && folded.has(line) && <button className="y-folded" onClick={() => toggle(line)}>… {end - line - 1} lines</button>}
+      </div>
     )
-    if (end != null && folded.has(i)) i = end - 1
-  }
+  })
   return (
     <>
       {ranges.size > 0 && (

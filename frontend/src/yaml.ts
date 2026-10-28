@@ -114,3 +114,10 @@ export function folds(text: string): Map<number, number> {
   })
   return out
 }
+
+// The lines of a text of ``count`` lines left in view when the lines ``folded`` start (by ``folds``) are folded.
+export function visible(count: number, ranges: Map<number, number>, folded: Set<number>): number[] {
+  const out: number[] = []
+  for (let line = 0; line < count; line = folded.has(line) ? ranges.get(line) ?? line + 1 : line + 1) out.push(line)
+  return out
+}

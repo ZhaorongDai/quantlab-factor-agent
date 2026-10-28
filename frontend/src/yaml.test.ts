@@ -1,7 +1,7 @@
 // How a line of YAML is split for colouring, run with `npm test`.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { folds, highlight, parts } from './yaml.ts'
+import { folds, highlight, parts, visible } from './yaml.ts'
 
 const kinds = (line: string) => parts(line).map(p => [p.kind, p.text])
 
@@ -68,4 +68,11 @@ test('a key folds a list written at its own indentation, and a list item folds i
 test('a line with nothing under it, and a comment, do not fold', () => {
   const text = '# a comment\n  # indented under it\nkey: 1\nother: 2'
   assert.deepEqual([...folds(text)], [])
+})
+
+test('the lines left in view: a folded line stays, the lines it folds go, and unfolding it brings them back', () => {
+  const ranges = new Map([[0, 4], [1, 3]])
+  assert.deepEqual(visible(5, ranges, new Set()), [0, 1, 2, 3, 4])
+  assert.deepEqual(visible(5, ranges, new Set([0, 1])), [0, 4])
+  assert.deepEqual(visible(5, ranges, new Set([1])), [0, 1, 3, 4])
 })
