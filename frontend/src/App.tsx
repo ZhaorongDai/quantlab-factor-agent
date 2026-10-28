@@ -95,6 +95,7 @@ function ago(iso: string): string {
 const version = (v: string) => (v.length > 12 && !v.startsWith('unknown') ? v.slice(0, 7) + (v.endsWith('+dirty') ? '+dirty' : '') : v)
 
 function State({ summary }: { summary: RunSummary }) {
+  if (summary.unreadable) return <span className="error" title={summary.unreadable}>unreadable: {summary.unreadable}</span>
   if (!summary.stop) return <span>not stopped</span>
   return <span title={summary.stop.reason}>stopped: {summary.stop.reason}</span>
 }
@@ -111,8 +112,8 @@ function RunList({ open }: { open: (name: string) => void }) {
       <thead><tr><th>run</th><th>code version</th><th>rounds</th><th>trials</th><th>accepted</th><th>state</th><th>last activity</th></tr></thead>
       <tbody>
         {runs.map(r => (
-          <tr key={r.name} onClick={() => open(r.name)}>
-            <td><a href={`?run=${encodeURIComponent(r.name)}`} onClick={e => e.preventDefault()}>{r.name}</a></td>
+          <tr key={r.name} className={r.unreadable ? 'static' : ''} onClick={() => r.unreadable || open(r.name)}>
+            <td>{r.unreadable ? r.name : <a href={`?run=${encodeURIComponent(r.name)}`} onClick={e => e.preventDefault()}>{r.name}</a>}</td>
             <td className="mono" title={r.code_version}>{version(r.code_version)}</td>
             <td>{r.rounds}</td><td>{r.trials}</td><td>{r.accepted}</td>
             <td><State summary={r} /></td>

@@ -66,6 +66,12 @@ function NeighbourName({ n }: { n: Neighbour }) {
   return <span title={n.label}>{n.name}</span>
 }
 
+// Where a threshold the run did not record came from, for a run without an events file.
+const SOURCES: Record<string, string> = {
+  refusals: "as its round's refusals quote it",
+  carried_over: 'carried over from an earlier round: no refusal of its round quoted one',
+}
+
 function Margin({ f }: { f: Factor }) {
   const t = f.partial_ic_t
   if (t == null) return null
@@ -75,7 +81,9 @@ function Margin({ f }: { f: Factor }) {
       <span>partial-IC t <b>{fmt(t)}</b></span>
       <div className="bar"><i style={{ width: `${(Math.max(t, 0) / scale) * 100}%` }} />
         {f.threshold != null && <em style={{ left: `${(f.threshold / scale) * 100}%` }} />}</div>
-      <small>{f.threshold != null ? `${fmt(t - f.threshold)} over ${fmt(f.threshold)}` : 'threshold unknown'}</small>
+      <small>{f.threshold != null ? `${fmt(t - f.threshold)} over ${fmt(f.threshold)}` : 'threshold unknown'}
+        {f.threshold_source === 'refusals' && <span className="muted" title={`The threshold, ${SOURCES.refusals}`}> (quoted)</span>}
+        {f.threshold_source === 'carried_over' && <span className="muted" title={`The threshold, ${SOURCES.carried_over}`}> (carried over)</span>}</small>
     </div>
   )
 }
@@ -134,7 +142,8 @@ function WriteUp({ f, limit }: { f: Factor; limit: number | null }) {
         its partial IC, after the reference set and the factors accepted before it, is <span title={raw(f, 'partial_ic_mean')}>{fmt(f.partial_ic_mean, 4)}</span>{' '}
         with a Newey-West t of <span title={raw(f, 'partial_ic_t')}>{fmt(f.partial_ic_t)}</span>
         {f.threshold != null && f.partial_ic_t != null
-          ? <>, {fmt(f.partial_ic_t - f.threshold)} over the threshold of {fmt(f.threshold)} it had to clear. </>
+          ? <>, {fmt(f.partial_ic_t - f.threshold)} over the threshold of {fmt(f.threshold)} it had to clear
+            {f.threshold_source && SOURCES[f.threshold_source] ? <> ({SOURCES[f.threshold_source]})</> : null}. </>
           : <>; the threshold it had to clear is unknown. </>}
         Its decile returns rise with the decile, in its direction, with a monotonicity of {fmt(f.monotonicity)} (1 is a steady rise).{' '}
         <Correlation n={f.nearest} known={false} />

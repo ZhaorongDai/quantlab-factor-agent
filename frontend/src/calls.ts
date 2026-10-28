@@ -28,9 +28,9 @@ export function acceptanceCalls(selection: Named[], holdoutOpened: boolean): str
   const names = exportNames(selection)
   const lines = (f: (n: Named, k: number) => string) => selection.map((n, k) => `    ${f(n, k)},\n`).join('')
   const holdout = holdoutOpened
-    ? `# 2. The hold-out was opened before: it is no longer untouched, and a selection judged on it now was chosen
-#    knowing an earlier result. Opening it again needs force.
-acceptance.open_holdout(selection, force=True)`
+    ? `# 2. The hold-out was already opened. A forced reopen is no longer an untouched test: a selection judged on
+#    it now was chosen knowing an earlier result. Uncomment the call only if you accept that.
+# acceptance.open_holdout(selection, force=True)`
     : `# 2. Open the hold-out once, on the selection you keep.
 acceptance.open_holdout(selection)`
   return `from factor_agent.acceptance import Acceptance

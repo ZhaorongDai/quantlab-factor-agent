@@ -14,9 +14,10 @@ uv sync --extra web
 ```
 
 The page itself is built and kept in the package, so no Node is needed to serve it. Only
-changing the page needs Node 18 or newer: edit `frontend/`, then run
-`npm ci && npm run build` there and commit the rebuilt `factor_agent/web/static/`. Its tests, `npm test`, need Node 22.6 or
-newer.
+changing the page needs Node: edit `frontend/`, then run `npm ci && npm run build` there
+with Node 22 and commit the rebuilt `factor_agent/web/static/`. CI builds the page with
+Node 22 and fails when the build differs from the committed one, and another major version
+of Node may build a different bundle. Its tests, `npm test`, need Node 22.6 or newer.
 
 ## Start it
 
@@ -44,7 +45,9 @@ including one whose first round has not been written yet:
 | last activity | when the run last wrote a file |
 
 A round counts once the campaign has written it at the round's end; the round in progress
-is not counted yet. Click a run to open it: a run opens on its results.
+is not counted yet. Click a run to open it: a run opens on its results. A run whose files
+cannot be read (a state file that is not JSON, say) is listed as unreadable, with the file
+and the reason, and does not open.
 
 ## The health line
 
@@ -117,8 +120,9 @@ judged at the same one), and the correlation limit the one the campaign was last
 with, both from the events file. A run without an events file does not record them, so the
 page takes them from the refusals that quote them: a round's threshold is the one its
 refusals below the threshold quote, carried over from the round before when the round has
-none, and the correlation limit is the one a refusal for correlation quotes. Until a
-refusal quotes them, the page says they are unknown.
+none, and the correlation limit is the one a refusal for correlation quotes. A card whose
+threshold was quoted by its round's refusals, or carried over from an earlier round, says
+so. Until a refusal quotes them, the page says they are unknown.
 
 The cards rank by their drop-one contribution when there is one. A report written by an
 older version, without the contribution table or the selection flag, is shown with what it
@@ -136,7 +140,7 @@ where no rule holds shows none. The rules and their thresholds:
 | Finding | When | What to do |
 |---------|------|------------|
 | the LLM's replies could not be read | more than 20% of the trials met a reply the parser could not read as candidates | change the model, or raise its output limit |
-| candidates keep colliding with one of your factors | more than 5 trials collided with the same reference or known factor, named with the count | steer the research directions away from it, or check your known factors |
+| candidates keep colliding with one of your known factors | more than 5 trials collided with the same known factor, named with the count | steer the research directions away from it, or check your known factors |
 | candidates collide with factors the run accepted | more than 5 trials collided with factors accepted earlier in the run, all counted together | nothing: the novelty checks are at work |
 | candidates cover too few members | more than 15% of the trials were refused for coverage | check your data's fields and dates |
 | candidate code fails to build | more than 15% of the trials met a graph build failure | check the operator file, or the model |
@@ -146,7 +150,9 @@ Shares count trials, not the versions within them: a trial is counted once, whic
 its versions met the problem. A collision is a trial refused for being too like an
 existing factor (see {doc}`concepts`): by the Gate as a rewrite, the same graph with
 other parameters, or a too large shared subtree, or by admission as a correlation above
-the limit. A repeat of one of the run's own earlier candidates is not a collision.
+the limit. A repeat of one of the run's own earlier candidates is not a collision, and
+collisions with the reference set are no finding: the reference set is there to be
+compared with.
 
 ## The selection view
 
@@ -162,8 +168,9 @@ on the machine that holds the run: validate the selection, open the hold-out on 
 export it. Factors are named by their labels; each export name is the description's first
 words, to replace with your own. The config path is a placeholder, since the run directory
 does not record it. When the hold-out lock records an open, the view says the hold-out is no
-longer untouched, so a selection judged on it now was chosen knowing an earlier result, and
-the call opens it with `force=True`. The page runs none of these calls.
+longer untouched, so a selection judged on it now was chosen knowing an earlier result; the
+call to open it again with `force=True` is written commented out, with that warning, so a
+pasted block never reopens it. The page runs none of these calls.
 
 ## The trials page
 

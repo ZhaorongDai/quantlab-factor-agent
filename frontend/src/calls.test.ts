@@ -30,10 +30,11 @@ acceptance.export({
 `)
 })
 
-test('once the hold-out was opened, opening it again needs force and the calls say it is no longer untouched', () => {
+test('once the hold-out was opened, the forced reopen is written commented out, saying it is no longer an untouched test', () => {
   const calls = acceptanceCalls([QUIET], true)
-  assert.match(calls, /\n# 2\. The hold-out was opened before: it is no longer untouched, and a selection judged on it now was chosen\n#    knowing an earlier result\. Opening it again needs force\.\nacceptance\.open_holdout\(selection, force=True\)\n/)
-  assert.doesNotMatch(calls, /open_holdout\(selection\)/)
+  assert.match(calls, /\n# 2\. The hold-out was already opened\. A forced reopen is no longer an untouched test: a selection judged on\n#    it now was chosen knowing an earlier result\. Uncomment the call only if you accept that\.\n# acceptance\.open_holdout\(selection, force=True\)\n/)
+  // No line of the calls opens the hold-out when pasted as it is.
+  assert.doesNotMatch(calls, /^acceptance\.open_holdout/m)
 })
 
 test('every export name is a distinct lowercase identifier that is not a Python keyword', () => {

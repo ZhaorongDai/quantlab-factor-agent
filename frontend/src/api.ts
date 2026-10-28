@@ -10,6 +10,8 @@ export type RunSummary = {
   accepted: number
   stop: Stop | null
   updated: string
+  // Which file of the run could not be read and why; null for a run the list read.
+  unreadable: string | null
 }
 
 // A trial's refusal for being too like an existing factor (code: the Gate; ranking: admission).
@@ -55,6 +57,8 @@ export type Factor = {
   partial_ic_mean: number | null
   partial_ic_t: number | null
   threshold: number | null
+  // admission: its round's admission events; refusals: what its round's refusals quote; carried_over: an earlier round's.
+  threshold_source: 'admission' | 'refusals' | 'carried_over' | null
   monotonicity: number | null
   nearest: Neighbour | null
   nearest_known: Neighbour | null
