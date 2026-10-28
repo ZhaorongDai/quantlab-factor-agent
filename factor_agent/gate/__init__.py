@@ -10,8 +10,10 @@ run in this order:
    bubblewrap filesystem isolation where it is installed);
 3. the stage rules of an intraday family's candidate (``stages.split``):
    an intraday field reaches the daily stage only through a session
-   aggregation, the intraday stage reads no daily field, each operator is
-   used only in its stages;
+   aggregation, the intraday stage reads no daily field, no aggregation of
+   a daily value or of an aggregation, each operator is used only in its
+   stages, each window and lag is one of its stage's set; each refusal
+   says how to write it instead (``Rejected.hints``);
 4. the graph's size, parameter values, dimensions and complexity, all reported together;
 5. originality against the zoo: not a rewrite of a zoo factor, not one with
    other windows or parameters only, and no common subtree with one larger
@@ -72,9 +74,10 @@ class Passed:
 class Rejected:
     """A candidate refused by the gate, with the reasons sent back to the proposer.
 
-    ``hints`` are the vocabulary's fixes for a writing error (a static check
-    or the graph build), how to write it instead; they go with the reasons
-    into the rewrite request only.
+    ``hints`` say how to write it instead: the vocabulary's fixes for a
+    writing error (a static check or the graph build), or those of the
+    stage rules it breaks; they go with the reasons into the rewrite
+    request only.
     """
 
     reasons: tuple[str, ...]
@@ -110,7 +113,7 @@ class Gate:
 
         ``zoo`` holds the factors the candidate must be original against.
         A writing error carries the hints of the vocabulary's fixes it
-        matches (``Rejected.hints``).
+        matches, a broken stage rule its own (``Rejected.hints``).
 
         Raises
         ------
@@ -125,9 +128,9 @@ class Gate:
         if isinstance(reply, Rejected):
             return self._written_badly(reply.reasons)
         graph = Graph.from_json(reply, self.vocabulary.classes)
-        reasons = stages.split(graph, self.vocabulary).reasons
-        if reasons:
-            return Rejected(reasons)
+        staged = stages.split(graph, self.vocabulary)
+        if staged.reasons:
+            return Rejected(staged.reasons, staged.hints)
         reasons, stats = _constraints.check(graph, self.config, self.vocabulary)
         if reasons:
             return Rejected(tuple(reasons))

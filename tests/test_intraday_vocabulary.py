@@ -33,8 +33,10 @@ MINUTES = {
 }
 
 OPERATORS = {
-    "parameters": {"window": [5, 20]},
+    "parameters": {"window": [5, 20], "lag": [1, 5]},
     "operators": [
+        {"name": "BackRef", "class": "KunQuant.ops.BackRef", "params": {"window": "lag"}, "dimension": "same",
+         "stages": ["intraday", "daily"]},
         {"name": "Mul", "class": "KunQuant.ops.Mul", "inputs": ["series", "series"], "dimension": "product",
          "stages": ["intraday", "daily"]},
         {"name": "ExpMovingAvg", "class": "KunQuant.ops.ExpMovingAvg", "params": {"window": "window"},
@@ -64,6 +66,10 @@ def test_an_intraday_field_file_makes_its_family_the_intraday_family_with_its_wi
     vocabulary = _load(tmp_path, DAILY, MINUTES)
     assert vocabulary.intraday_family == "minute_bars"
     assert vocabulary.intraday_windows == (5, 30)
+    # Without lags of its own, a lag in the intraday stage takes the operator file's lag set.
+    assert vocabulary.intraday_lags == (1, 5)
+    with_lags = _load(tmp_path, DAILY, _changed(MINUTES, lambda f: f["intraday"].update(lags=[1, 2])))
+    assert with_lags.intraday_lags == (1, 2)
     assert vocabulary.intraday_columns == frozenset({"close", "volume", "session_bars_left"})
 
 
@@ -97,7 +103,8 @@ def test_daily_fields_are_checked_against_the_price_dataset_and_intraday_fields_
 
 @pytest.mark.parametrize("case", [
     "two intraday families", "no windows", "bad window", "intraday bar mask",
-    "stage unknown", "aggregation in a stage", "operator as an aggregation",
+    "stage unknown", "aggregation in a stage", "operator as an aggregation", "bad lag",
+    "unbounded memory in the intraday stage",
 ])
 def test_each_intraday_startup_error_is_reported(tmp_path, case):
     other = _changed(MINUTES, lambda f: f.update(family="more_minutes", fields=[
@@ -117,14 +124,23 @@ def test_each_intraday_startup_error_is_reported(tmp_path, case):
         families[1] = _changed(MINUTES, lambda f: f.update(bar=True))
         expected = "an intraday family cannot be bar: true; a bar without a trade has no price but is a bar"
     elif case == "stage unknown":
-        operators = _changed(OPERATORS, lambda o: o["operators"][0].update(stages=["minute"]))
+        operators = _changed(OPERATORS, lambda o: o["operators"][1].update(stages=["minute"]))
         expected = "stages ['minute'] must be a non-empty list of intraday and daily"
     elif case == "aggregation in a stage":
-        operators = _changed(OPERATORS, lambda o: o["operators"][2].update(stages=["intraday"]))
+        operators = _changed(OPERATORS, lambda o: o["operators"][3].update(stages=["intraday"]))
         expected = "a session aggregation's stages are [aggregation], not ['intraday']"
     elif case == "operator as an aggregation":
-        operators = _changed(OPERATORS, lambda o: o["operators"][0].update(stages=["aggregation"]))
+        operators = _changed(OPERATORS, lambda o: o["operators"][1].update(stages=["aggregation"]))
         expected = "stages ['aggregation'] must be a non-empty list of intraday and daily"
+    elif case == "bad lag":
+        families[1] = _changed(MINUTES, lambda f: f["intraday"].update(lags=[0]))
+        expected = "intraday lags must be a list of positive whole numbers of bars, got [0]"
+    elif case == "unbounded memory in the intraday stage":
+        operators = _changed(OPERATORS, lambda o: o["operators"][2].update(stages=["intraday", "daily"]))
+        expected = (
+            "ExpMovingAvg has unbounded memory, which would carry one session into the next: "
+            "its stages are [daily]"
+        )
     with pytest.raises(VocabularyError) as refused:
         _load(tmp_path, *families, operators=operators)
     assert any(expected in problem for problem in refused.value.problems), refused.value.problems
@@ -138,7 +154,9 @@ def test_every_operator_of_the_example_file_names_its_stages():
 
 def test_the_example_file_keeps_unbounded_memory_and_month_based_operators_daily():
     vocabulary = price_volume()
-    for name in ("ExpMovingAvg", "CMRA"):
+    # KunQuant's linear regressions keep running sums from bar to bar, which would carry one session into the next.
+    regressions = ("WindowedLinearRegressionSlope", "WindowedLinearRegressionRSqaure", "WindowedLinearRegressionResi")
+    for name in ("ExpMovingAvg", "CMRA", *regressions):
         assert vocabulary.spec(name).stages == ("daily",), name
     for name in ("Add", "WindowedAvg", "Rank", "Select"):
         assert vocabulary.spec(name).stages == ("intraday", "daily"), name

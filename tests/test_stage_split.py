@@ -124,3 +124,19 @@ def test_the_daily_bar_mask_of_a_nan_preserving_operator_stays_out_of_the_intrad
     session = SessionMean(Select(LessThanConst(Input("session_bars_left"), 20), Input("volume"), ConstantOp(0)))
     assert graph.fingerprint() == _graph(session).fingerprint()
     assert list(staged.intraday) == [_session_column(session)]
+
+
+@pytest.mark.parametrize("code, reason", [
+    (
+        "alpha = SessionMean(close)",
+        "SessionMean aggregates a daily value: an aggregation reduces the intraday bars of each session",
+    ),
+    (
+        "alpha = SessionStd(SessionMean(bar_close))",
+        "SessionMean is nested inside SessionStd: an aggregation's input is a value of the intraday bars",
+    ),
+])
+def test_an_aggregation_of_a_daily_value_or_of_an_aggregation_is_refused(code, reason):
+    staged = split(_recorded(code), intraday())
+    assert staged.reasons == (reason,)
+    assert staged.intraday == {}

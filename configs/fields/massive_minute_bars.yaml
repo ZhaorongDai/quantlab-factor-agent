@@ -13,12 +13,14 @@
 #   start or end has no price there, but the bars are there.
 #
 # `intraday` marks the family and holds `windows`, the window lengths, in bars, the intraday stage
-# may use; a campaign opens one intraday family. An intraday family cannot be `bar: true`. See
+# may use, and `lags`, the lags in bars BackRef may take there (the operator file's lag set when
+# absent); a campaign opens one intraday family. An intraday family cannot be `bar: true`. See
 # sharadar_price_volume.yaml for the keys of a field file.
 family: minute_bars
 description: one-minute trade bars of each regular session
 intraday:
   windows: [5, 10, 15, 30, 60, 120]
+  lags: [1, 5, 10, 15, 30, 60]
 
 fields:
   - name: bar_open

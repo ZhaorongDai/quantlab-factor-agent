@@ -84,8 +84,9 @@ The gate refuses a candidate that breaks one of these rules:
 - an aggregation's inputs are intraday: no aggregation of a daily value or of another aggregation;
 - each operator is used only in the stages <vocabulary> lists it under, so exponential averages, whose
   memory has no end, are daily only;
-- a window or a lag in the intraday stage counts bars and is one of the intraday windows
-  ({windows}); in the daily stage it counts days and is one of the daily values.
+- a window in the intraday stage counts bars and is one of the intraday windows ({windows}), a
+  lag one of the intraday lags ({lags}); in the daily stage either counts days and is one of the
+  daily values.
 An intraday window stays within its session: it is missing on a session's first bars until it fits, so
 it never reads the session before. A cross-sectional operator in the intraday stage ranks across the
 market at each bar. A price field is missing on a bar without a trade, and a volume or trade count is 0
@@ -496,7 +497,7 @@ def code_rules(vocabulary: Vocabulary) -> str:
     )
     return CODE_RULES + INTRADAY.format(
         family=vocabulary.intraday_family, windows=", ".join(map(str, vocabulary.intraday_windows)),
-        examples=examples,
+        lags=", ".join(map(str, vocabulary.intraday_lags)), examples=examples,
     )
 
 

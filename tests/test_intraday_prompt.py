@@ -59,7 +59,9 @@ def test_the_operators_are_listed_by_the_stages_they_may_be_used_in():
     assert "ExpMovingAvg" not in both and "SessionMean" not in both + daily
     for name in ("SessionMean(x)", "SessionStd(x)", "SessionWeightedMean(x, w)", "SessionCorr(x, y)"):
         assert f"- {name}" in aggregations, name
-    assert "- intraday window" in _between(vocabulary, "Parameter values", "Builtins")
+    parameters = _between(vocabulary, "Parameter values", "Builtins")
+    assert "- intraday window (in bars, every window of the intraday stage): 5, 10, 15, 30, 60, 120" in parameters
+    assert "- intraday lag (in bars, every lag of the intraday stage): 1, 5, 10, 15, 30, 60" in parameters
 
 
 def _examples(prompt: str) -> list[str]:

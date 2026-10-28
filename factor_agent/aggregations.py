@@ -6,9 +6,14 @@ node of the graph, so a graph's identity does not depend on how the
 aggregation is computed; ``factor_agent.session.SessionFactor`` expands it
 into KunQuant accumulators when it builds its function. An operator file
 registers an aggregation like any operator, by its class here.
+
+``WithinSession`` is no aggregation: the stage split wraps each window of
+the intraday stage in it, so the window is missing until it fits in the
+session. Candidate code never calls it.
 """
 
-from KunQuant.Op import OpBase
+from KunQuant.Op import Builder, CompositiveOp, ConstantOp, OpBase
+from KunQuant.ops import LessThan, Select
 
 
 class SessionAggregation(OpBase):
@@ -93,3 +98,29 @@ class SessionCorr(SessionAggregation):
 
     def __init__(self, x: OpBase, y: OpBase) -> None:
         super().__init__(x, y)
+
+
+#: The session input of a bar's position in its session, 0 for the first (quantlab's ``SESSION_POSITION``).
+SESSION_POSITION = "session_position"
+
+
+class WithinSession(CompositiveOp):
+    """``x`` on the bars at least ``bars`` bars into their session, NaN on the session's first ``bars``.
+
+    ``position`` is the bar's position in its session (``SESSION_POSITION``).
+    The stage split (``factor_agent.gate.stages``) wraps each window of the
+    intraday stage in it, ``bars`` the bars the window reaches back, its
+    inputs' windows included, so the window is missing until it fits in the
+    session; KunQuant decomposes it into a ``Select``. Candidate code never
+    calls it.
+    """
+
+    def __init__(self, x: OpBase, position: OpBase, bars: int) -> None:
+        super().__init__([x, position], [("bars", bars)])
+
+    def decompose(self, options: dict) -> list[OpBase]:
+        b = Builder(self.get_parent())
+        with b:
+            x, position = self.inputs
+            Select(LessThan(position, ConstantOp(float(self.attrs["bars"]))), ConstantOp("nan"), x)
+        return b.ops

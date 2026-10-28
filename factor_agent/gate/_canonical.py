@@ -109,31 +109,33 @@ def canonical_hashes(graph: "Graph") -> list[str]:
     return [_sha(["term", _key(t)]) for t in canonical_terms(graph)]
 
 
-def effective_parameters(graph: "Graph") -> list[tuple[str, str, float]]:
+def effective_parameters(graph: "Graph", lags_below: frozenset[str] = frozenset()) -> list[tuple[str, str, float]]:
     """Return ``(operator, kind, value)`` for every value the factor uses once constants are merged.
 
     Kinds are ``"constant"`` (a merged offset or a folded constant),
     ``"scale"`` (a merged multiplier; dividing by ``c`` is scaling by ``1/c``)
     and ``"lag"`` (a merged chain of ``BackRef``). Chaining allowed values
     (``x * 0.25 * 1.5``, ``BackRef(BackRef(x, 5), 10)``) shows up here as the
-    value it really is.
+    value it really is. The lags below an operator of ``lags_below`` (a
+    session aggregation, whose inputs count bars, not days) are left out.
     """
-    found, seen, stack = [], set(), [canonical_terms(graph)[-1]]
+    found, seen, stack = [], set(), [(canonical_terms(graph)[-1], True)]
     while stack:
-        term = stack.pop()
+        term, lags = stack.pop()
         if isinstance(term, _Const):
             found.append(("ConstantOp", "constant", term.value))
             continue
-        if term.hash in seen:
+        if (term.hash, lags) in seen:
             continue
-        seen.add(term.hash)
+        seen.add((term.hash, lags))
         if term.op in ("AddConst", "SubConstSwap", "DivConstSwap"):
             found.append((term.op, "constant", term.attrs["value"]))
         elif term.op == "MulConst":
             found.append((term.op, "scale", term.attrs["value"]))
-        elif term.op == "BackRef":
+        elif term.op == "BackRef" and lags:
             found.append((term.op, "lag", term.attrs["window"]))
-        stack += term.inputs + ([] if term.parent is None else [term.parent])
+        below = lags and term.op not in lags_below
+        stack += [(t, below) for t in term.inputs + ([] if term.parent is None else [term.parent])]
     return found
 
 

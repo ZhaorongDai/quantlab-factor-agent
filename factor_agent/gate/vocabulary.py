@@ -19,8 +19,9 @@ bar NaN.
 A field file marked ``intraday`` is the campaign's intraday family: its
 fields read columns of the intraday dataset (the bars of each session, the
 session inputs ``factor_agent.session`` adds among them), not of the price
-dataset, and it gives the window lengths, in bars, its stage may use
-(``intraday: {windows: [...]}``). A campaign opens one at most. Candidate
+dataset, and it gives the window lengths and the lags, in bars, its stage
+may use (``intraday: {windows: [...], lags: [...]}``; without ``lags``, the
+operator file's lag set). A campaign opens one at most. Candidate
 code reaches the daily stage from its fields only through a session
 aggregation (``factor_agent.gate.stages``).
 
@@ -50,7 +51,8 @@ another module, and the object must be defined under one of them.
 Each operator names the stages it may be used in (``stages``): a list of
 ``intraday`` and ``daily``, ``daily`` alone when it names none; a session
 aggregation (``factor_agent.aggregations``) is its own kind,
-``[aggregation]``.
+``[aggregation]``. An operator of unbounded memory (a KunQuant state
+without a window, as ``ExpMovingAvg``'s) may not name ``intraday``.
 
 ``load`` reports every problem of the files at once (``VocabularyError``).
 The sandbox rebuilds the same vocabulary from ``sources``, the files' text.
@@ -72,11 +74,11 @@ from functools import cached_property
 from pathlib import Path
 
 import yaml
-from KunQuant.Op import Builder, Input, OpBase
+from KunQuant.Op import Builder, GloablStatefulOpTrait, Input, OpBase, WindowedTrait
 from quantlab.factor import kunquant_nan
 
-from factor_agent.aggregations import SessionAggregation
-from factor_agent.gate import _checks, _dimension
+from factor_agent.aggregations import SessionAggregation, WithinSession
+from factor_agent.gate import _checks, _dimension, stages
 from factor_agent.gate._canonical import canonical_hashes, effective_parameters
 from factor_agent.gate.graph import Graph
 
@@ -117,7 +119,7 @@ _UNIT_BASES = ("dollars", "shares")
 _UNIT_FACTOR = re.compile(r"(dollars|shares|1)(?:\^(-?\d+))?")
 
 _FIELD_FILE_KEYS = {"family", "description", "bar", "fields", "period_lag", "intraday"}
-_INTRADAY_KEYS = {"windows"}
+_INTRADAY_KEYS = {"windows", "lags"}
 _PERIOD_LAG_KEYS = {"column", "k", "period"}
 _PERIOD_KEYS = {"description", "key", "days", "tolerance_days", "bars"}
 _FIELD_KEYS = {"name", "column", "formula", "unit", "description"}
@@ -197,6 +199,11 @@ class PeriodLag:
 
 #: ``Input``, which every graph records and no candidate calls.
 INPUT = OpSpec("Input", Input, "KunQuant.Op.Input", None, "", (), {"name": FLAG}, "input", "", STAGES)
+#: ``WithinSession``, which the stage split wraps the intraday stage's windows in and no candidate calls.
+WITHIN_SESSION = OpSpec(
+    "WithinSession", WithinSession, "factor_agent.aggregations.WithinSession", None, "",
+    ("series", "series"), {"bars": FLAG}, "first", "", ("intraday",),
+)
 
 
 class Vocabulary:
@@ -233,6 +240,8 @@ class Vocabulary:
         self.intraday_family: str | None = None
         #: The window lengths, in bars, the intraday stage may use.
         self.intraday_windows: tuple[int, ...] = ()
+        # The lags, in bars, the intraday stage may use; None for the operator file's lag set (``intraday_lags``).
+        self._intraday_lags: tuple[int, ...] | None = None
         operators = sources["operators"]
         self._read_operators(operators["path"], self._yaml(operators))
         for document in sources["fields"]:
@@ -313,8 +322,9 @@ class Vocabulary:
         return {spec.cls: name for name, spec in self._operators.items()}
 
     def spec(self, name: str) -> OpSpec:
-        """The operator a graph records as ``name``."""
-        return INPUT if name == "Input" else self._operators[name]
+        """The operator a graph records as ``name`` (or the stage split writes, ``WithinSession``)."""
+        builtin = {"Input": INPUT, "WithinSession": WITHIN_SESSION}
+        return builtin[name] if name in builtin else self._operators[name]
 
     def class_paths(self, graphs: Iterable[list]) -> dict[str, str]:
         """The class path of every operator recorded graphs (``Graph.to_json()``) hold, by name."""
@@ -407,6 +417,13 @@ class Vocabulary:
         )
 
     @property
+    def intraday_lags(self) -> tuple[int, ...]:
+        """The lags, in bars, the intraday stage may use: the intraday family's, else the operator file's lag set."""
+        if self._intraday_lags is not None:
+            return self._intraday_lags
+        return tuple(int(v) for v in self.parameters.get(self.lag_set, ())) if self.lag_set else ()
+
+    @property
     def intraday_columns(self) -> frozenset[str]:
         """The columns the intraday family's fields read; empty without an intraday family."""
         return frozenset(
@@ -469,7 +486,7 @@ class Vocabulary:
         """The prompt's description of the vocabulary: inputs, operators, parameter values, builtins.
 
         With an intraday family the operators are listed by the stages they may be used in, the
-        session aggregations last, and the parameter values end with the intraday window set.
+        session aggregations last, and the parameter values end with the intraday window and lag sets.
         """
         def operator(spec: OpSpec) -> str:
             return f"- {spec.signature}: {spec.description}" if spec.description else f"- {spec.signature}"
@@ -489,10 +506,11 @@ class Vocabulary:
             f"- {kind}: {', '.join(f'{v:g}' for v in values)}" for kind, values in self.parameters.items()
         ]
         if self.intraday_family is not None:
-            parameters.append(
-                f"- intraday window (in bars, every window and lag of the intraday stage): "
-                f"{', '.join(map(str, self.intraday_windows))}"
-            )
+            parameters += [
+                f"- intraday window (in bars, every window of the intraday stage): "
+                f"{', '.join(map(str, self.intraday_windows))}",
+                f"- intraday lag (in bars, every lag of the intraday stage): {', '.join(map(str, self.intraday_lags))}",
+            ]
         daily = [name for name, f in self.fields.items() if f.family != self.intraday_family]
         intraday = [name for name, f in self.fields.items() if f.family == self.intraday_family]
         return {
@@ -606,11 +624,15 @@ class Vocabulary:
         return kunquant_nan.missing_bars_only([fields[self._column_fields[c]] for c in self._bar_columns])
 
     def _parameter_reasons(self, graph: Graph) -> list[str]:
+        """Why ``graph``'s attribute values are refused; a staged graph's windows and lags are the stage rules'."""
+        staged = stages.is_staged(graph, self)
         reasons = []
         for node in graph.nodes:
             params = self.spec(node.op).params
             for key, value in node.attrs:
                 kind = params.get(key)
+                if staged and stages.window_kind(self, node.op, key) is not None:
+                    continue
                 if kind is None:
                     reasons.append(f"{node.op} has an attribute {key!r} the gate does not know")
                 elif kind != FLAG and not self.allowed(kind, value):
@@ -623,10 +645,12 @@ class Vocabulary:
 
         A merged lag is checked against the lag set and a merged offset or
         scale against the constant set (``lag_set``, ``constant_set``), when
-        the operator file has them.
+        the operator file has them. The lags of a staged graph's intraday
+        stage are the stage rules' (``stages``).
         """
         reasons = []
-        for op, kind, value in effective_parameters(graph):
+        aggregations = frozenset(name for name, spec in self._operators.items() if spec.stages == (AGGREGATION,))
+        for op, kind, value in effective_parameters(graph, lags_below=aggregations):
             checked = self.lag_set if kind == "lag" else self.constant_set
             if checked is None:
                 continue
@@ -765,15 +789,19 @@ class Vocabulary:
         dimension = entry.get("dimension")
         if dimension not in _dimension.OPERATOR_RULES:
             self._problem(where, f"dimension rule {dimension!r} is not one of {list(_dimension.OPERATOR_RULES)}")
-        stages = self._read_stages(where, cls, entry.get("stages"))
+        stages = self._read_stages(where, name, cls, entry.get("stages"))
         if ok and cls is not None and call is not None and stages is not None:
             self._operators[name] = OpSpec(
                 name, cls, entry["class"], call, str(entry.get("signature", name)), inputs, params, dimension,
                 str(entry.get("description", "")), stages,
             )
 
-    def _read_stages(self, where: str, cls: type | None, stages) -> tuple[str, ...] | None:
-        """The stages an operator entry names, or its default; None, with the problem recorded, if they are wrong."""
+    def _read_stages(self, where: str, name, cls: type | None, stages) -> tuple[str, ...] | None:
+        """The stages an operator entry names, or its default; None, with the problem recorded, if they are wrong.
+
+        An operator of unbounded memory (a KunQuant state carried from bar to
+        bar without a window, as ``ExpMovingAvg``'s) is daily only.
+        """
         if isinstance(cls, type) and issubclass(cls, SessionAggregation):
             if stages is not None and stages != [AGGREGATION]:
                 self._problem(where, f"a session aggregation's stages are [{AGGREGATION}], not {stages!r}")
@@ -783,6 +811,12 @@ class Vocabulary:
             return ("daily",)
         if not isinstance(stages, list) or not stages or not set(stages) <= set(STAGES) or len(set(stages)) < len(stages):
             self._problem(where, f"stages {stages!r} must be a non-empty list of {' and '.join(STAGES)}")
+            return None
+        unbounded = isinstance(cls, type) and issubclass(cls, GloablStatefulOpTrait) and not issubclass(cls, WindowedTrait)
+        if unbounded and "intraday" in stages:
+            self._problem(
+                where, f"{name} has unbounded memory, which would carry one session into the next: its stages are [daily]",
+            )
             return None
         return tuple(stage for stage in STAGES if stage in stages)
 
@@ -862,6 +896,12 @@ class Vocabulary:
             self._problem(where, f"intraday windows must be a list of positive whole numbers of bars, got {windows!r}")
             return
         self.intraday_windows = tuple(int(v) for v in windows)
+        lags = entry.get("lags")
+        if lags is not None:
+            if not isinstance(lags, list) or not lags or not all(_number(v) and v == int(v) and v > 0 for v in lags):
+                self._problem(where, f"intraday lags must be a list of positive whole numbers of bars, got {lags!r}")
+                return
+            self._intraday_lags = tuple(int(v) for v in lags)
 
     def _read_period_lag(self, where: str, family: str, entry) -> None:
         if not isinstance(entry, dict):

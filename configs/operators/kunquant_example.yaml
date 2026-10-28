@@ -17,7 +17,9 @@
 #   description  one line in the prompt
 #   stages       the stages candidate code may use it in: intraday (on each session's bars, in an
 #                intraday family's candidates) and daily (on one value per day); daily when it names
-#                none. Operators of unbounded memory (exponential averages) and month-based ones are
+#                none. Operators of unbounded memory (exponential averages), the linear regressions
+#                (KunQuant keeps their sums as a state running on from bar to bar, so a session's
+#                regression would carry the session before) and month-based ones are
 #                daily only. A session aggregation, which reduces each session to one value per day,
 #                is its own kind: [aggregation].
 #
@@ -366,21 +368,21 @@ operators:
     signature: "WindowedLinearRegressionSlope(x, window)"
     params: {window: window}
     dimension: same
-    stages: [intraday, daily]
+    stages: [daily]
     description: slope of x regressed on time over the last window bars
   - name: WindowedLinearRegressionRSqaure
     class: KunQuant.ops.WindowedLinearRegressionRSqaure
     signature: "WindowedLinearRegressionRSqaure(x, window)"
     params: {window: window}
     dimension: pure
-    stages: [intraday, daily]
+    stages: [daily]
     description: R squared of x regressed on time over the last window bars
   - name: WindowedLinearRegressionResi
     class: KunQuant.ops.WindowedLinearRegressionResi
     signature: "WindowedLinearRegressionResi(x, window)"
     params: {window: window}
     dimension: same
-    stages: [intraday, daily]
+    stages: [daily]
     description: last residual of x regressed on time over the last window bars
   - name: TsRank
     class: KunQuant.ops.TsRank
@@ -702,3 +704,4 @@ excluded:
   KunQuant.predefined.talib.ATR: a KunQuant predefined composite; candidates write the formula themselves
   KunQuant.predefined.talib.SAR: a KunQuant predefined composite; candidates write the formula themselves
   factor_agent.aggregations.SessionAggregation: an abstract base class, never in a graph
+  factor_agent.aggregations.WithinSession: the stage split wraps the intraday stage's windows in it

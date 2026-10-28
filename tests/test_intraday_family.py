@@ -16,7 +16,7 @@ from factor_agent.gate.vocabulary import VocabularyError
 from factor_agent.snapshot import SnapshotMismatch
 from tests import synthetic_intraday_market as market
 from tests.campaign_runner import candidate, run, write_config
-from tests.fake_llm import FakeLLM
+from tests.fake_llm import FakeLLM, has_tag, tagged
 from tests.vocabulary_files import MINUTE_BARS, PRICE_VOLUME
 
 LATE_SHARE = candidate(
@@ -32,7 +32,9 @@ MIXED = candidate(
 )
 DAILY_VOLUME = candidate("daily volume", "alpha = WindowedAvg(volume / WindowedAvg(volume, 20), 5)")
 DAILY_PRICE = candidate("daily price", "alpha = WindowedAvg(close / open, 5)")
-CANDIDATES = [LATE_SHARE, MIXED, DAILY_VOLUME, DAILY_PRICE]
+#: An aggregation of an aggregation, which the Gate refuses with how to write it instead.
+NESTED = candidate("nested aggregation", "alpha = SessionStd(SessionMean(bar_close))")
+CANDIDATES = [LATE_SHARE, MIXED, DAILY_VOLUME, DAILY_PRICE, NESTED]
 
 
 def _config(root, components=None, fields=(PRICE_VOLUME, MINUTE_BARS), **data):
@@ -43,7 +45,7 @@ def _config(root, components=None, fields=(PRICE_VOLUME, MINUTE_BARS), **data):
         data={**{name: components[name] for name in ("prices", "label", "membership", "intraday")}, **data},
         scoring={"neutralize": None},
         fields=[str(path) for path in fields],
-        round={"candidates": len(CANDIDATES), "min_per_type": 0, "max_rounds": 1, "retries": 0},
+        round={"candidates": len(CANDIDATES), "min_per_type": 0, "max_rounds": 1, "retries": 1},
     ), components
 
 
@@ -53,7 +55,7 @@ def campaign(tmp_path_factory):
     config_path, components = _config(root)
     fake = FakeLLM(lambda number, directions: CANDIDATES[:len(directions)])
     result = run(config_path, fake, root / "kunquant_cache")
-    return {"root": root, "config": config_path, "components": components,
+    return {"root": root, "config": config_path, "components": components, "fake": fake,
             "records": {record.candidate["description"]: record for record in result.records}}
 
 
@@ -76,6 +78,19 @@ def test_a_daily_candidate_cannot_find_the_signal_the_minute_bars_hold(campaign,
     record = campaign["records"][description]
     assert record.metrics is not None
     assert abs(record.metrics["ic_t"]) < 3
+
+
+def test_a_candidate_breaking_a_stage_rule_is_asked_to_be_fixed_with_how_to_write_it(campaign):
+    assert campaign["records"]["nested aggregation"].stage == "gate"
+    fixes = [
+        entry for request in campaign["fake"].requests if has_tag(request.prompt, "refused_candidates")
+        for entry in tagged(request.prompt, "refused_candidates")
+    ]
+    [entry] = [e for e in fixes if e["refused_version"]["description"] == "nested aggregation"]
+    assert entry["refused_because"] == [
+        "SessionMean is nested inside SessionStd: an aggregation's input is a value of the intraday bars",
+    ]
+    assert any("WindowedAvg(SessionMean(x), 20)" in hint for hint in entry["how_to_write_it"]), entry
 
 
 def test_the_run_snapshot_records_the_intraday_dataset(campaign):
