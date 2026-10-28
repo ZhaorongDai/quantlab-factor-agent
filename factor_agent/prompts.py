@@ -16,6 +16,10 @@ every one but ``data``, which is the same in every round, ``round``.
 ``Prompts`` fills a template with those and with the data
 section, itself the ``data`` template filled with the market, the
 described inputs of the vocabulary, the scoring's sentence and the horizon.
+When the vocabulary opens an intraday family, the code rules the proposer
+is given end with ``INTRADAY`` (the two stages, their rules and
+``INTRADAY_EXAMPLES``), and the vocabulary lists its operators by stage;
+without one the prompts are those of a daily campaign.
 """
 
 import string
@@ -61,6 +65,50 @@ if its value were the fill and the factor partly sorts the cross-section by whet
 reported; and coverage is measured before any fill, so a fill does not help a factor pass the
 coverage rule. Fill (SetInfOrNanToValue) only when the mechanism says what a missing value means,
 as an unreported R&D expense is zero, and state that reason in the description."""
+
+#: What the code rules add when the vocabulary opens an intraday family: the two stages, their rules,
+#: what the aggregations give, and ``INTRADAY_EXAMPLES``.
+INTRADAY = """\
+
+Intraday candidates. The fields of {family} are intraday: they hold a value for each bar of each
+session (the bars of one regular trading day), not one per day. Code that reads them is written in two
+stages, still as one piece of code ending in `alpha`:
+- the intraday stage computes on each session's bars with the operators <vocabulary> allows in it, and
+  ends in session aggregations (SessionMean, SessionSum, ...), each reducing a session to one value per
+  symbol and day;
+- the daily stage works on those values as on any daily field, with the daily operators, the daily
+  windows and the daily fields beside them.
+The gate refuses a candidate that breaks one of these rules:
+- an intraday field reaches the daily stage only through a session aggregation;
+- the intraday stage reads no daily field, so a daily value enters only after an aggregation;
+- an aggregation's inputs are intraday: no aggregation of a daily value or of another aggregation;
+- each operator is used only in the stages <vocabulary> lists it under, so exponential averages, whose
+  memory has no end, are daily only;
+- a window or a lag in the intraday stage counts bars and is one of the intraday windows
+  ({windows}); in the daily stage it counts days and is one of the daily values.
+An intraday window stays within its session: it is missing on a session's first bars until it fits, so
+it never reads the session before. A cross-sectional operator in the intraday stage ranks across the
+market at each bar. A price field is missing on a bar without a trade, and a volume or trade count is 0
+there. An aggregation uses the bars where its input has a value: SessionFirst and SessionLast take the
+first and last value present, and a session without one gives a missing value, except SessionCount and
+SessionSum, which give 0.
+{examples}"""
+
+#: Complete example intraday candidates, each a description and its code; they pass the Gate on the
+#: example minute-bar field file (``configs/fields/massive_minute_bars.yaml``) and operator file.
+INTRADAY_EXAMPLES = (
+    (
+        "the share of the session's volume traded in its last 60 bars, averaged over 20 days",
+        "late = SessionSum(Select(session_bars_left < 60, bar_volume, ConstantOp(0)))\n"
+        "alpha = WindowedAvg(late / SessionSum(bar_volume), 20)",
+    ),
+    (
+        "the session's volatility of 5-bar returns, averaged over 5 days, against the 20-day volatility of daily returns",
+        "intraday_volatility = SessionStd(last_price / BackRef(last_price, 5) - 1)\n"
+        "daily_volatility = WindowedStddev(close / BackRef(close, 1) - 1, 20)\n"
+        "alpha = WindowedAvg(intraday_volatility, 5) / daily_volatility",
+    ),
+)
 
 FIELDS = """\
 - "hypothesis": the economic mechanism that makes the factor predict the return, in one or two sentences
@@ -432,17 +480,32 @@ class Prompts:
         )
         common.update(
             mechanisms="\n".join(f"- {kind}: {text}" for kind, text in self.mechanisms.items()),
-            code_rules=CODE_RULES, vocabulary=VOCABULARY.format(**self.vocabulary.prompt()),
+            code_rules=code_rules(self.vocabulary), vocabulary=VOCABULARY.format(**self.vocabulary.prompt()),
             fields=FIELDS.format(horizon=self.horizon),
         )
         return self.templates.format(name, **common, **values)
+
+
+def code_rules(vocabulary: Vocabulary) -> str:
+    """How to write the code: ``CODE_RULES``, and ``INTRADAY`` with its examples when an intraday family is open."""
+    if vocabulary.intraday_family is None:
+        return CODE_RULES
+    examples = "\n".join(
+        f"Example {number}: {description}:\n" + "\n".join(f"    {line}" for line in code.splitlines())
+        for number, (description, code) in enumerate(INTRADAY_EXAMPLES, 1)
+    )
+    return CODE_RULES + INTRADAY.format(
+        family=vocabulary.intraday_family, windows=", ".join(map(str, vocabulary.intraday_windows)),
+        examples=examples,
+    )
 
 
 def inputs(vocabulary: Vocabulary) -> str:
     """The fields of ``vocabulary`` by family, each with its unit (a derived field's follows from its formula)."""
     lines = []
     for family, description in vocabulary.families.items():
-        lines.append(f"- {family}" + (f" ({description}):" if description else ":"))
+        marked = f"{family}, the intraday family" if family == vocabulary.intraday_family else family
+        lines.append(f"- {marked}" + (f" ({description}):" if description else ":"))
         for field in vocabulary.fields.values():
             if field.family == family:
                 unit = f" ({_dimension.name(field.dimension)})" if field.dimension is not None else ""
