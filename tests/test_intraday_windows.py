@@ -7,6 +7,8 @@ minute dataset of ``synthetic_intraday``: three sessions of eight symbols,
 one a half day.
 """
 
+import itertools
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -19,10 +21,15 @@ from tests.synthetic_intraday import DAYS, SYMBOLS, intraday_dataset, minute_bar
 from tests.vocabulary_files import intraday
 
 
+#: Where each dataset the tests compute on is stored: the session columns read a store.
+_STORES = {}
+
+
 @pytest.fixture(scope="module", autouse=True)
 def _cache(tmp_path_factory):
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv(CACHE_ENV, str(tmp_path_factory.mktemp("kunquant_cache")))
+        _STORES["root"], _STORES["count"] = tmp_path_factory.mktemp("minutes"), itertools.count()
         yield
 
 
@@ -33,14 +40,20 @@ def _staged(code: str):
     return staged
 
 
-def _sessions(codes: dict[str, str], panel=None) -> dict[str, np.ndarray]:
-    """The session column of each candidate of ``codes``, one aggregation each, on ``[day, symbol]``."""
+def _sessions(codes: dict[str, str], panel=None, granularity=None) -> dict[str, np.ndarray]:
+    """The session column of each candidate of ``codes``, one aggregation each, on ``[day, symbol]``.
+
+    ``granularity`` is how the session columns are computed in chunks (``SessionColumns``); None for at once.
+    """
     graphs = {}
     for key, code in codes.items():
         [(name, graph)] = _staged(code).intraday.items()
         graphs[key] = (name, graph.to_json())
     recorded = {name: graph for name, graph in graphs.values()}
-    provider = SessionColumns(intraday_dataset(panel), recorded, intraday().class_paths(recorded.values()), njobs=1)
+    store = intraday_dataset(panel).to_zarr(_STORES["root"] / f"minutes_{next(_STORES['count'])}.zarr")
+    provider = SessionColumns(
+        store, recorded, intraday().class_paths(recorded.values()), njobs=1, granularity=granularity,
+    )
     filled = provider.fill(None, None, {}, np.array(SYMBOLS), pd.DatetimeIndex(DAYS).values)
     return {key: filled[name] for key, (name, _) in graphs.items()}
 
@@ -103,6 +116,12 @@ def test_an_intraday_windows_values_do_not_depend_on_the_session_before():
         np.testing.assert_array_equal(second[key][1], first[key][1], err_msg=key)
         assert not np.allclose(second[key][0], first[key][0], equal_nan=True), key
         assert np.isfinite(first[key][1]).sum() >= len(SYMBOLS) - 1, key
+
+
+def test_intraday_windows_computed_a_session_at_a_time_equal_those_computed_at_once():
+    whole, daily = _sessions(WINDOWED), _sessions(WINDOWED, granularity="day")
+    for key in WINDOWED:
+        np.testing.assert_array_equal(daily[key], whole[key], err_msg=key)
 
 
 def test_a_cross_sectional_rank_in_the_intraday_stage_ranks_across_all_symbols_of_the_bar():
