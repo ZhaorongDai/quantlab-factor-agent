@@ -21,13 +21,14 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
+from factor_agent.evaluator import Evaluator  # noqa: E402
 from factor_agent.web.app import create_app, main  # noqa: E402
 from quantlab.core.component import rebuild  # noqa: E402
 from quantlab.factor.config import FactorConfig  # noqa: E402
 from quantlab.factor.predefined.alpha158 import Alpha158Stock  # noqa: E402
 from tests import synthetic_market  # noqa: E402
-from tests.campaign_runner import candidate, run, write_config  # noqa: E402
-from tests.fake_llm import FakeLLM  # noqa: E402
+from tests.campaign_runner import candidate, crash_at, run, write_config  # noqa: E402
+from tests.fake_llm import FakeLLM, Interrupted  # noqa: E402
 
 SNAPSHOT = Path(__file__).parent / "snapshots" / "web_runs.json"
 FACTORS = Path(__file__).parent / "snapshots" / "web_run_factors.json"
@@ -37,8 +38,11 @@ HEALTH = Path(__file__).parent / "snapshots" / "web_run_health.json"
 CALL = Path(__file__).parent / "snapshots" / "web_run_call.json"
 RUNNING = Path(__file__).parent / "snapshots" / "web_run_running.json"
 
-#: Each client's folder of runs.
-RUNS: dict = {}
+#: Each client's folder of runs, synthetic market components and KunQuant cache.
+CLIENT: dict = {}
+
+#: The example run's round settings.
+SETTINGS = {"candidates": 2, "min_per_type": 0, "retries": 0, "max_rounds": 1}
 
 ROUND = [
     candidate("planted", "alpha = close / open"),
@@ -55,10 +59,10 @@ def client(tmp_path_factory):
         data_columns=("adjOpen", "adjHigh", "adjLow", "adjClose", "adjVolume"), factor_names=("KLEN",),
     ))
     config = write_config(root / "runs" / "example", components, known=[klen.get_config()],
-                          round={"candidates": 2, "min_per_type": 0, "retries": 0, "max_rounds": 1})
+                          round=SETTINGS)
     run(config, FakeLLM(lambda number, directions: ROUND), root / "kunquant_cache")
     client = TestClient(create_app(root / "runs"))
-    RUNS[client] = root / "runs"
+    CLIENT[client] = {"runs": root / "runs", "components": components, "cache": root / "kunquant_cache"}
     return client
 
 
@@ -118,7 +122,7 @@ def test_a_runs_version_changes_when_the_run_writes_and_not_otherwise(client, tm
 
     before = version()
     assert version() == before
-    state = RUNS[client] / "example" / "run" / "state.json"
+    state = CLIENT[client]["runs"] / "example" / "run" / "state.json"
     os.utime(state, ns=(state.stat().st_atime_ns, state.stat().st_mtime_ns + 1_000_000))
     assert version() != before
     assert client.get("/api/run/version", params={"name": "elsewhere"}).status_code == 404
@@ -155,7 +159,7 @@ def _judged(source: Path, root: Path) -> TestClient:
 
 
 def test_a_runs_acceptance_reports_answer_with_the_snapshot_json(client, tmp_path):
-    judged = _judged(RUNS[client] / "example" / "run", tmp_path)
+    judged = _judged(CLIENT[client]["runs"] / "example" / "run", tmp_path)
     acceptance = judged.get("/api/run", params={"name": "example/run"}).json()["acceptance"]
     for report in (*acceptance["reports"], acceptance["validation"], acceptance["holdout"]):
         report["written"] = "<time>"
@@ -210,14 +214,10 @@ def test_an_llm_call_is_read_by_its_number_and_answers_with_the_snapshot_json(cl
 
 
 def test_the_round_in_progress_answers_with_the_snapshot_json(client, tmp_path):
-    # The example run as it read while its round was evaluated.
-    run_dir = tmp_path / "example" / "run"
-    shutil.copytree(RUNS[client] / "example" / "run", run_dir)
-    lines = (run_dir / "events.jsonl").read_text().splitlines(keepends=True)
-    cut = next(i for i, line in enumerate(lines) if json.loads(line)["type"] == "evaluation") + 1
-    (run_dir / "events.jsonl").write_text("".join(lines[:cut]))
-    state = json.loads((run_dir / "state.json").read_text())
-    (run_dir / "state.json").write_text(json.dumps({**state, "rounds": 0, "calls": 0, "stop": None}))
+    # The example run as it read while its round was evaluated: it crashed in the Evaluator.
+    config = write_config(tmp_path / "example", CLIENT[client]["components"], round=SETTINGS)
+    with crash_at(Evaluator, "evaluate"), pytest.raises(Interrupted):
+        run(config, FakeLLM(lambda number, directions: ROUND), CLIENT[client]["cache"])
     running = TestClient(create_app(tmp_path)).get("/api/run", params={"name": "example/run"}).json()["running"]
     assert [p["stage"] for p in running["pending"]] == ["consistent", "proposed"]
     running = _shape(_times({**running, "calls": [{**c, "model": "<model>"} for c in running["calls"]]}))

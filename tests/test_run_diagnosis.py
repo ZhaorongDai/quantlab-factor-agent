@@ -14,6 +14,8 @@ diagnosis's rules (every Gate refusal is final: no retries):
   three noise candidates below the t threshold; round 2 rewrites quiet
   volume five times and proposes a dollar-volume copy of it, refused for its
   correlation.
+- *referenced*, KLEN in the reference pool and not a known factor, one
+  round of six slots, each a rewrite of KLEN.
 """
 
 import pytest
@@ -109,6 +111,12 @@ def repeats(market):
     return _run(market, "repeats", _repeats, 2, 6)
 
 
+@pytest.fixture(scope="module")
+def referenced(market):
+    return _run(market, "referenced", lambda number, directions: [_klen_rewrite(i) for i in range(6)], 1, 6,
+                reference=[_klen(market["components"])])
+
+
 def test_the_diagnosis_holds_at_most_three_findings_the_one_touching_the_most_trials_first(troubled):
     assert troubled.summary.trials == 24
     assert [(f.rule, f.trials) for f in troubled.diagnosis] == [
@@ -120,6 +128,10 @@ def test_a_factor_of_the_users_collided_with_more_than_five_times_is_named_with_
     assert KLEN in finding.seen and "8" in finding.seen
     assert "research directions" in finding.do and "known factors" in finding.do
 
+
+def test_collisions_with_a_reference_factor_are_no_finding_however_many(referenced):
+    assert [t.collisions[0].known for t in referenced.trials] == [False] * 6
+    assert referenced.diagnosis == ()
 
 
 def test_unreadable_replies_and_graph_build_failures_are_found_with_what_to_do(troubled):

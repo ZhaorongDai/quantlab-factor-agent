@@ -86,6 +86,23 @@ def test_listing_finds_every_run_under_the_folder_even_one_whose_first_round_is_
     assert (fresh.rounds, fresh.trials, fresh.accepted, fresh.stop) == (0, 0, 0, None)
 
 
+def test_the_listing_summarises_each_run_as_reading_the_run_does(runs):
+    for summary in list_runs(runs):
+        assert summary == RunView.read(runs / summary.name, name=summary.name).summary
+        assert summary.unreadable is None
+
+
+def test_a_run_whose_files_cannot_be_read_is_listed_as_unreadable_without_breaking_the_listing(runs, tmp_path):
+    for name in ("finished", "broken"):
+        shutil.copytree(runs / "finished" / "run", tmp_path / name)
+    (tmp_path / "broken" / "state.json").write_text('{"rounds": 2, "sto')
+    listed = _by_name(tmp_path)
+    assert listed["finished"].unreadable is None and listed["finished"].trials == 8
+    broken = listed["broken"]
+    assert "state.json" in broken.unreadable
+    assert (broken.rounds, broken.trials, broken.accepted, broken.stop) == (0, 0, 0, None)
+
+
 def test_the_listing_shows_the_latest_activity_first(runs):
     times = [summary.updated for summary in list_runs(runs)]
     assert times == sorted(times, reverse=True)

@@ -3,11 +3,14 @@
 Every LLM role is a fake that reports token counts as an OpenAI-compatible
 provider does. ``finished`` ran two rounds of four slots to its round
 limit. ``mid`` was cut by a crash at its first reviewer call of round 2 of
-4, in this process, which is still running. ``resumed`` is ``mid`` resumed
+4, in this process, which is still running; the call failed a second
+after it was sent. ``resumed`` is ``mid`` resumed
 and cut at the same call again. ``crashed`` crashed at its first reviewer
 call in a process of its own that has exited. ``again`` is ``finished``
-resumed with the same round limit, so it stops at once. ``old`` is ``mid``
-as a campaign without an events file leaves it.
+resumed with the same round limit, so it stops at once. ``evaluating``
+crashed in the Evaluator in its first round, and ``planning`` between the
+end of its first round and the first call of its second, both in this
+process. ``old`` is ``mid`` as a campaign without an events file leaves it.
 """
 
 import json
@@ -15,17 +18,19 @@ import shutil
 import subprocess
 import sys
 import textwrap
+import time
 from datetime import timedelta
 from pathlib import Path
 
 import pytest
 
-from factor_agent import _admission
+from factor_agent import _admission, _scheduler
 from factor_agent.config import AdmissionConfig
+from factor_agent.evaluator import Evaluator
 from factor_agent.llm.base import Reply
 from factor_agent.web.run_view import RoundTokens, RunView, Tokens
 from tests import synthetic_market
-from tests.campaign_runner import candidate, run, write_config
+from tests.campaign_runner import candidate, crash_at, run, write_config
 from tests.fake_llm import FakeLLM, Interrupted, round_of
 
 ROUND_1 = [
@@ -73,6 +78,14 @@ def at_round_2_review(request):
     return request.role == "reviewer" and round_of(request.prompt) == 2
 
 
+def slowly_at_round_2_review(request):
+    """``at_round_2_review``, the failing call taking a second."""
+    if at_round_2_review(request):
+        time.sleep(1)
+        return True
+    return False
+
+
 CRASH = textwrap.dedent("""
     import sys
     from pathlib import Path
@@ -94,7 +107,7 @@ def runs(tmp_path_factory):
 
     mid = write_config(root / "mid", components, round={**ROUND, "max_rounds": 4})
     with pytest.raises(Interrupted):
-        run(mid, CountingLLM(propose, interrupt=at_round_2_review), cache)
+        run(mid, CountingLLM(propose, interrupt=slowly_at_round_2_review), cache)
 
     shutil.copytree(root / "mid" / "run", root / "resumed" / "run")
     resumed = write_config(root / "resumed", components, round={**ROUND, "max_rounds": 4})
@@ -108,6 +121,14 @@ def runs(tmp_path_factory):
 
     shutil.copytree(root / "finished" / "run", root / "again" / "run")
     run(write_config(root / "again", components, round={**ROUND, "max_rounds": 2}), CountingLLM(propose), cache)
+
+    evaluating = write_config(root / "evaluating", components, round={**ROUND, "max_rounds": 2})
+    with crash_at(Evaluator, "evaluate"), pytest.raises(Interrupted):
+        run(evaluating, CountingLLM(propose), cache)
+
+    planning = write_config(root / "planning", components, round={**ROUND, "max_rounds": 2})
+    with crash_at(_scheduler, "quota", when=lambda number, *_: number == 2), pytest.raises(Interrupted):
+        run(planning, CountingLLM(propose), cache)
 
     shutil.copytree(root / "mid" / "run", root / "old" / "run")
     (root / "old" / "run" / "events.jsonl").unlink()
@@ -129,6 +150,14 @@ def test_a_run_asking_the_llm_stalls_when_no_call_came_for_fifteen_minutes(runs)
     assert last is not None and not _health(runs, "mid").stalled
     assert not _health(runs, "mid", now=last + timedelta(minutes=14)).stalled
     assert _health(runs, "mid", now=last + timedelta(minutes=16)).stalled
+
+
+def test_a_call_that_came_back_keeps_a_run_asking_the_llm_from_stalling_as_one_sent_does(runs):
+    view = RunView.read(runs / "mid" / "run")
+    reviewer = view.running.calls[-1]
+    assert reviewer.role == "reviewer" and reviewer.returned - reviewer.sent >= timedelta(seconds=1)
+    assert not _health(runs, "mid", now=reviewer.sent + timedelta(minutes=15, seconds=0.5)).stalled
+    assert _health(runs, "mid", now=reviewer.returned + timedelta(minutes=15, seconds=0.5)).stalled
 
 
 def test_a_run_whose_process_exited_without_recording_a_stop_reads_as_crashed(runs):
@@ -159,21 +188,8 @@ def test_the_trials_page_places_each_trial_against_the_threshold_admission_judge
     assert view.threshold == pytest.approx(expected)
 
 
-def _when(runs, tmp_path, kind: str, nth: int = 1) -> Path:
-    """``finished`` as it read just after its ``nth`` event of type ``kind``: a copy cut there, its state with it."""
-    shutil.copytree(runs / "finished" / "run", tmp_path / "run")
-    path = tmp_path / "run" / "events.jsonl"
-    lines = path.read_text().splitlines(keepends=True)
-    cut = [i for i, line in enumerate(lines) if json.loads(line)["type"] == kind][nth - 1] + 1
-    path.write_text("".join(lines[:cut]))
-    written = sum(json.loads(line)["type"] == "round_end" for line in lines[:cut])
-    state = json.loads((tmp_path / "run" / "state.json").read_text())
-    (tmp_path / "run" / "state.json").write_text(json.dumps({**state, "rounds": written, "stop": None}))
-    return tmp_path / "run"
-
-
-def test_a_run_evaluating_its_round_stalls_after_thirty_minutes_of_evaluation(runs, tmp_path):
-    run_dir = _when(runs, tmp_path, "evaluation")
+def test_a_run_evaluating_its_round_stalls_after_thirty_minutes_of_evaluation(runs):
+    run_dir = runs / "evaluating" / "run"
     health = RunView.read(run_dir).health
     assert (health.phase, health.round) == ("evaluating", 1)
     # The evaluation starts as soon as the round's last call is back.
@@ -182,8 +198,8 @@ def test_a_run_evaluating_its_round_stalls_after_thirty_minutes_of_evaluation(ru
     assert RunView.read(run_dir, now=started + timedelta(minutes=31)).health.stalled
 
 
-def test_a_run_whose_round_is_written_is_planning_the_next_and_never_stalls(runs, tmp_path):
-    run_dir = _when(runs, tmp_path, "round_end")
+def test_a_run_whose_round_is_written_is_planning_the_next_and_never_stalls(runs):
+    run_dir = runs / "planning" / "run"
     health = RunView.read(run_dir).health
     assert (health.phase, health.round) == ("planning", 2)
     assert not RunView.read(run_dir, now=health.last_call + timedelta(hours=2)).health.stalled

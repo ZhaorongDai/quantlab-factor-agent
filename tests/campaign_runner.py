@@ -1,6 +1,8 @@
 """Run a campaign from a YAML config on the synthetic store, with the fake LLM as its backends."""
 
 import json
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
@@ -10,6 +12,7 @@ from factor_agent.campaign import Campaign
 from factor_agent.config import ROLES, CampaignConfig
 from quantlab.factor.kunquant_compile import CACHE_ENV
 from tests import synthetic_market
+from tests.fake_llm import Interrupted
 from tests.vocabulary_files import EXAMPLE_OPERATORS, PRICE_VOLUME
 
 def candidate(description: str, code: str, **overrides) -> dict:
@@ -64,3 +67,22 @@ def run(config_path: Path, fake, cache: Path):
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv(CACHE_ENV, str(cache))
         return Campaign(CampaignConfig.from_file(config_path), backends=fake.backends() if fake else None).run()
+
+
+@contextmanager
+def crash_at(target, name: str, when: Callable[..., bool] = lambda *args: True) -> Iterator[None]:
+    """Within it, ``target.name`` raises ``Interrupted`` when ``when`` holds for its arguments, as a crash there would.
+
+    For a crash where the fake LLM is not asked: in the Evaluator, say, or
+    between a round's end and the next round's first call.
+    """
+    original = getattr(target, name)
+
+    def crashing(*args, **kwargs):
+        if when(*args, **kwargs):
+            raise Interrupted(name)
+        return original(*args, **kwargs)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(target, name, crashing)
+        yield

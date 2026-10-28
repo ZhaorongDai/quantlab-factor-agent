@@ -14,6 +14,7 @@
       "partial_ic_mean": "<number>",
       "partial_ic_t": "<number>",
       "threshold": "<number>",
+      "threshold_source": "admission",
       "monotonicity": "<number>",
       "nearest": null,
       "nearest_known": {

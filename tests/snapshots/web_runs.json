@@ -9,6 +9,7 @@
       "by": "max_rounds",
       "reason": "the round limit of 1 rounds is reached"
     },
-    "updated": "<time>"
+    "updated": "<time>",
+    "unreadable": null
   }
 ]

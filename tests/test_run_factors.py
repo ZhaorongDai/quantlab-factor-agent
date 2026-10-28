@@ -95,6 +95,7 @@ def test_a_rounds_threshold_is_the_one_admission_judged_it_by(runs):
     factors = _factors(runs)
     assert factors[QUIET_VOLUME].threshold == pytest.approx(3.51, abs=0.005)
     assert factors["planted"].threshold == pytest.approx(_admission.t_threshold(AdmissionConfig(), 5))
+    assert {f.threshold_source for f in factors.values()} == {"admission"}
 
 
 def _without_events(runs, tmp_path) -> RunView:
@@ -110,8 +111,8 @@ def test_without_events_a_rounds_threshold_is_the_one_its_refusals_quote_carried
     noise = _ledger(runs)["noise"]["reasons"][0]
     assert "is below the threshold 3.51 at 3 evaluated trial(s)" in noise
     factors = {f.description: f for f in _without_events(runs, tmp_path).factors}
-    assert factors[QUIET_VOLUME].threshold == 3.51
-    assert factors["planted"].threshold == 3.51
+    assert (factors[QUIET_VOLUME].threshold, factors[QUIET_VOLUME].threshold_source) == (3.51, "refusals")
+    assert (factors["planted"].threshold, factors["planted"].threshold_source) == (3.51, "carried_over")
 
 
 def test_decile_monotonicity_is_the_one_admission_judged_in_the_factors_direction(runs):
