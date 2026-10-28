@@ -31,6 +31,7 @@ if TYPE_CHECKING:
 #: Operators whose inputs may be reordered.
 COMMUTATIVE = frozenset({
     "Add", "Mul", "Max", "Min", "Equals", "And", "Or", "WindowedCorrelation", "WindowedCovariance", "EWCov",
+    "SessionCorr",
 })
 
 #: Elementwise operators folded when every input is a constant.

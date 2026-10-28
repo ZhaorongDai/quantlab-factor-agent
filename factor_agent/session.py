@@ -19,13 +19,20 @@ bars' ``close``). A graph reads them as it reads the bars' own columns.
 Nothing assumes a number of bars per session: a session is the bars the
 dataset cuts into one ``"1d"`` bar (``resample_labels``).
 
-Each aggregation is expanded into KunQuant accumulators: running sums that
-restart at each session's first bar and skip a missing value. An
-accumulator is named after what it accumulates, the canonical hash of the
-aggregation's input subgraph and the kind of sum (``<hash>_sum``,
-``<hash>_count``), because KunQuant's expression folding merges two
-accumulators only when their names are the same: two aggregations of one
-subgraph in one function, in one graph or in two, then share their sums.
+Each aggregation is expanded into KunQuant accumulators: running values
+that restart at each session's first bar and skip a missing value, sums
+(the count, the sum, sums of powers) or folds (the first, last, least and
+greatest value present). Moments are sums of the values less the session's
+first value, as quantlab's session statistics compute them, so that in
+float32 a price's deviations are not lost to its level. An accumulator is
+named after what it accumulates, the canonical hash of the aggregation's
+input subgraph (of each input's, joined, for two) and the kind
+(``<hash>_count``, ``<hash>_first``, ``<hash>_shifted_sumsq``...): one
+function builds one accumulator per name, and KunQuant's expression folding
+merges two accumulators only when their names are the same, so two
+aggregations of one subgraph in one function, in one graph or in two, share
+their sums (``SessionMean(x)`` and ``SessionStd(x)``: the count, the first
+value and the shifted sums of ``x`` and of its square).
 """
 
 from collections.abc import Callable, Mapping
@@ -33,12 +40,17 @@ from collections.abc import Callable, Mapping
 import numpy as np
 import xarray as xr
 from KunQuant.Op import Builder, ConstantOp, Input, OpBase, Output
-from KunQuant.ops import Accumulator, Equals, LessEqual, Select, SetAccumulator, SetInfOrNanToValue
+from KunQuant.ops import (
+    Accumulator, And, Equals, LessEqual, LessThan, Max, Min, Not, Select, SetAccumulator, SetInfOrNanToValue, Sqrt,
+)
 from KunQuant.Stage import Function
 from quantlab.factor.kunquant import FactorKunQuant
 from quantlab.factor.predefined.intraday import LAST_PRICE, SESSION_BARS_LEFT, SESSION_POSITION, session_inputs
 
-from factor_agent.aggregations import SessionAggregation, SessionMean
+from factor_agent.aggregations import (
+    SessionAggregation, SessionCorr, SessionCount, SessionFirst, SessionLast, SessionMax, SessionMean, SessionMin,
+    SessionSkew, SessionStd, SessionSum, SessionWeightedMean,
+)
 from factor_agent.gate._canonical import canonical_hashes
 from factor_agent.gate.graph import Graph, Node
 from factor_agent.gate.vocabulary import resolve_classes
@@ -59,11 +71,22 @@ def _present(value: OpBase) -> OpBase:
     return _zero_if_missing(value * 0.0 + 1.0)
 
 
+def _missing(value: OpBase) -> OpBase:
+    """Whether ``value`` is NaN or infinite."""
+    return LessEqual(_present(value), ConstantOp(0.0))
+
+
+def _nan_unless(condition: OpBase, value: OpBase) -> OpBase:
+    """Return ``value`` where ``condition`` holds, else NaN."""
+    return Select(condition, value, ConstantOp("nan"))
+
+
 class _Expansion:
-    """What an aggregation expands into: its session sums, named after their terms, over one function's inputs."""
+    """What an aggregation expands into: its running values, named after what they hold, over one function's inputs."""
 
     def __init__(self, inputs: dict[str, OpBase]):
         self._inputs = inputs
+        self._running: dict[str, OpBase] = {}
 
     def input(self, name: str) -> OpBase:
         """The function's ``Input`` of ``name``, added when the graphs did not read it."""
@@ -71,28 +94,139 @@ class _Expansion:
             self._inputs[name] = Input(name)
         return self._inputs[name]
 
-    def session_sum(self, term: OpBase, name: str) -> OpBase:
-        """The running sum of ``term`` over the session's bars up to the current one, a missing term adding 0.
+    def running(self, name: str, step: Callable[[OpBase], OpBase], start: float | str = 0.0) -> OpBase:
+        """The running value ``name`` over the session's bars up to the current one: ``step`` of its value before.
 
-        The sum restarts at the session's first bar; it is the KunQuant
-        accumulator ``name``, which must say what it sums.
+        The value before the session's first bar is ``start``. It is the
+        KunQuant accumulator ``name``, which must say what it holds: a
+        second call under the same name in one function gives the first's
+        value, whatever its ``step``.
         """
-        first = LessEqual(self.input(SESSION_POSITION), ConstantOp(0.0))
+        if name not in self._running:
+            position = self.input(SESSION_POSITION)
+            first = LessEqual(position, ConstantOp(0.0))
+            total = Accumulator(position, name, is_whole_time_required=True)
+            always = Equals(position, position)  # the position is finite
+            self._running[name] = SetAccumulator(total, always, step(Select(first, ConstantOp(start), total)))
+        return self._running[name]
+
+    def session_sum(self, term: OpBase, name: str) -> OpBase:
+        """The running sum of ``term`` over the session's bars up to the current one, a missing term adding 0."""
         value = _zero_if_missing(term)
-        total = Accumulator(value, name, is_whole_time_required=True)
-        always = Equals(value, value)  # the value is finite
-        return SetAccumulator(total, always, Select(first, value, total + value))
+        return self.running(name, lambda before: before + value)
+
+    def session_fold(self, x: OpBase, name: str, combine: Callable[[OpBase, OpBase], OpBase]) -> OpBase:
+        """``combine(held, x)`` over the values of ``x`` present in the session so far; NaN before the first."""
+        def step(held: OpBase) -> OpBase:
+            return Select(_missing(x), held, Select(_missing(held), x, combine(held, x)))
+        return self.running(name, step, "nan")
+
+    def first(self, x: OpBase, key: str) -> OpBase:
+        """The first value of ``x`` present in the session so far, NaN before it: ``SessionFirst``'s and the shift."""
+        return self.session_fold(x, f"{key}_first", lambda held, value: held)
 
 
-def _mean(expansion: _Expansion, inputs: list[OpBase], key: str) -> OpBase:
-    [x] = inputs
-    total = expansion.session_sum(x, f"{key}_sum")
-    count = expansion.session_sum(_present(x), f"{key}_count")
-    return Select(LessEqual(count, ConstantOp(0.0)), ConstantOp("nan"), total / count)
+def _count(expansion: _Expansion, inputs: list[OpBase], keys: list[str]) -> OpBase:
+    [x], [key] = inputs, keys
+    return expansion.session_sum(_present(x), f"{key}_count")
 
 
-#: How each aggregation expands: from its input operators and the key naming its sums, its value at each bar.
-_EXPANSIONS: dict[type, Callable[[_Expansion, list[OpBase], str], OpBase]] = {SessionMean: _mean}
+def _sum(expansion: _Expansion, inputs: list[OpBase], keys: list[str]) -> OpBase:
+    [x], [key] = inputs, keys
+    return expansion.session_sum(x, f"{key}_sum")
+
+
+def _shifted_sums(expansion: _Expansion, x: OpBase, key: str, powers: int) -> list[OpBase]:
+    """The session sums of the first ``powers`` powers of ``x`` less its session's first value.
+
+    A price's deviations in a session are orders below its level: float32
+    sums of the prices themselves would lose them to cancellation, sums of
+    the values shifted by the session's first value keep them (as
+    quantlab's session statistics do).
+    """
+    shifted = x - expansion.first(x, key)
+    terms = {
+        "shifted_sum": shifted, "shifted_sumsq": shifted * shifted, "shifted_sumcube": shifted * shifted * shifted,
+    }
+    return [expansion.session_sum(term, f"{key}_{kind}") for kind, term in list(terms.items())[:powers]]
+
+
+def _mean(expansion: _Expansion, inputs: list[OpBase], keys: list[str]) -> OpBase:
+    [x], [key] = inputs, keys
+    count = _count(expansion, inputs, keys)
+    [s1] = _shifted_sums(expansion, x, key, 1)
+    return _nan_unless(LessThan(ConstantOp(0.0), count), expansion.first(x, key) + s1 / count)
+
+
+def _std(expansion: _Expansion, inputs: list[OpBase], keys: list[str]) -> OpBase:
+    [x], [key] = inputs, keys
+    n = _count(expansion, inputs, keys)
+    s1, s2 = _shifted_sums(expansion, x, key, 2)
+    m2 = Max(s2 - s1 * s1 / n, ConstantOp(0.0))
+    # The unbiased standard deviation, as pandas and KunQuant's windows give it.
+    return _nan_unless(LessThan(ConstantOp(1.0), n), Sqrt(m2 / (n - 1.0)))
+
+
+def _skew(expansion: _Expansion, inputs: list[OpBase], keys: list[str]) -> OpBase:
+    [x], [key] = inputs, keys
+    n = _count(expansion, inputs, keys)
+    s1, s2, s3 = _shifted_sums(expansion, x, key, 3)
+    mean = s1 / n
+    m2 = s2 - s1 * mean
+    m3 = s3 - mean * s2 * 3.0 + mean * mean * s1 * 2.0
+    # The unbiased skewness, as pandas and KunQuant's windows give it.
+    skew = Sqrt(n * (n - 1.0)) / (n - 2.0) * Sqrt(n) * m3 / (m2 * Sqrt(m2))
+    return _nan_unless(And(LessThan(ConstantOp(2.0), n), LessThan(ConstantOp(0.0), m2)), skew)
+
+
+def _first(expansion: _Expansion, inputs: list[OpBase], keys: list[str]) -> OpBase:
+    [x], [key] = inputs, keys
+    return expansion.first(x, key)
+
+
+def _last(expansion: _Expansion, inputs: list[OpBase], keys: list[str]) -> OpBase:
+    [x], [key] = inputs, keys
+    return expansion.session_fold(x, f"{key}_last", lambda held, value: value)
+
+
+def _min(expansion: _Expansion, inputs: list[OpBase], keys: list[str]) -> OpBase:
+    [x], [key] = inputs, keys
+    return expansion.session_fold(x, f"{key}_min", Min)
+
+
+def _max(expansion: _Expansion, inputs: list[OpBase], keys: list[str]) -> OpBase:
+    [x], [key] = inputs, keys
+    return expansion.session_fold(x, f"{key}_max", Max)
+
+
+def _weighted_mean(expansion: _Expansion, inputs: list[OpBase], keys: list[str]) -> OpBase:
+    (x, w), key = inputs, "_".join(keys)
+    both = _present(x) * _present(w)
+    weight = expansion.session_sum(w * both, f"{key}_weight")
+    shifted = expansion.session_sum((x - expansion.first(x, keys[0])) * w * both, f"{key}_shifted_weighted_sum")
+    return _nan_unless(Not(Equals(weight, ConstantOp(0.0))), expansion.first(x, keys[0]) + shifted / weight)
+
+
+def _corr(expansion: _Expansion, inputs: list[OpBase], keys: list[str]) -> OpBase:
+    key = "_".join(keys)
+    both = _present(inputs[0]) * _present(inputs[1])
+    # Each input less its first value present in the session, which comes no later than the pair's first bar.
+    x, y = ((value - expansion.first(value, k)) * both for value, k in zip(inputs, keys))
+    n = expansion.session_sum(both, f"{key}_count")
+    sx, sy = (expansion.session_sum(v, f"{key}_shifted_sum_{i}") for i, v in enumerate((x, y)))
+    sxx, syy = (expansion.session_sum(v * v, f"{key}_shifted_sumsq_{i}") for i, v in enumerate((x, y)))
+    sxy = expansion.session_sum(x * y, f"{key}_shifted_cross")
+    xx, yy, xy = sxx - sx * sx / n, syy - sy * sy / n, sxy - sx * sy / n
+    return _nan_unless(And(LessThan(ConstantOp(0.0), xx), LessThan(ConstantOp(0.0), yy)), xy / Sqrt(xx * yy))
+
+
+#: How each aggregation expands: from its input operators and the keys naming their sums (the canonical hash of
+#: each input's subgraph), its value at each bar.
+_EXPANSIONS: dict[type, Callable[[_Expansion, list[OpBase], list[str]], OpBase]] = {
+    SessionMean: _mean, SessionSum: _sum, SessionCount: _count, SessionStd: _std, SessionSkew: _skew,
+    SessionFirst: _first, SessionLast: _last, SessionMin: _min, SessionMax: _max,
+    SessionWeightedMean: _weighted_mean, SessionCorr: _corr,
+}
 
 
 def session_function(graphs: Mapping[str, Graph]) -> Function:
@@ -115,10 +249,7 @@ def session_function(graphs: Mapping[str, Graph]) -> Function:
             raise ValueError(f"SessionFactor: graph {name} does not end in a session aggregation")
         hashes = canonical_hashes(graph)
         # Graph.build makes the operators in node order, so the aggregations' keys follow it too.
-        keys = iter([
-            "_".join(hashes[i] for i in node.inputs)
-            for node in graph.nodes if _is_aggregation(graph, node)
-        ])
+        keys = iter([[hashes[i] for i in node.inputs] for node in graph.nodes if _is_aggregation(graph, node)])
         output, new = graph.build(inputs)
         replaced: dict[OpBase, OpBase] = {}
         for op in new:
