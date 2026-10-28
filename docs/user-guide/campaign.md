@@ -35,6 +35,7 @@ data:
   prices: {...}                                   # the whole-market price dataset
   label: /path/to/quantlab/labels/market/ret_5       # a forward label store
   membership: {...}                               # the members of each day, or omitted
+  intraday: {...}                                 # the whole-market intraday bars, for an intraday family
 scoring:
   neutralize:
     exposures: {...}
@@ -56,6 +57,13 @@ default.
 
 An output of a known factor that the reference set already holds is taken from the
 reference set only, so whole classes can be listed in `known`.
+
+`intraday` is the dataset an intraday family's fields read (one-minute trade bars, with
+`configs/fields/massive_minute_bars.yaml` as their field file): a campaign that opens an
+intraday family must name it, and the run keeps it with its snapshot, so a resume with
+another intraday dataset is refused as a resume with other field files is. A candidate's
+session values are matched to the price dataset by date and by symbol label, so
+permatickers of the intraday bars find the same labels of the daily bars.
 
 Every stored reference or baseline factor is read from its store's first bar, so a store
 that starts after the training segment (an intraday store from 2016, say) is empty there.

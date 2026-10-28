@@ -98,8 +98,9 @@ class RunSnapshot:
         """Open ``run_dir`` with the files of ``search``, the code ``versions`` it runs on and its ``settings``.
 
         A first start copies the files, under their ``SearchFiles.names``, and
-        records ``settings`` (by section, the config settings the prompts
-        depend on, such as ``{"context": {"recent_rounds": 5}}``); a resume
+        records ``settings`` (by section, the config settings the search
+        depends on besides the files, such as ``{"context": {"recent_rounds": 5}}``
+        and, with an intraday family, ``{"intraday": {"dataset": ...}}``); a resume
         checks the files against the copies and the settings against the
         recorded ones. Either way ``versions`` is appended to the recorded versions.
 
