@@ -38,6 +38,8 @@ export type Trial = {
   stats: Record<string, number> | null
   metrics: Record<string, unknown> | null
   collisions: Collision[]
+  // Whether the graph the Gate built holds a session aggregation; false without a graph.
+  intraday: boolean
 }
 
 export type LineChange = { change: 'kept' | 'added' | 'removed'; line: string }
@@ -79,6 +81,8 @@ export type Factor = {
   decile_returns: (number | null)[]
   coverage: number | null
   metrics: Record<string, unknown>
+  // Whether its graph holds a session aggregation.
+  intraday: boolean
 }
 
 export type Tokens = { input: number | null; output: number | null; cache_hits: number | null; reasoning: number | null }

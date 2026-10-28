@@ -1,4 +1,108 @@
 {
+  "trials": [
+    {
+      "round": 1,
+      "slot": 0,
+      "status": "accepted",
+      "stage": "admission",
+      "reasons": [],
+      "candidate": {
+        "hypothesis": "Hypothesis behind planted.",
+        "mechanism_type": "risk_compensation",
+        "horizon_rationale": "Resolves within a week.",
+        "description": "planted",
+        "code": "alpha = close / open"
+      },
+      "direction": {
+        "mechanism_type": "risk_compensation",
+        "action": "new",
+        "parent": "",
+        "direction": "a risk_compensation direction"
+      },
+      "attempts": [],
+      "stats": {
+        "nodes": 3,
+        "operators": 1,
+        "free_parameters": 0,
+        "free_parameter_ratio": "<number>",
+        "base_fields": [
+          "close",
+          "open"
+        ],
+        "dimension": "pure number"
+      },
+      "metrics": {
+        "ic_mean": "<number>",
+        "ic_t": "<number>",
+        "partial_ic_mean": "<number>",
+        "partial_ic_t": "<number>",
+        "nearest": "",
+        "nearest_correlation": null,
+        "nearest_known": "KLEN (Alpha158Stock, a known factor)",
+        "nearest_known_correlation": "<number>",
+        "decile_returns": [
+          "<number>",
+          "<number>",
+          "<number>",
+          "<number>",
+          "<number>",
+          "<number>",
+          "<number>",
+          "<number>",
+          "<number>",
+          "<number>"
+        ],
+        "coverage": "<number>",
+        "n_days": 515,
+        "start": "2010-01-01",
+        "end": "2011-12-22"
+      },
+      "collisions": [],
+      "intraday": false
+    },
+    {
+      "round": 1,
+      "slot": 1,
+      "status": "failed",
+      "stage": "gate",
+      "reasons": [
+        "line 1: name SecretOp is not in the vocabulary (its fields, operators and builtins)"
+      ],
+      "candidate": {
+        "hypothesis": "Hypothesis behind unknown name.",
+        "mechanism_type": "liquidity",
+        "horizon_rationale": "Resolves within a week.",
+        "description": "unknown name",
+        "code": "alpha = SecretOp(close)"
+      },
+      "direction": {
+        "mechanism_type": "liquidity",
+        "action": "new",
+        "parent": "",
+        "direction": "a liquidity direction"
+      },
+      "attempts": [
+        {
+          "item": {
+            "hypothesis": "Hypothesis behind unknown name.",
+            "mechanism_type": "liquidity",
+            "horizon_rationale": "Resolves within a week.",
+            "description": "unknown name",
+            "code": "alpha = SecretOp(close)"
+          },
+          "stage": "gate",
+          "reasons": [
+            "line 1: name SecretOp is not in the vocabulary (its fields, operators and builtins)"
+          ],
+          "hints": []
+        }
+      ],
+      "stats": null,
+      "metrics": null,
+      "collisions": [],
+      "intraday": false
+    }
+  ],
   "evaluated": [
     {
       "round": 1,

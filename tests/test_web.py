@@ -177,7 +177,7 @@ def test_a_run_whose_distiller_has_written_nothing_answers_with_no_memory_versio
 
 def test_a_runs_trials_page_answers_with_the_snapshot_json(client):
     run_json = client.get("/api/run", params={"name": "example/run"}).json()
-    trials = _shape({key: run_json[key] for key in ("evaluated", "threshold", "never_evaluated")})
+    trials = _shape({key: run_json[key] for key in ("trials", "evaluated", "threshold", "never_evaluated")})
     if os.environ.get("FACTOR_AGENT_UPDATE_SNAPSHOTS"):
         TRIALS.write_text(json.dumps(trials, indent=2) + "\n")
     assert trials == json.loads(TRIALS.read_text())
