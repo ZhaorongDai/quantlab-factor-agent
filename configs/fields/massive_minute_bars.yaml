@@ -1,6 +1,8 @@
-# One-minute trade bars: Massive's trades cut into one-minute bars of each regular session, on
-# permatickers, as quantlab's PermatickerTradeBarDataset reads them; the campaign config names the
-# dataset as data.intraday, beside the daily prices.
+# One-minute trade bars: Massive's trades cut into one-minute bars of each regular session, mapped
+# onto Sharadar's permatickers (quantlab's MappedTradeBarDataset, massive_permaticker_bars_1m) and
+# read on SEP's roster; the campaign config names the dataset as data.intraday, beside the daily
+# prices (configs/us3000_intraday_ret5.yaml). A bar is stamped at its end: the 14:31 UTC bar holds
+# the trades after 14:30 up to 14:31.
 #
 # An intraday family: candidate code computes on each session's bars (its intraday stage) and reduces
 # each session to one value per stock and day with a session aggregation (SessionMean, ...), which the
@@ -9,6 +11,8 @@
 # session_position, session_bars_left and last_price.
 #
 # - A price is missing on a bar without a trade; a volume, a dollar volume or a trade count is 0 there.
+# - The auction columns are left out: each is one print on one bar of the session, and the closing
+#   cross reaches the tape after the close, on the session's last bar.
 # - No bar count is assumed: a half day has fewer bars, and a stock that did not trade at a session's
 #   start or end has no price there, but the bars are there.
 #
@@ -59,6 +63,14 @@ fields:
     column: sell_volume
     unit: shares
     description: shares of the bar's trades signed sells by the tick rule (a downtick, or a zero tick after one); 0 without a trade
+  - name: bar_offexchange_volume
+    column: offexchange_volume
+    unit: shares
+    description: shares of the bar's trades reported off exchange (through a trade reporting facility); 0 without a trade
+  - name: bar_oddlot_volume
+    column: oddlot_volume
+    unit: shares
+    description: shares of the bar's trades under 100 shares each (odd lots, fractional ones included); 0 without a trade
   - name: session_position
     column: session_position
     unit: 1

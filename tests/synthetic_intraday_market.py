@@ -49,7 +49,7 @@ EFFECT = 0.01
 COVERAGE_START = "2019-01-02"
 #: The columns of the minute bars: prices missing on a bar without a trade, volumes zero there.
 PRICES = ("open", "high", "low", "close")
-VOLUMES = ("volume", "dollar_volume", "n_trades", "buy_volume", "sell_volume")
+VOLUMES = ("volume", "dollar_volume", "n_trades", "buy_volume", "sell_volume", "offexchange_volume", "oddlot_volume")
 
 
 class AllMembers(IndexConstituentDataset):
@@ -127,6 +127,7 @@ def minute_bars() -> xr.Dataset:
         "open": open_, "high": np.maximum(open_, close) + spread, "low": np.minimum(open_, close) - spread,
         "close": close, "volume": volume, "dollar_volume": volume * close, "n_trades": np.ceil(volume / 100),
         "buy_volume": buy, "sell_volume": np.round((volume - buy) * 0.9),
+        "offexchange_volume": np.round(volume * 0.4), "oddlot_volume": np.round(volume * 0.1),
     }
     for name in PRICES:
         data[name] = np.where(traded, data[name], np.nan)
