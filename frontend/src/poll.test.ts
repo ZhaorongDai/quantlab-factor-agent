@@ -1,7 +1,7 @@
 // How a run is followed live and paused: when the page reads the run again and where its clock stands, run with `npm test`.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { clock, follow, pause, polled, read, resume } from './poll.ts'
+import { clock, follow, pausable, pause, polled, read, resume } from './poll.ts'
 
 const SERVER = Date.parse('2026-10-27T12:00:00Z')
 
@@ -37,4 +37,10 @@ test('resumed, the run is read again at once, even unchanged, and the clock move
   assert.equal(polled(resumed, 'v1', 9_000, true), 'read')
   const again = read(resumed, 'v1', SERVER + 8_000, 9_000)
   assert.equal(clock(again, 11_000), SERVER + 10_000)
+})
+
+test('pausing is offered only while the run can still change', () => {
+  assert.equal(pausable(false, false), true)
+  assert.equal(pausable(true, false), false)
+  assert.equal(pausable(false, true), false)
 })

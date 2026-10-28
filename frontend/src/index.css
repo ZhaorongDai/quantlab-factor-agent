@@ -157,10 +157,11 @@ table.tokens th { color: var(--mut); font-weight: 500 }
 /* The round in progress on the trials page */
 section.round { border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px }
 section.round h3 { font-size: 14px; margin: 0 0 6px }
-.timeline .lane { display: flex; align-items: center; gap: 8px; height: 20px }
-.timeline .role { width: 72px; flex: none; font-size: 12px; color: var(--mut) }
-.timeline .track { position: relative; flex: 1; height: 12px; border-bottom: 1px solid var(--line) }
-.timeline .mark { position: absolute; top: 1px; height: 10px; padding: 0; border: 0; border-radius: 3px; background: var(--acc); cursor: pointer }
+.timeline .lane { display: flex; align-items: flex-start; gap: 8px; padding: 2px 0 }
+.timeline .role { width: 72px; flex: none; font-size: 12px; line-height: 16px; color: var(--mut) }
+.timeline .rows { flex: 1; display: flex; flex-direction: column; gap: 2px }
+.timeline .track { position: relative; height: 16px; border-bottom: 1px solid var(--line) }
+.timeline .mark { position: absolute; top: 1px; height: 14px; padding: 0; border: 0; border-radius: 3px; background: var(--acc); cursor: pointer }
 .timeline .mark.out { background: color-mix(in srgb, var(--acc) 30%, transparent); outline: 1px dashed var(--acc); cursor: default }
 .timeline .mark.failed { background: var(--bad); cursor: default }
 .timeline .mark.picked { outline: 2px solid var(--fg); outline-offset: 1px }

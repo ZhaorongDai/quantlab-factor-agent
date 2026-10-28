@@ -10,6 +10,7 @@ import Memory from './Memory'
 import Results from './Results'
 import Selection from './Selection'
 import Trials from './Trials'
+import { pausable } from './poll'
 
 function useRunParam(): [string, (name: string) => void] {
   const [name, setName] = useState(new URLSearchParams(location.search).get('run') ?? '')
@@ -133,7 +134,7 @@ function RunPage({ name }: { name: string }) {
   if (!run) return error ? <p className="error">{error}</p> : <p className="muted">Loading…</p>
   return (
     <>
-      <Pages page={page} open={openPage}>{!run.summary.stop && <PauseButton live={live} />}</Pages>
+      <Pages page={page} open={openPage}>{pausable(run.summary.stop != null, run.health.crashed) && <PauseButton live={live} />}</Pages>
       <PausedBar live={live} />
       <Health run={run} clock={clock} />
       {error && <p className="error small">{error}</p>}

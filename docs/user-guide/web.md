@@ -73,7 +73,7 @@ The page reads the run again by itself whenever the run writes, checking every 5
 so it can stay open while the campaign runs. The browser tab's title counts the factors
 accepted since the page was opened and says when the run has stopped.
 
-While the run has not stopped, **Pause live updates** beside the page names holds the page
+While the run has neither stopped nor crashed, **Pause live updates** beside the page names holds the page
 still, to read or click a running round without anything moving. Paused, the page stands
 at the moment of the pause: the round's timeline, the times since the last call and the
 stall warnings do not move, and the run is not read again. A bar says since when the page
@@ -208,8 +208,10 @@ was opened stand out on the map for fifteen seconds.
 While the campaign runs, the round in progress sits between the bar and the map, as a
 timeline of its LLM calls in one lane per role (planner, proposer, reviewer) and a lane
 for the evaluation, from the end of the round before to now. A call still waiting for its
-reply is drawn open; a call that failed is marked. After a crash the round is marked as
-cut short: resuming the campaign drops it and runs it again. Click a call to read it in the side
+reply is drawn open; a call that failed is marked; calls asked side by side, as proposal
+groups do, are drawn on rows of their own. After a crash the round is marked as cut short,
+its timeline ends when the round was last heard of, and resuming the campaign drops it and
+runs it again. Click a call to read it in the side
 panel: its role, model, the time it came back and how long it took, its tokens (input,
 output and of those spent reasoning), the reply (JSON laid out to read), the model's
 reasoning when the provider returns it (open when the reply is empty) and the prompt

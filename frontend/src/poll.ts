@@ -24,6 +24,9 @@ export function polled(f: Follow, version: string, now: number, stopped: boolean
   return !stopped && now - f.at > REREAD_MS ? 'read' : 'same'
 }
 
+// Pausing is offered only while the run can still change: not once it stopped, nor once its campaign crashed.
+export const pausable = (stopped: boolean, crashed: boolean): boolean => !stopped && !crashed
+
 export const pause = (f: Follow, now: number): Follow => ({ ...f, paused: now })
 
 // Resumed, the next poll reads the run whatever its version.

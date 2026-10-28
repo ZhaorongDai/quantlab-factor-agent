@@ -5,6 +5,7 @@ import { useEffect, useState } from 'react'
 import * as api from './api'
 import type { Check, LLMCall, PendingTrial, RoundCall, RunningRound, Stage } from './api'
 import { duration } from './Health'
+import { rows } from './lanes'
 import { formatted } from './reply'
 
 // What the side panel reads: a trial (by "round.slot"), a call (by its call file's number) or a pending trial (slot).
@@ -36,17 +37,24 @@ function CallMark({ c, x, end, picked, pick }: {
     : c.number == null ? `${c.role}, sent ${time(c.sent)}: no reply yet${slots}`
       : `call ${c.number}, ${c.role}, back ${time(c.returned!)}${slots}: click to read it`
   return (
-    <button className={`mark ${state}${on ? ' picked' : ''}`} style={{ left: `${from}%`, width: `max(${to - from}%, 6px)` }}
+    <button className={`mark ${state}${on ? ' picked' : ''}`} style={{ left: `${from}%`, width: `max(${to - from}%, ${LEAST}%)` }}
             disabled={c.number == null} title={title} aria-label={title} onClick={() => pick({ call: c.number! })} />
   )
 }
 
+// The least width of a call on the timeline, in percent of it, so that a short call can still be clicked.
+const LEAST = 1.5
+
+// A crashed round's timeline ends when the round was last heard of, not at the page's clock, so that its calls are
+// not squeezed into the start of a timeline that keeps growing after the crash.
 function Timeline({ running, clock, crashed, picked, pick }: {
   running: RunningRound; clock: number; crashed: boolean; picked: Picked; pick: (p: Picked) => void
 }) {
-  const t0 = Date.parse(running.started), t1 = Math.max(clock, t0 + 1000)
-  const heard = Math.max(t0, ...running.calls.flatMap(c => [Date.parse(c.sent), c.returned ? Date.parse(c.returned) : 0]))
+  const t0 = Date.parse(running.started)
+  const heard = Math.max(t0, ...running.calls.flatMap(c => [Date.parse(c.sent), c.returned ? Date.parse(c.returned) : 0]),
+    running.evaluation ? Date.parse(running.evaluation) : 0)
   const end = crashed ? heard : clock
+  const t1 = Math.max(end, t0 + 1000)
   const x = (ms: number) => Math.min(100, Math.max(0, ((ms - t0) / (t1 - t0)) * 100))
   const roles = [...ROLES, ...new Set(running.calls.map(c => c.role).filter(r => !ROLES.includes(r)))]
   return (
@@ -54,25 +62,32 @@ function Timeline({ running, clock, crashed, picked, pick }: {
       {roles.map(role => (
         <div key={role} className="lane">
           <span className="role">{role}</span>
-          <div className="track">
-            {running.calls.filter(c => c.role === role).map((c, i) => (
-              <CallMark key={`${c.sent}-${i}`} c={c} x={x} end={end} picked={picked} pick={pick} />
+          <div className="rows">
+            {rows(running.calls.filter(c => c.role === role).map((c, i) => ({
+              from: x(Date.parse(c.sent)), to: x(c.returned ? Date.parse(c.returned) : end), item: { c, i },
+            })), LEAST).map((row, r) => (
+              <div key={r} className="track">
+                {row.map(({ c, i }) => <CallMark key={`${c.sent}-${i}`} c={c} x={x} end={end} picked={picked} pick={pick} />)}
+              </div>
             ))}
+            {!running.calls.some(c => c.role === role) && <div className="track" />}
           </div>
         </div>
       ))}
       <div className="lane">
         <span className="role">evaluation</span>
-        <div className="track">
-          {running.evaluation && (
-            <span className="mark evaluating"
-                  style={{ left: `${x(Date.parse(running.evaluation))}%`, right: crashed ? `${100 - x(heard)}%` : 0 }}
-                  title={`the Evaluator started at ${time(running.evaluation)}`} />
-          )}
+        <div className="rows">
+          <div className="track">
+            {running.evaluation && (
+              <span className="mark evaluating" style={{ left: `${x(Date.parse(running.evaluation))}%`, right: 0 }}
+                    title={`the Evaluator started at ${time(running.evaluation)}`} />
+            )}
+          </div>
         </div>
       </div>
       <div className="axis muted small">
-        <span>{time(running.started)}</span><span>{duration((t1 - t0) / 1000)} so far</span>
+        <span>{time(running.started)}</span>
+        <span>{duration((t1 - t0) / 1000)} {crashed ? `until it was last heard of, at ${time(new Date(heard).toISOString())}` : 'so far'}</span>
       </div>
     </div>
   )
