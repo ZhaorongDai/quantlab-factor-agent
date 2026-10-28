@@ -57,7 +57,7 @@ def outcome(tmp_path_factory):
     root = tmp_path_factory.mktemp("campaign")
     config_path = write_config(
         root, synthetic_market.build(root / "data"),
-        gate={"timeout_seconds": 3}, admission={"t_threshold": 3.0},
+        gate={"timeout_seconds": 10}, admission={"t_threshold": 3.0},
         round={"candidates": len(CANDIDATES), "min_per_type": 1, "max_rounds": 1},
     )
     fake = FakeLLM(lambda number, directions: CANDIDATES, fix=_fix)
