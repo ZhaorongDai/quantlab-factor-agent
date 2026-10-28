@@ -1,0 +1,113 @@
+{
+  "round": 1,
+  "started": "<time>",
+  "calls": [
+    {
+      "number": 1,
+      "role": "planner",
+      "model": "<model>",
+      "group": null,
+      "slots": [],
+      "sent": "<time>",
+      "returned": "<time>",
+      "error": null
+    },
+    {
+      "number": 2,
+      "role": "proposer",
+      "model": "<model>",
+      "group": 0,
+      "slots": [
+        0,
+        1
+      ],
+      "sent": "<time>",
+      "returned": "<time>",
+      "error": null
+    },
+    {
+      "number": 3,
+      "role": "reviewer",
+      "model": "<model>",
+      "group": 0,
+      "slots": [
+        0
+      ],
+      "sent": "<time>",
+      "returned": "<time>",
+      "error": null
+    }
+  ],
+  "evaluation": "<time>",
+  "pending": [
+    {
+      "slot": 0,
+      "stage": "consistent",
+      "direction": {
+        "mechanism_type": "risk_compensation",
+        "action": "new",
+        "parent": "",
+        "direction": "a risk_compensation direction"
+      },
+      "latest": {
+        "hypothesis": "Hypothesis behind planted.",
+        "mechanism_type": "risk_compensation",
+        "horizon_rationale": "Resolves within a week.",
+        "description": "planted",
+        "code": "alpha = close / open"
+      },
+      "checks": [
+        {
+          "by": "gate",
+          "step": "proposed",
+          "passed": true,
+          "stage": null,
+          "reasons": [],
+          "hints": [],
+          "time": "<time>"
+        },
+        {
+          "by": "reviewer",
+          "step": null,
+          "passed": true,
+          "stage": null,
+          "reasons": [
+            "consistent"
+          ],
+          "hints": [],
+          "time": "<time>"
+        }
+      ]
+    },
+    {
+      "slot": 1,
+      "stage": "proposed",
+      "direction": {
+        "mechanism_type": "liquidity",
+        "action": "new",
+        "parent": "",
+        "direction": "a liquidity direction"
+      },
+      "latest": {
+        "hypothesis": "Hypothesis behind unknown name.",
+        "mechanism_type": "liquidity",
+        "horizon_rationale": "Resolves within a week.",
+        "description": "unknown name",
+        "code": "alpha = SecretOp(close)"
+      },
+      "checks": [
+        {
+          "by": "gate",
+          "step": "proposed",
+          "passed": false,
+          "stage": "gate",
+          "reasons": [
+            "line 1: name SecretOp is not in the vocabulary (its fields, operators and builtins)"
+          ],
+          "hints": [],
+          "time": "<time>"
+        }
+      ]
+    }
+  ]
+}

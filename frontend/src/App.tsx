@@ -113,7 +113,7 @@ function RunPage({ name }: { name: string }) {
       <Pages page={page} open={openPage} />
       <Health run={run} clock={clock} />
       {error && <p className="error small">{error}</p>}
-      {page === 'memory' ? <Memory versions={run.memory} /> : page === 'trials' ? <Trials run={run} />
+      {page === 'memory' ? <Memory versions={run.memory} /> : page === 'trials' ? <Trials run={run} name={name} clock={clock} />
         : page === 'selection' ? <Selection run={run} /> : <Results run={run} select={() => openPage('selection')} />}
     </>
   )

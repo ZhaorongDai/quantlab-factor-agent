@@ -79,6 +79,66 @@ export type Health = {
   round_tokens: { round: number; tokens: Tokens }[]
 }
 
+// One check of a pending trial's candidate: the parser and the Gate on one version, or the reviewer's verdict.
+export type Check = {
+  by: 'gate' | 'reviewer'
+  step: 'proposed' | 'fixed' | 'rewritten' | null
+  passed: boolean
+  stage: 'parse' | 'gate' | null
+  reasons: string[]
+  hints: string[]
+  time: string
+}
+
+export type Stage = 'planned' | 'proposed' | 'fixed' | 'rewritten' | 'consistent' | 'inconsistent'
+
+// What is known so far of one slot of the round in progress.
+export type PendingTrial = {
+  slot: number
+  stage: Stage
+  direction: Record<string, string>
+  latest: unknown
+  checks: Check[]
+}
+
+// An LLM call of the round in progress: `number` (its call file's) is null while it is out, or when it failed.
+export type RoundCall = {
+  number: number | null
+  role: string
+  model: string
+  group: number | null
+  slots: number[]
+  sent: string
+  returned: string | null
+  error: string | null
+}
+
+export type RunningRound = {
+  round: number
+  started: string
+  calls: RoundCall[]
+  evaluation: string | null
+  pending: PendingTrial[]
+}
+
+// One LLM call in full, read by its call file's number.
+export type LLMCall = {
+  number: number
+  role: string
+  model: string
+  round: number | null
+  group: number | null
+  slots: number[]
+  time: string
+  seconds: number | null
+  tokens: Tokens
+  truncated: boolean | null
+  empty: boolean
+  prompt: string
+  reply: string
+  reasoning: string | null
+}
+
 // One finding of a run's diagnosis: what was seen and what to do.
 export type Finding = { rule: string; trials: number; seen: string; do: string }
 
@@ -94,6 +154,7 @@ export type Run = {
   acceptance: AcceptanceReports
   diagnosis: Finding[]
   health: Health
+  running: RunningRound | null
   now: string
 }
 
@@ -162,4 +223,6 @@ async function get<T>(url: string): Promise<T> {
 
 export const runs = () => get<RunSummary[]>('/api/runs')
 export const run = (name: string) => get<Run>(`/api/run?name=${encodeURIComponent(name)}`)
+export const call = (name: string, number: number) =>
+  get<LLMCall>(`/api/run/call?name=${encodeURIComponent(name)}&number=${number}`)
 export const version = (name: string) => get<string>(`/api/run/version?name=${encodeURIComponent(name)}`)

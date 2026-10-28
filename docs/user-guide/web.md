@@ -189,6 +189,33 @@ for an evaluated trial, its statistics in its direction (hover one for the raw v
 its round's threshold, nearest factors and coverage. Trials that arrived since the page
 was opened stand out on the map for fifteen seconds.
 
+### The round in progress
+
+While the campaign runs, the round in progress sits between the bar and the map, as a
+timeline of its LLM calls in one lane per role (planner, proposer, reviewer) and a lane
+for the evaluation, from the end of the round before to now. A call still waiting for its
+reply is drawn open; a call that failed is marked. After a crash the round is marked as
+cut short: resuming the campaign drops it and runs it again. Click a call to read it in the side
+panel: its role, model, the time it came back and how long it took, its tokens (input,
+output and of those spent reasoning), the reply (JSON laid out to read), the model's
+reasoning when the provider returns it (open when the reply is empty) and the prompt
+(folded). A flag says when the reply was cut off at the output limit, a sign to raise
+the backend's output token limit, or when it was empty. The slots the call concerned are
+listed; click one to read its pending trial.
+
+"Pending trials" opens one card per slot of the round's plan (see
+[Concepts](concepts.md)) with the stage it reached: planned, proposed, fixed after the
+Gate, rewritten after review, found consistent or found inconsistent by the reviewer.
+Click a card to read its research direction, its latest version, and the Gate's and the
+reviewer's outcomes so far, with the Gate's reasons and hints for a refused version and
+the reviewer's reason either way. A pending trial becomes a trial on the map or in the
+list below when the round is written. When a resume drops a round a crash left half
+written, its pending trials disappear; the round runs again under the same number.
+
+A run written by a campaign of an older version has no events file: it shows no
+timeline and no pending trials, and the health line counts the calls of the round in
+progress by role.
+
 ## The memory page
 
 Every `round.memory_every` rounds the distiller folds the trials since its last version

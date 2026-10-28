@@ -33,6 +33,11 @@ mechanism-type order; each group is proposed, fixed and reviewed by calls of its
 the groups' calls of a stage are sent at once. The Gate still checks the whole round in
 slot order, so a duplicate written in another group is refused.
 
+Each slot's candidate becomes a **trial** when its round is written to the ledger, with
+its final status: accepted, rejected or failed. Until then it is a **pending trial**: what
+is known so far of the slot in the round still running, its research direction, its
+latest version and the Gate's and the reviewer's outcomes until now.
+
 ## Factor sets
 
 | Set | What it is | A candidate must be |

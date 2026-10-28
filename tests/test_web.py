@@ -1,9 +1,11 @@
 """The frontend's HTTP routes over a run a real campaign wrote, and its console script.
 
 The JSON of the run list, of a run's accepted factors, of its Acceptance
-reports and of its health is compared with stored snapshots
-(``tests/snapshots/web_runs.json``, ``tests/snapshots/web_run_factors.json``,
-``tests/snapshots/web_run_acceptance.json``, ``tests/snapshots/web_run_health.json``), with the values that change from
+reports, of its health, of its round in progress and of one of its LLM
+calls is compared with stored snapshots (``tests/snapshots/web_runs.json``,
+``tests/snapshots/web_run_factors.json``, ``tests/snapshots/web_run_acceptance.json``,
+``tests/snapshots/web_run_health.json``, ``tests/snapshots/web_run_running.json``,
+``tests/snapshots/web_run_call.json``), with the values that change from
 run to run or machine to machine (the code version, the time, statistics)
 replaced. After a deliberate change of the
 JSON's shape, rewrite the snapshot with ``FACTOR_AGENT_UPDATE_SNAPSHOTS=1``.
@@ -32,6 +34,8 @@ FACTORS = Path(__file__).parent / "snapshots" / "web_run_factors.json"
 ACCEPTANCE = Path(__file__).parent / "snapshots" / "web_run_acceptance.json"
 TRIALS = Path(__file__).parent / "snapshots" / "web_run_trials.json"
 HEALTH = Path(__file__).parent / "snapshots" / "web_run_health.json"
+CALL = Path(__file__).parent / "snapshots" / "web_run_call.json"
+RUNNING = Path(__file__).parent / "snapshots" / "web_run_running.json"
 
 #: Each client's folder of runs.
 RUNS: dict = {}
@@ -182,6 +186,45 @@ def test_the_console_script_has_no_option_to_bind_another_interface(capsys):
     with pytest.raises(SystemExit):
         main(["runs", "--host", "0.0.0.0"])
     assert "unrecognized arguments: --host" in capsys.readouterr().err
+
+
+def _times(value):
+    """``value`` with every time replaced, as the contract does not fix them."""
+    if isinstance(value, dict):
+        return {key: "<time>" if key in ("time", "sent", "returned", "started", "evaluation") and item else _times(item)
+                for key, item in value.items()}
+    if isinstance(value, list):
+        return [_times(item) for item in value]
+    return value
+
+
+def test_an_llm_call_is_read_by_its_number_and_answers_with_the_snapshot_json(client):
+    call = client.get("/api/run/call", params={"name": "example/run", "number": 2}).json()
+    assert call["role"] == "proposer" and "<directions>" in call["prompt"]
+    call = _shape(_times({**call, "prompt": "<prompt>", "reply": "<reply>", "model": "<model>"}))
+    if os.environ.get("FACTOR_AGENT_UPDATE_SNAPSHOTS"):
+        CALL.write_text(json.dumps(call, indent=2) + "\n")
+    assert call == json.loads(CALL.read_text())
+    assert client.get("/api/run/call", params={"name": "example/run", "number": 99}).status_code == 404
+    assert client.get("/api/run/call", params={"name": "elsewhere", "number": 1}).status_code == 404
+
+
+def test_the_round_in_progress_answers_with_the_snapshot_json(client, tmp_path):
+    # The example run as it read while its round was evaluated.
+    run_dir = tmp_path / "example" / "run"
+    shutil.copytree(RUNS[client] / "example" / "run", run_dir)
+    lines = (run_dir / "events.jsonl").read_text().splitlines(keepends=True)
+    cut = next(i for i, line in enumerate(lines) if json.loads(line)["type"] == "evaluation") + 1
+    (run_dir / "events.jsonl").write_text("".join(lines[:cut]))
+    state = json.loads((run_dir / "state.json").read_text())
+    (run_dir / "state.json").write_text(json.dumps({**state, "rounds": 0, "calls": 0, "stop": None}))
+    running = TestClient(create_app(tmp_path)).get("/api/run", params={"name": "example/run"}).json()["running"]
+    assert [p["stage"] for p in running["pending"]] == ["consistent", "proposed"]
+    running = _shape(_times({**running, "calls": [{**c, "model": "<model>"} for c in running["calls"]]}))
+    if os.environ.get("FACTOR_AGENT_UPDATE_SNAPSHOTS"):
+        RUNNING.write_text(json.dumps(running, indent=2) + "\n")
+    assert running == json.loads(RUNNING.read_text())
+    assert client.get("/api/run", params={"name": "example/run"}).json()["running"] is None
 
 
 def test_a_run_answers_with_its_diagnosis_and_each_trials_collisions(client):

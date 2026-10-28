@@ -16,6 +16,13 @@ reads them while a campaign may be writing them:
   its phase, its calls and their tokens, its process, and the settings it
   was opened with. A run a campaign without events wrote has none of this
   but the calls of its round in progress, counted from its call files.
+- The round in progress is replayed from the events since the run was
+  last opened: its calls, and a pending trial per slot of its plan. A
+  round a resume dropped left its events before the resume, so it is not
+  among them. A run without events has no round in progress to show.
+- An LLM call is read by the number of its call file, from the file
+  itself: tokens, truncation and the model's reasoning are the provider's
+  reply's; what it concerned (round, slots) only the events file says.
 - A resumed run keeps the stop of its previous open in its state file until
   it stops again. With events, a stop counts only when a stop event follows
   the latest start or resume. Without, it counts only when the state file
@@ -63,6 +70,7 @@ from pathlib import Path
 import psutil
 
 from factor_agent import events
+from factor_agent.llm.base import Reply
 
 
 @dataclass(frozen=True)
@@ -435,6 +443,119 @@ class RoundTokens:
 
 
 @dataclass(frozen=True)
+class Check:
+    """One check of a pending trial's candidate: the parser and the Gate on one version of it, or the reviewer.
+
+    ``by`` is ``"gate"`` or ``"reviewer"``. For the Gate, ``step`` is the
+    version's: ``"proposed"`` (the first), ``"fixed"`` (sent back by the
+    parser or the Gate) or ``"rewritten"`` (sent back by the reviewer), and
+    ``stage`` is ``"parse"`` or ``"gate"`` when it refused the version,
+    ``None`` when it passed it. ``passed`` is true when the Gate passed the
+    version or the reviewer found it consistent. ``reasons`` are the Gate's
+    reasons for a refusal, or the reviewer's reason for its verdict either
+    way; ``hints`` are the Gate's.
+    """
+
+    by: str
+    step: str | None
+    passed: bool
+    stage: str | None
+    reasons: tuple[str, ...]
+    hints: tuple[str, ...]
+    time: datetime
+
+
+@dataclass(frozen=True)
+class PendingTrial:
+    """A pending trial: what is known so far of one slot of the round in progress.
+
+    ``stage`` is the furthest it went: ``"planned"`` (its research direction
+    is chosen), ``"proposed"``, ``"fixed"`` (after the Gate refused it),
+    ``"rewritten"`` (after the reviewer found it inconsistent), and
+    ``"consistent"`` or ``"inconsistent"`` as the reviewer last found it.
+    ``direction`` is its research direction as the plan gives it. ``latest``
+    is its latest version as the proposer wrote it, ``None`` before the
+    first. ``checks`` are the Gate's outcomes and the reviewer's verdicts
+    so far, the earliest first. It becomes a trial when its round is written.
+    """
+
+    slot: int
+    stage: str
+    direction: dict
+    latest: object
+    checks: tuple[Check, ...]
+
+
+@dataclass(frozen=True)
+class RoundCall:
+    """An LLM call of the round in progress, as the call timeline shows it.
+
+    ``number`` is its call file's number, by which ``read_call`` reads it;
+    ``None`` while it has not come back, or when it failed (``error`` says
+    how). ``group`` is its proposal group and ``slots`` the slots it
+    concerns; both are empty for the planner, whose call concerns the round.
+    ``sent`` and ``returned`` are when it was sent and came back (UTC).
+    """
+
+    number: int | None
+    role: str
+    model: str
+    group: int | None
+    slots: tuple[int, ...]
+    sent: datetime
+    returned: datetime | None
+    error: str | None
+
+
+@dataclass(frozen=True)
+class RunningRound:
+    """The round in progress, as its events tell since the run was last opened.
+
+    ``started`` is when the round before it was written, or the run was
+    opened when it is the first since. ``calls`` are its LLM calls in the
+    order they were sent, and ``evaluation`` when the Evaluator started on
+    it (``None`` before). ``pending`` holds a pending trial per slot of its
+    plan, in slot order; it is empty until the plan is made.
+    """
+
+    round: int
+    started: datetime
+    calls: tuple[RoundCall, ...]
+    evaluation: datetime | None
+    pending: tuple[PendingTrial, ...]
+
+
+@dataclass(frozen=True)
+class LLMCall:
+    """One LLM call of a run, in full, as its call file holds it.
+
+    ``number`` is the number of its call file. ``round``, ``group`` and
+    ``slots`` are the round, proposal group and slots it concerned, as the
+    events file says (``None`` and empty without one). ``time`` is when it
+    came back (UTC) and ``seconds`` how long it took (``None`` without an
+    events file). ``tokens``, ``truncated`` (cut off at the output limit,
+    ``None`` when the provider's reply does not say) and ``empty`` are read
+    from the provider's reply. ``reasoning`` is the model's reasoning when
+    the provider returns it, ``None`` otherwise.
+    """
+
+    number: int
+    role: str
+    model: str
+    round: int | None
+    group: int | None
+    slots: tuple[int, ...]
+    time: datetime
+    seconds: float | None
+    tokens: Tokens
+    truncated: bool | None
+    empty: bool
+    prompt: str
+    reply: str
+    reasoning: str | None
+
+
+@dataclass(frozen=True)
 class RunView:
     """A read-only snapshot of one run: its summary, the trials of its written rounds, its accepted factors and its memory.
 
@@ -453,8 +574,10 @@ class RunView:
     has written none. ``acceptance`` holds the run's Acceptance reports and
     hold-out opens. ``diagnosis`` holds at most three findings, the one
     concerning the most trials first; it is empty when no rule holds.
-    ``health`` is what the run is doing now. ``now`` is the time the view
-    describes (UTC).
+    ``health`` is what the run is doing now, and ``running`` the round in
+    progress: ``None`` when the run has stopped, or has no events file (its
+    health then counts the round's calls by role). ``now`` is the time the
+    view describes (UTC).
     """
 
     summary: RunSummary
@@ -468,6 +591,7 @@ class RunView:
     acceptance: AcceptanceReports
     diagnosis: tuple[Finding, ...]
     health: Health
+    running: RunningRound | None
     now: datetime
 
     @classmethod
@@ -514,7 +638,8 @@ class RunView:
                    correlation_limit=_correlation_limit(trials, replayed),
                    **_trials_page(trials, replayed), memory=_memory(run_dir / "memory"),
                    acceptance=_acceptance(run_dir), diagnosis=_diagnosis(trials),
-                   health=_health(run_dir, state, summary, replayed, now), now=now)
+                   health=_health(run_dir, state, summary, replayed, now),
+                   running=_running(summary, replayed), now=now)
 
 
 def run_version(run_dir: str | Path) -> str:
@@ -557,6 +682,58 @@ def list_runs(root: str | Path) -> list[RunSummary]:
 def find_run(root: str | Path, name: str) -> Path | None:
     """The run directory ``list_runs(root)`` names ``name``, ``None`` when it names none so."""
     return _run_dirs(Path(root)).get(name)
+
+
+def read_call(run_dir: str | Path, number: int) -> LLMCall | None:
+    """The LLM call of the run in ``run_dir`` whose call file has ``number``, ``None`` when it has none.
+
+    A call of a round a resume dropped is not read: its file is no longer
+    in the run's sequence of calls.
+    """
+    run_dir = Path(run_dir)
+    files = list((run_dir / "llm_log").glob(f"{number:06d}-*.json")) if number > 0 else []
+    if not files:
+        return None
+    path = files[0]
+    try:
+        call = _loads(path.read_text())
+    except (FileNotFoundError, json.JSONDecodeError):
+        return None
+    request, reply = call.get("request") or {}, call.get("reply") or {}
+    text = reply.get("text") or ""
+    facts = events.reply_facts(Reply(text=text, usage=reply.get("usage") or {}, model_id=reply.get("model_id") or "",
+                                     raw=reply.get("raw") or ""))
+    end = next((e for e in reversed(events.read(run_dir / events.FILE))
+                if isinstance(e, events.CallEnd) and e.file == path.name), None)
+    return LLMCall(
+        number=number, role=request.get("role") or path.stem.partition("-")[2], model=request.get("model") or "",
+        round=end.round if end else None, group=end.group if end else None, slots=tuple(end.slots) if end else (),
+        time=end.time if end else _time(path.stat().st_mtime), seconds=end.seconds if end else None,
+        tokens=Tokens(facts["input_tokens"], facts["output_tokens"], facts["cache_hits"], facts["reasoning"]),
+        truncated=facts["truncated"], empty=facts["empty"], prompt=request.get("prompt") or "", reply=text,
+        reasoning=_reasoning(reply.get("raw") or ""),
+    )
+
+
+def _reasoning(raw: str) -> str | None:
+    """The model's reasoning in a provider's raw reply: an OpenAI-compatible message's, or an Anthropic message's thinking."""
+    try:
+        value = json.loads(raw) if raw else {}
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(value, dict):
+        return None
+    choices = value.get("choices")
+    if isinstance(choices, list) and choices and isinstance(choices[0], dict):
+        message = choices[0].get("message") or {}
+        text = message.get("reasoning_content") or message.get("reasoning") if isinstance(message, dict) else None
+        return text if isinstance(text, str) and text else None
+    blocks = value.get("content")
+    if isinstance(blocks, list):
+        thinking = [b.get("thinking") for b in blocks if isinstance(b, dict) and b.get("type") == "thinking"]
+        text = "\n\n".join(t for t in thinking if isinstance(t, str) and t)
+        return text or None
+    return None
 
 
 def _run_dirs(root: Path) -> dict[str, Path]:
@@ -1042,6 +1219,63 @@ def _stalled(phase: str | None, replayed: _Events, now: datetime) -> bool:
         started = [e.time for e in replayed.current if isinstance(e, events.EvaluationStart)]
         return now - started[-1] > STALL_EVALUATING
     return False
+
+
+def _running(summary: RunSummary, replayed: _Events) -> RunningRound | None:
+    """The round in progress, from the events since the run was last opened; a round a resume dropped is not among them."""
+    if replayed.opened is None or summary.stop is not None:
+        return None
+    number = summary.rounds + 1
+    started = replayed.opened.time
+    calls: dict[int, RoundCall] = {}
+    evaluation = None
+    directions: list[dict] = []
+    stages: dict[int, str] = {}
+    latest: dict[int, object] = {}
+    checks: dict[int, list[Check]] = {}
+    for event in replayed.current:
+        if isinstance(event, events.RoundEnd):
+            started = event.time
+        if getattr(event, "round", None) != number:
+            continue
+        if isinstance(event, events.CallEnd):
+            sent = calls[event.call].sent if event.call in calls else event.time - timedelta(seconds=event.seconds)
+            calls[event.call] = RoundCall(
+                number=_call_number(event.file), role=event.role, model=event.model, group=event.group,
+                slots=tuple(event.slots), sent=sent, returned=event.time, error=event.error,
+            )
+        elif isinstance(event, events.CallStart):
+            calls[event.call] = RoundCall(number=None, role=event.role, model=event.model, group=event.group,
+                                          slots=tuple(event.slots), sent=event.time, returned=None, error=None)
+        elif isinstance(event, events.EvaluationStart):
+            evaluation = event.time
+        elif isinstance(event, events.Plan):
+            directions = event.directions
+            stages = dict.fromkeys(range(len(directions)), "planned")
+        elif isinstance(event, events.GateOutcome):
+            stages[event.slot], latest[event.slot] = event.step, event.item
+            checks.setdefault(event.slot, []).append(Check(
+                by="gate", step=event.step, passed=event.passed, stage=event.stage, reasons=tuple(event.reasons),
+                hints=tuple(event.hints), time=event.time,
+            ))
+        elif isinstance(event, events.ReviewVerdict):
+            stages[event.slot] = "consistent" if event.consistent else "inconsistent"
+            checks.setdefault(event.slot, []).append(Check(
+                by="reviewer", step=None, passed=event.consistent, stage=None, reasons=(event.reason,), hints=(),
+                time=event.time,
+            ))
+    pending = tuple(
+        PendingTrial(slot=slot, stage=stages[slot], direction=direction, latest=latest.get(slot),
+                     checks=tuple(checks.get(slot, ())))
+        for slot, direction in enumerate(directions)
+    )
+    return RunningRound(round=number, started=started, calls=tuple(calls.values()), evaluation=evaluation,
+                        pending=pending)
+
+
+def _call_number(file: str | None) -> int | None:
+    """The number of the call file named ``file``, as ``<number>-<role>.json``."""
+    return int(file.partition("-")[0]) if file else None
 
 
 def _process(opened: "events.Start | None") -> str:

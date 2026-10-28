@@ -1,9 +1,11 @@
 // The trials page: a numbers bar, the admission map of every evaluated trial (largest correlation with an existing
 // factor against the partial-IC t in the trial's direction), the trials that never reached the Evaluator grouped by
-// stage and reason, and one side panel reading the picked trial. Trials that arrive while the page is open stand out
-// for a while.
+// stage and reason, and one side panel reading the picked trial, LLM call or pending trial. While the campaign runs,
+// the round in progress sits between the bar and the map. Trials that arrive while the page is open stand out for a
+// while.
 import { useEffect, useRef, useState } from 'react'
 import type { Placed, Refusal, Run, Trial } from './api'
+import { CallReader, PendingReader, RoundStrip, type Picked } from './Round'
 
 const W = 720, H = 440, P = 44
 // How long a trial that arrived while the page was open stands out.
@@ -218,30 +220,38 @@ function Reader({ t, placed }: { t: Trial; placed: Placed | undefined }) {
   )
 }
 
-export default function Trials({ run }: { run: Run }) {
-  const [picked, pick] = useState<string | null>(null)
+export default function Trials({ run, name, clock }: { run: Run; name: string; clock: number }) {
+  const [picked, setPicked] = useState<Picked>(null)
   const fresh = useFresh(run.trials)
   const trials = new Map(run.trials.map(t => [key(t), t]))
   const placed = new Map(run.evaluated.map(p => [key(p), p]))
-  const open = picked ? trials.get(picked) : undefined
+  const pickedTrial = picked && 'trial' in picked ? picked.trial : null
+  const pick = (k: string) => setPicked({ trial: k })
+  const open = pickedTrial ? trials.get(pickedTrial) : undefined
+  let reader
+  if (picked && 'call' in picked) reader = <CallReader name={name} number={picked.call} pick={setPicked} />
+  else if (picked && 'slot' in picked) reader = <PendingReader p={run.running?.pending.find(p => p.slot === picked.slot)} />
+  else if (open) reader = <Reader t={open} placed={placed.get(key(open))} />
+  else reader = (
+    <p className="muted">
+      Click a point on the map, or a trial under “Never evaluated”, to read it: its research direction,
+      hypothesis, description, code, the versions refused before it and its statistics.
+      {run.running && ' Click a call of the round in progress, or a pending trial, to read it here too.'}
+    </p>
+  )
   return (
     <>
       <Numbers run={run} />
+      {run.running && <RoundStrip running={run.running} clock={clock} crashed={run.health.crashed}
+                                   picked={picked} pick={setPicked} />}
       <div className="trials-page">
         <div>
           {run.evaluated.length
-            ? <AdmissionMap run={run} picked={picked} fresh={fresh} pick={pick} />
+            ? <AdmissionMap run={run} picked={pickedTrial} fresh={fresh} pick={pick} />
             : <p className="muted">No trial has been evaluated yet.</p>}
-          <NeverEvaluated groups={run.never_evaluated} trials={trials} picked={picked} pick={pick} />
+          <NeverEvaluated groups={run.never_evaluated} trials={trials} picked={pickedTrial} pick={pick} />
         </div>
-        <aside className="reader">
-          {open ? <Reader t={open} placed={placed.get(key(open))} /> : (
-            <p className="muted">
-              Click a point on the map, or a trial under “Never evaluated”, to read it: its research direction,
-              hypothesis, description, code, the versions refused before it and its statistics.
-            </p>
-          )}
-        </aside>
+        <aside className="reader">{reader}</aside>
       </div>
     </>
   )

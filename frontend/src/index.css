@@ -154,3 +154,27 @@ table.pick tr.opened h4 { margin: 6px 0 2px; font-size: 12px }
 table.tokens { border-collapse: collapse; margin: 4px 0 }
 table.tokens th, table.tokens td { text-align: right; padding: 1px 8px; border-bottom: 1px solid var(--line) }
 table.tokens th { color: var(--mut); font-weight: 500 }
+/* The round in progress on the trials page */
+section.round { border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 8px 12px; margin-bottom: 12px }
+section.round h3 { font-size: 14px; margin: 0 0 6px }
+.timeline .lane { display: flex; align-items: center; gap: 8px; height: 20px }
+.timeline .role { width: 72px; flex: none; font-size: 12px; color: var(--mut) }
+.timeline .track { position: relative; flex: 1; height: 12px; border-bottom: 1px solid var(--line) }
+.timeline .mark { position: absolute; top: 1px; height: 10px; padding: 0; border: 0; border-radius: 3px; background: var(--acc); cursor: pointer }
+.timeline .mark.out { background: color-mix(in srgb, var(--acc) 30%, transparent); outline: 1px dashed var(--acc); cursor: default }
+.timeline .mark.failed { background: var(--bad); cursor: default }
+.timeline .mark.picked { outline: 2px solid var(--fg); outline-offset: 1px }
+.timeline .mark.evaluating { background: color-mix(in srgb, var(--good) 45%, transparent); cursor: default }
+.timeline .axis { display: flex; justify-content: space-between; margin-left: 80px }
+details.pending > summary { cursor: pointer; margin-top: 6px }
+details.pending .cards { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px }
+details.pending .card { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; min-width: 120px; padding: 4px 8px; font: inherit; font-size: 12px; color: var(--fg); background: var(--bg); border: 1px solid var(--line); border-left: 3px solid var(--mut); border-radius: 4px; cursor: pointer; text-align: left }
+details.pending .card.picked { outline: 2px solid var(--acc) }
+.st-proposed, .st-fixed, .st-rewritten { border-left-color: var(--acc) !important }
+.st-consistent { border-left-color: var(--good) !important }
+.st-inconsistent { border-left-color: var(--bad) !important }
+.card .stage { color: var(--mut) }
+aside.reader .flag { color: var(--bad); font-weight: 600; font-size: 12px }
+aside.reader .good { color: var(--good) }
+aside.reader .bad { color: var(--bad) }
+aside.reader pre.code { white-space: pre-wrap; overflow-wrap: anywhere; max-height: 50vh; overflow: auto }

@@ -14,11 +14,17 @@ Reading runs
    factor_agent.web.run_view.list_runs
    factor_agent.web.run_view.find_run
    factor_agent.web.run_view.run_version
+   factor_agent.web.run_view.read_call
    factor_agent.web.run_view.RunView
    factor_agent.web.run_view.RunSummary
    factor_agent.web.run_view.Health
    factor_agent.web.run_view.Tokens
    factor_agent.web.run_view.RoundTokens
+   factor_agent.web.run_view.RunningRound
+   factor_agent.web.run_view.RoundCall
+   factor_agent.web.run_view.PendingTrial
+   factor_agent.web.run_view.Check
+   factor_agent.web.run_view.LLMCall
    factor_agent.web.run_view.Trial
    factor_agent.web.run_view.Collision
    factor_agent.web.run_view.Factor
