@@ -11,6 +11,7 @@ import Results from './Results'
 import Selection from './Selection'
 import Trials from './Trials'
 import { pausable } from './poll'
+import { series } from './series'
 
 function useRunParam(): [string, (name: string) => void] {
   const [name, setName] = useState(new URLSearchParams(location.search).get('run') ?? '')
@@ -93,14 +94,45 @@ function ago(iso: string): string {
   return `${Math.round(seconds / 86400)} days ago`
 }
 
-const version = (v: string) => (v.length > 12 && !v.startsWith('unknown') ? v.slice(0, 7) + (v.endsWith('+dirty') ? '+dirty' : '') : v)
+const shortCommit = (v: string) => (v.length > 12 && !v.startsWith('unknown') ? v.slice(0, 7) + (v.endsWith('+dirty') ? '+dirty' : '') : v)
 
-function State({ summary }: { summary: RunSummary }) {
-  if (summary.unreadable) return <span className="error" title={summary.unreadable}>unreadable: {summary.unreadable}</span>
-  if (!summary.stop) return <span>not stopped</span>
-  return <span title={summary.stop.reason}>stopped: {summary.stop.reason}</span>
+const STATE: Record<RunSummary['state'], string> = {
+  stopped: 'stopped', running: 'running', crashed: 'crashed', unknown: 'not stopped',
 }
 
+// One run of a series: what it accepted as the headline, then how far it got and why it stopped.
+function RunCard({ run, version, best, open }: { run: RunSummary; version: string; best: number; open: (name: string) => void }) {
+  if (run.unreadable) {
+    return (
+      <div className="run-card unreadable">
+        <div className="head"><b>{version}</b><span className="pill crashed">unreadable</span></div>
+        <p className="error small">{run.unreadable}</p>
+      </div>
+    )
+  }
+  const rate = run.trials ? run.accepted / run.trials : 0
+  const state = run.state
+  return (
+    <a className={`run-card ${state}`} href={`?run=${encodeURIComponent(run.name)}`} title={run.name}
+       onClick={e => { e.preventDefault(); open(run.name) }}>
+      <div className="head">
+        <b>{version}</b>
+        <span className={`pill ${state}`} title={run.stop?.reason}>{state === 'running' && <i className="dot" />}{STATE[state]}</span>
+      </div>
+      <div className="big">{run.accepted}<span> accepted</span></div>
+      <div className="rate" title="the acceptance rate against the best of the listed runs"><i style={{ width: `${best ? (rate / best) * 100 : 0}%` }} /></div>
+      <div className="muted small">
+        {(rate * 100).toFixed(1)}% of {run.trials} trials · round {run.rounds}{run.max_rounds != null && ` of ${run.max_rounds}`}
+      </div>
+      <div className="muted small">
+        {run.stop ? <span title={run.stop.reason}>{run.stop.reason}</span> : state === 'crashed' ? 'its process exited without a stop' : `last activity ${ago(run.updated)}`}
+      </div>
+      <div className="mono small muted" title={run.code_version}>{shortCommit(run.code_version)} · {ago(run.updated)}</div>
+    </a>
+  )
+}
+
+// The runs under the folder by series (see series.ts), each run a card.
 function RunList({ open }: { open: (name: string) => void }) {
   const [runs, setRuns] = useState<RunSummary[] | null>(null)
   const [error, setError] = useState('')
@@ -108,21 +140,20 @@ function RunList({ open }: { open: (name: string) => void }) {
   if (error) return <p className="error">{error}</p>
   if (!runs) return <p className="muted">Loading…</p>
   if (!runs.length) return <p className="muted">No run directory under this folder: a run directory holds a snapshot.json from its campaign's first start.</p>
+  const best = Math.max(0, ...runs.map(r => (r.trials ? r.accepted / r.trials : 0)))
   return (
-    <table className="runs">
-      <thead><tr><th>run</th><th>code version</th><th>rounds</th><th>trials</th><th>accepted</th><th>state</th><th>last activity</th></tr></thead>
-      <tbody>
-        {runs.map(r => (
-          <tr key={r.name} className={r.unreadable ? 'static' : ''} onClick={() => r.unreadable || open(r.name)}>
-            <td>{r.unreadable ? r.name : <a href={`?run=${encodeURIComponent(r.name)}`} onClick={e => e.preventDefault()}>{r.name}</a>}</td>
-            <td className="mono" title={r.code_version}>{version(r.code_version)}</td>
-            <td>{r.rounds}</td><td>{r.trials}</td><td>{r.accepted}</td>
-            <td><State summary={r} /></td>
-            <td title={new Date(r.updated).toLocaleString()}>{ago(r.updated)}</td>
-          </tr>
-        ))}
-      </tbody>
-    </table>
+    <div className="run-list">
+      {series(runs).map(s => (
+        <section key={s.name}>
+          <h2>{s.name} <span className="muted small">
+            · {s.runs.length} run{s.runs.length > 1 ? 's' : ''}, {s.runs.reduce((n, r) => n + r.run.accepted, 0)} factors accepted
+          </span></h2>
+          <div className="run-cards">
+            {s.runs.map(r => <RunCard key={r.run.name} run={r.run} version={r.version} best={best} open={open} />)}
+          </div>
+        </section>
+      ))}
+    </div>
   )
 }
 

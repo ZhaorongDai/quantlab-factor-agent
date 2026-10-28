@@ -28,7 +28,7 @@ from factor_agent import _admission, _scheduler
 from factor_agent.config import AdmissionConfig
 from factor_agent.evaluator import Evaluator
 from factor_agent.llm.base import Reply
-from factor_agent.web.run_view import RoundTokens, RunView, Tokens
+from factor_agent.web.run_view import RoundTokens, RunView, Tokens, list_runs
 from tests import synthetic_market
 from tests.campaign_runner import candidate, crash_at, run, write_config
 from tests.fake_llm import FakeLLM, Interrupted, round_of
@@ -240,3 +240,16 @@ def test_a_run_without_an_events_file_has_only_its_coarse_progress_from_the_call
     assert (health.phase, health.process, health.crashed, health.round, health.max_rounds) == (
         None, "unknown", False, 2, None)
     assert (health.tokens, health.round_tokens, health.stalled) == (None, (), False)
+
+
+def test_the_run_list_says_whether_each_run_stopped_runs_or_crashed_as_its_health_does(runs):
+    listed = {s.name.split("/")[0]: s for s in list_runs(runs)}
+    assert {name: listed[name].state for name in ("finished", "mid", "crashed", "old")} == {
+        "finished": "stopped", "mid": "running", "crashed": "crashed", "old": "unknown"}
+    assert (listed["mid"].max_rounds, listed["finished"].max_rounds, listed["old"].max_rounds) == (4, 2, None)
+
+
+def test_the_run_list_never_calls_a_run_opened_on_another_host_crashed(runs, monkeypatch):
+    monkeypatch.setattr("socket.gethostname", lambda: "another-host")
+    listed = {s.name.split("/")[0]: s for s in list_runs(runs)}
+    assert (listed["mid"].state, listed["crashed"].state) == ("unknown", "unknown")

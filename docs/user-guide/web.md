@@ -32,17 +32,19 @@ It serves the page on <http://127.0.0.1:8000>; `--port` picks another port. It l
 localhost only and has no option to listen on another interface: the pages show your
 prompts, code and statistics, and there is no login. Stop it with Ctrl-C.
 
-The run list shows every run directory under the folder, the latest active first,
-including one whose first round has not been written yet:
+The run list shows every run directory under the folder, including one whose first round
+has not been written yet, as cards grouped by series. A run named `<series>_v<N>` is
+version N of its series and a run without that suffix is the series' first version, v1, so
+`campaign`, `campaign_v2` and `campaign_v3` sit side by side, the latest version first; the
+series last active comes first. Each card shows:
 
-| Column | Meaning |
-|--------|---------|
-| run | the run directory's path under the folder |
+| Part | Meaning |
+|------|---------|
+| state | "running" while the campaign's process runs, "crashed" when it exited without recording a stop, "stopped", or "not stopped" when the process cannot be checked (a run written before the events file, or one started on another machine) |
+| accepted | the factors the run accepted, in large type, with the acceptance rate below it as a bar against the best rate of the listed runs |
+| trials, round | the trials written, and the rounds written against the round limit |
+| why or when | the campaign's stop reason, or when the run last wrote a file |
 | code version | the commit of quantlab-factor-agent the run was last started or resumed with |
-| rounds | the rounds written so far |
-| trials, accepted | the trials of those rounds, and how many were accepted |
-| state | "stopped" with the campaign's reason, or "not stopped" while it runs or after a crash |
-| last activity | when the run last wrote a file |
 
 A round counts once the campaign has written it at the round's end; the round in progress
 is not counted yet. Click a run to open it: a run opens on its results. A run whose files

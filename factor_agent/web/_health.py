@@ -129,7 +129,7 @@ def health(
 ) -> Health:
     """The health of a run with ``rounds`` rounds and ``trials`` trials written, ``stopped`` or not, at ``now``."""
     opened = replayed.opened
-    process = _process(opened)
+    process = process_state(opened)
     crashed = not stopped and process == "gone"
     phase = None
     if opened is not None and not stopped and not crashed:
@@ -198,7 +198,7 @@ def _stalled(phase: str | None, replayed: Replayed, now: datetime) -> bool:
     return False
 
 
-def _process(opened: events.Start | None) -> str:
+def process_state(opened: events.Start | None) -> str:
     """Whether the process that opened the run last still runs, when it ran on this host."""
     if opened is None or opened.host != socket.gethostname():
         return "unknown"

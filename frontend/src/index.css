@@ -16,12 +16,25 @@ a { color: var(--acc); text-decoration: none }
 .top a { font-weight: 600; color: var(--fg) }
 main { padding: 16px; overflow-x: auto }
 .facts { margin-top: 0 }
-table.runs { width: 100%; border-collapse: collapse }
-.runs th, .runs td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top }
-.runs th { color: var(--mut); font-weight: 500 }
-.runs tbody tr { cursor: pointer }
-.runs tbody tr.static { cursor: default }
-.runs tbody tr:hover { background: color-mix(in srgb, var(--acc) 8%, transparent) }
+.run-list section { margin: 4px 0 28px }
+.run-list h2 { font-size: 17px; margin: 0 0 12px; overflow-wrap: anywhere }
+.run-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px }
+.run-card { display: grid; gap: 6px; padding: 14px; background: var(--card); color: var(--fg); text-decoration: none;
+  border: 1px solid var(--line); border-top: 3px solid var(--line); border-radius: 10px }
+a.run-card:hover { border-color: var(--acc) }
+.run-card.running { border-top-color: var(--good) }
+.run-card.crashed, .run-card.unreadable { border-top-color: var(--bad) }
+.run-card .head { display: flex; justify-content: space-between; align-items: center }
+.run-card .big { font-size: 34px; font-weight: 700; line-height: 1 }
+.run-card .big span { font-size: 13px; font-weight: 400; color: var(--mut) }
+.run-card .rate { height: 5px; background: var(--line); border-radius: 3px }
+.run-card .rate i { display: block; height: 100%; background: var(--good); border-radius: 3px }
+.pill { display: inline-flex; align-items: center; gap: 5px; padding: 1px 8px; border-radius: 999px; font-size: 12px;
+  border: 1px solid var(--line); color: var(--mut) }
+.pill.running { color: var(--good); border-color: color-mix(in srgb, var(--good) 50%, transparent) }
+.pill.crashed { color: var(--bad); border-color: color-mix(in srgb, var(--bad) 50%, transparent) }
+.pill .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); animation: blink 1.6s infinite }
+@keyframes blink { 50% { opacity: .3 } }
 .badge { font-size: 12px; padding: 1px 7px; border-radius: 9px; border: 1px solid currentColor; white-space: nowrap }
 .badge.accepted { color: var(--good) }
 .badge.rejected { color: var(--bad) }

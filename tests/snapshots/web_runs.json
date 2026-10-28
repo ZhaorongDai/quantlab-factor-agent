@@ -10,6 +10,8 @@
       "reason": "the round limit of 1 rounds is reached"
     },
     "updated": "<time>",
-    "unreadable": null
+    "unreadable": null,
+    "state": "stopped",
+    "max_rounds": 1
   }
 ]

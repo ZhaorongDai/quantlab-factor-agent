@@ -12,6 +12,9 @@ export type RunSummary = {
   updated: string
   // Which file of the run could not be read and why; null for a run the list read.
   unreadable: string | null
+  // 'unknown' when the campaign's process cannot be checked: no events file, or another host.
+  state: 'stopped' | 'running' | 'crashed' | 'unknown'
+  max_rounds: number | null
 }
 
 // A trial's refusal for being too like an existing factor (code: the Gate; ranking: admission).

@@ -72,7 +72,7 @@ from factor_agent.web._acceptance import AcceptanceReports, Comparison, Contribu
 from factor_agent.web._diagnosis import Finding, diagnosis
 from factor_agent.web._files import Replayed, read_json, utc, written
 from factor_agent.web._health import (
-    RECENT_ROUNDS, STALL_ASKING, STALL_EVALUATING, Health, RoundTokens, Stop, Tokens, health, stop,
+    RECENT_ROUNDS, STALL_ASKING, STALL_EVALUATING, Health, RoundTokens, Stop, Tokens, health, process_state, stop,
 )
 from factor_agent.web._ledger import Collision, Neighbour, Trial, correlation_limit, read_trials, statuses
 from factor_agent.web._memory import MemoryLine, MemoryVersion, memory
@@ -101,7 +101,11 @@ class RunSummary:
     without stopping. ``updated`` is the time of the run's last write (UTC).
     ``unreadable`` says which file of the run could not be read and why,
     for a run the list could not read (its counts are then 0); ``None``
-    for any other.
+    for any other. ``state`` is ``"stopped"``, ``"running"`` while the
+    process that opened it last still runs, ``"crashed"`` once that process
+    exited without recording a stop, or ``"unknown"`` when the process cannot
+    be checked: a run without an events file, or opened on another host.
+    ``max_rounds`` is its round limit, ``None`` without an events file.
     """
 
     name: str
@@ -112,6 +116,8 @@ class RunSummary:
     stop: Stop | None
     updated: datetime
     unreadable: str | None = None
+    state: str = "unknown"
+    max_rounds: int | None = None
 
 
 @dataclass(frozen=True)
@@ -197,11 +203,14 @@ class RunView:
 def _summary(run_dir: Path, name: str, state: dict, replayed: Replayed, written_statuses: list[str]) -> RunSummary:
     """The summary of a run whose state file holds ``state`` and whose written trials have ``written_statuses``."""
     versions = (read_json(run_dir / "snapshot.json") or {}).get("versions") or [{}]
+    stopped = stop(run_dir, state, versions[-1].get("opened_at"), replayed)
+    process = process_state(replayed.opened)
     return RunSummary(
         name=name, code_version=versions[-1].get("factor_agent") or "unknown", rounds=state.get("rounds", 0),
         trials=len(written_statuses), accepted=written_statuses.count("accepted"),
-        stop=stop(run_dir, state, versions[-1].get("opened_at"), replayed),
-        updated=utc(max(p.stat().st_mtime for p in written(run_dir))),
+        stop=stopped, updated=utc(max(p.stat().st_mtime for p in written(run_dir))),
+        state="stopped" if stopped else {"running": "running", "gone": "crashed"}.get(process, "unknown"),
+        max_rounds=replayed.opened.max_rounds if replayed.opened else None,
     )
 
 
