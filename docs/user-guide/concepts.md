@@ -1,7 +1,8 @@
 # Concepts
 
 The vocabulary the rest of the user guide assumes: the research loop and its roles, the
-factor sets a candidate is compared with, the segments, and what makes a factor accepted.
+factor sets a candidate is compared with, intraday families, the segments, and what makes a
+factor accepted.
 
 ## Mechanism first
 
@@ -55,6 +56,22 @@ A **collision** is a trial refused for being too like a factor of these sets: by
 as a rewrite, the same graph with other parameters or a too large shared subtree (a code
 collision), or by admission as a correlation above the limit (a ranking collision). A
 repeat of the campaign's own earlier candidate is refused as a duplicate, not a collision.
+
+## Intraday families
+
+An **intraday family** is a family of fields that are values of each intraday bar (one bar
+width per campaign, a minute, say) in the regular session. A candidate computes on those
+bars itself before it reduces each session to one value.
+
+A **session** is one trading day's regular hours. A candidate's intraday values for a day
+depend only on that day's session and are known at its close.
+
+The **intraday stage** is the part of a candidate computed on the intraday bars, each
+session on its own. It ends in a **session aggregation**, the step that reduces one
+session's values to one value for the day, such as `SessionMean` or `SessionStd`; an
+aggregation is the only way from the intraday stage to the **daily stage**, which computes
+on one value per stock and day. Each aggregation's value is a **session column**, which the
+daily stage reads as it reads a field. See [intraday families](intraday.md).
 
 ## Segments
 
