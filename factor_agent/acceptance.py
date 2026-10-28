@@ -392,21 +392,16 @@ class Acceptance:
         folders = []
         for (key, name), record in zip(names.items(), records):
             module, folder = package_dir / f"{name}.py", root / name
-            [graph], sessions = self._staged([record])
+            staged = self._staged([record], [name])
             module.write_text(_module_source(
-                name, record, self.run_dir, self.vocabulary.class_paths([graph, *sessions.values()]),
-                GraphFactor.period_lags({name: graph}, self.vocabulary.lag_columns),
-                _admission.direction(record.metrics["ic_mean"]), graph, sessions,
-                self._data("intraday").get_config() if sessions else None,
+                name, record, self.run_dir, _admission.direction(record.metrics["ic_mean"]), staged,
             ))
             try:
                 importlib.invalidate_caches()
                 factor_class = getattr(importlib.import_module(f"{package.__name__}.{name}"), _class_name(name))
-                factor = factor_class(self._factor_config(
-                    factor_class.GRAPHS, factor_class.PERIOD_LAGS, factor_class.SESSIONS, kwargs={
-                        "directions": dict(factor_class.DIRECTIONS), "training_ic": {name: record.metrics["ic_mean"]},
-                    },
-                ))
+                factor = factor_class(self._factor_config(staged, kwargs={
+                    "directions": dict(factor_class.DIRECTIONS), "training_ic": {name: record.metrics["ic_mean"]},
+                }))
                 scored = self._scoring().apply(factor, folder / f"{name}.zarr")
                 scored.build(start, end)
                 save_component(scored, folder, readme=self._readme(name, record, factor_class, start, end, validation))
@@ -567,16 +562,9 @@ class Acceptance:
         The store, under ``acceptance/accepted_<end>``, runs from the training segment's start to ``end``, so a
         validation never computes a hold-out date; it is written again only when its build record differs.
         """
-        daily, sessions = self._staged(records)
-        graphs = dict(zip(outputs, daily))
-        classes = self.vocabulary.class_paths([*graphs.values(), *sessions.values()])
-        lags = GraphFactor.period_lags(graphs, self.vocabulary.lag_columns)
+        staged = self._staged(records, outputs)
         directions = {name: _admission.direction(r.metrics["ic_mean"]) for name, r in zip(outputs, records)}
-        intraday = {"sessions": sessions, "intraday": self._data("intraday").get_config()} if sessions else {}
-        factor = GraphFactor(self._factor_config(graphs, lags, sessions, kwargs={
-            "graphs": graphs, "classes": classes, "directions": directions, **({"period_lags": lags} if lags else {}),
-            **intraday,
-        }))
+        factor = GraphFactor(self._factor_config(staged, kwargs={**staged.kwargs(), "directions": directions}))
         folder = self.run_dir / "acceptance" / f"accepted_{end}"
         scored = self._scoring().apply(factor, folder / "accepted.zarr")
         start = self.config.segments.training.start
@@ -593,19 +581,23 @@ class Acceptance:
 
     # Shared.
 
-    def _staged(self, records: list[TrialRecord]) -> tuple[list, dict]:
-        """The daily graph of each of ``records``, in order, and the intraday graph of every session column they read.
+    def _staged(self, records: list[TrialRecord], outputs: list[str]) -> "_Staged":
+        """The graphs of ``records`` in their stages, as the outputs ``outputs`` of one ``GraphFactor``.
 
         A graph of no intraday family is its own daily graph (``GraphFactor.staged``).
         """
-        daily, sessions = GraphFactor.staged({str(k): r.graph for k, r in enumerate(records)}, self.vocabulary)
-        return list(daily.values()), sessions
+        daily, sessions = GraphFactor.staged({o: r.graph for o, r in zip(outputs, records)}, self.vocabulary)
+        return _Staged(
+            daily, sessions, self.vocabulary.class_paths([*daily.values(), *sessions.values()]),
+            GraphFactor.period_lags(daily, self.vocabulary.lag_columns),
+            self._data("intraday").get_config() if sessions else None,
+        )
 
-    def _factor_config(self, graphs: dict, lags: dict, sessions: dict, kwargs: dict | None = None) -> FactorConfig:
-        """The config of a factor of the daily ``graphs``, which read the period ``lags`` and the ``sessions`` columns."""
+    def _factor_config(self, staged: "_Staged", kwargs: dict | None = None) -> FactorConfig:
+        """The config of a factor of the ``staged`` graphs."""
         return FactorConfig(
             warmup_bars=self.config.evaluator.warmup_bars, dataset=self._data("prices"), mode="batch",
-            data_columns=GraphFactor.data_columns(graphs, lags, sessions),
+            data_columns=GraphFactor.data_columns(staged.graphs, staged.period_lags, staged.sessions),
             njobs=self.config.evaluator.njobs, kwargs=kwargs,
         )
 
@@ -758,21 +750,42 @@ def _collect(model, panel):
     return model.collected_panel
 
 
+@dataclass(frozen=True)
+class _Staged:
+    """Accepted factors' graphs as a ``GraphFactor`` holds them (``GraphFactor.staged``).
+
+    ``graphs`` maps each output to its daily graph, ``sessions`` each session column they read to its intraday
+    graph, ``classes`` gives the class paths of their operators and ``period_lags`` how their lag columns are
+    computed, both from the campaign's vocabulary, and ``intraday`` is the intraday dataset's config, None
+    without a session column.
+    """
+
+    graphs: dict
+    sessions: dict
+    classes: dict
+    period_lags: dict
+    intraday: dict | None
+
+    def kwargs(self) -> dict:
+        """The ``config.kwargs`` of a ``GraphFactor`` of the graphs, their directions left out."""
+        return {
+            "graphs": self.graphs, "classes": self.classes,
+            **({"period_lags": self.period_lags} if self.period_lags else {}),
+            **({"sessions": self.sessions, "intraday": self.intraday} if self.sessions else {}),
+        }
+
+
 def _class_name(name: str) -> str:
     return "".join(part.capitalize() for part in name.split("_") if part) or "Factor"
 
 
-def _module_source(
-    name: str, record: TrialRecord, run_dir: Path, classes: dict, period_lags: dict, direction: int,
-    graph: list, sessions: dict, intraday: dict | None,
-) -> str:
+def _module_source(name: str, record: TrialRecord, run_dir: Path, direction: int, staged: _Staged) -> str:
     """The module of an exported factor: the candidate as data and a ``GraphFactor`` subclass fixing its graph.
 
-    ``graph`` is the daily graph of the record's (``GraphFactor.staged``), ``sessions`` the intraday graph
-    of each session column it reads and ``intraday`` the intraday dataset's config, None without one;
-    ``classes`` are the class paths of the graphs' operators and ``period_lags`` how its lag columns are
-    computed, both from the campaign's vocabulary; ``direction`` is the sign of its training IC.
+    ``staged`` holds the record's graph in its stages, as the output ``name``; ``direction`` is the sign of its
+    training IC.
     """
+    [graph] = staged.graphs.values()
     code = "\n".join(f"#     {line}" for line in record.candidate["code"].splitlines())
     return (
         f'"""{name}: a factor accepted by quantlab-factor-agent, exported by ``Acceptance.export``.\n\n'
@@ -786,9 +799,9 @@ def _module_source(
         f"class {_class_name(name)}(GraphFactor):\n"
         f'    """The accepted factor ``{name}``, ranked across the market; see ``CANDIDATE``."""\n\n'
         f"    GRAPHS = {{{name!r}: {pprint.pformat(graph, width=100)}}}\n"
-        f"    CLASSES = {pprint.pformat(classes, width=100)}\n"
-        + (f"    PERIOD_LAGS = {pprint.pformat(period_lags, width=100)}\n" if period_lags else "")
+        f"    CLASSES = {pprint.pformat(staged.classes, width=100)}\n"
+        + (f"    PERIOD_LAGS = {pprint.pformat(staged.period_lags, width=100)}\n" if staged.period_lags else "")
         + f"    DIRECTIONS = {{{name!r}: {direction}}}\n"
-        + (f"    SESSIONS = {pprint.pformat(sessions, width=100)}\n" if sessions else "")
-        + (f"    INTRADAY = {pprint.pformat(intraday, width=100)}\n" if sessions else "")
+        + (f"    SESSIONS = {pprint.pformat(staged.sessions, width=100)}\n" if staged.sessions else "")
+        + (f"    INTRADAY = {pprint.pformat(staged.intraday, width=100)}\n" if staged.sessions else "")
     )
