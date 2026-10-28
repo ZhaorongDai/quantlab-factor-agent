@@ -6,12 +6,23 @@ export function cumulative(values: (number | null)[], sign: number): number[] {
   return values.map(v => (sum += v == null ? 0 : sign * v))
 }
 
-// The first day of each year among ``days`` (ISO dates, in order), as the chart's ticks.
-export function yearTicks(days: string[]): { index: number; year: string }[] {
-  const ticks: { index: number; year: string }[] = []
+// The first day of each year among ``days`` (ISO dates, in order), as the chart's ticks. A tick's year is labelled
+// only when it stands at least ``gap`` (a share of the axis) from the last labelled one; a short first year leaves
+// its label to the next. Every tick keeps its line.
+export function yearTicks(days: string[], gap = 0): { index: number; year: string; label: boolean }[] {
+  const ticks: { index: number; year: string; label: boolean }[] = []
   days.forEach((day, index) => {
     const year = day.slice(0, 4)
-    if (!ticks.length || ticks[ticks.length - 1].year !== year) ticks.push({ index, year })
+    if (!ticks.length || ticks[ticks.length - 1].year !== year) ticks.push({ index, year, label: false })
+  })
+  const span = Math.max(1, days.length)
+  let last = -Infinity
+  ticks.forEach((t, k) => {
+    const next = ticks[k + 1]
+    const after = ticks[k + 2]
+    // A first year shorter than the one after it, and too short for its label, leaves the label to the next year.
+    if (k === 0 && next && (next.index - t.index) / span < gap && (!after || next.index - t.index < after.index - next.index)) return
+    if ((t.index - last) / span >= gap) { t.label = true; last = t.index }
   })
   return ticks
 }

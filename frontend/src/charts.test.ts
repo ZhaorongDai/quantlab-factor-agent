@@ -10,7 +10,7 @@ test('the cumulative IC adds each day in the factor direction and skips an unsco
 
 test('a tick marks the first day of each year', () => {
   assert.deepEqual(yearTicks(['2016-12-30', '2017-01-03', '2017-06-01', '2018-01-02']),
-    [{ index: 0, year: '2016' }, { index: 1, year: '2017' }, { index: 3, year: '2018' }])
+    [{ index: 0, year: '2016', label: true }, { index: 1, year: '2017', label: true }, { index: 3, year: '2018', label: true }])
 })
 
 test('decile bars are the returns over their mean, a missing decile left out of the mean', () => {
@@ -24,4 +24,16 @@ test('each statistic passes or fails against the bar admission set, and is undec
   })
   assert.deepEqual(found.map(c => [c.label, c.passed]),
     [['partial-IC t', true], ['largest |ρ|', false], ['coverage', null], ['monotonicity', false]])
+})
+
+test('a year label too near the next one is left out, the short first year first, its line kept', () => {
+  const days = ['2016-10-11', '2016-12-30', ...Array.from({ length: 5 }, (_, k) => ['01-03', '04-01', '07-01', '10-01'].map(d => `${2017 + k}-${d}`)).flat()]
+  const ticks = yearTicks(days, 0.15)
+  assert.deepEqual(ticks.map(t => [t.year, t.label]),
+    [['2016', false], ['2017', true], ['2018', true], ['2019', true], ['2020', true], ['2021', true]])
+})
+
+test('when years crowd the axis every other label is kept', () => {
+  const days = Array.from({ length: 10 }, (_, k) => `${2000 + k}-01-03`)
+  assert.deepEqual(yearTicks(days, 0.15).filter(t => t.label).map(t => t.year), ['2000', '2002', '2004', '2006', '2008'])
 })

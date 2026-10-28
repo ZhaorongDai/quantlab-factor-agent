@@ -79,7 +79,8 @@ export function CumulativeIC({ name, round, slot, direction }: { name: string; r
   const w = 300, h = 140, pad = 14
   const x = (i: number) => (i / Math.max(1, ic.length - 1)) * w
   const y = (v: number) => pad + (1 - (v - lo) / span) * (h - 2 * pad)
-  const ticks = yearTicks(series.days)
+  // A year's label is some 30 of the axis's 300 units wide.
+  const ticks = yearTicks(series.days, 0.1)
   return (
     <figure className="chart">
       <figcaption>
@@ -91,7 +92,7 @@ export function CumulativeIC({ name, round, slot, direction }: { name: string; r
         {ticks.map(t => (
           <g key={t.year}>
             <line x1={x(t.index)} x2={x(t.index)} y1={pad / 2} y2={h - pad / 2} className="grid" />
-            <text x={x(t.index) + 2} y={h + 10} className="tick start">{t.year}</text>
+            {t.label && <text x={x(t.index) + 2} y={h + 10} className="tick start">{t.year}</text>}
           </g>
         ))}
         <Line values={partial} x={x} y={y} className="partial" />
