@@ -39,6 +39,7 @@ a.run-card:hover { border-color: var(--acc) }
 .badge.accepted { color: var(--good) }
 .badge.rejected { color: var(--bad) }
 .badge.failed { color: var(--fail) }
+.badge.intraday { color: var(--acc) }
 .pages { display: flex; gap: 14px; margin-bottom: 12px }
 .pages a.here { color: var(--fg); font-weight: 600 }
 .memory-version { border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 8px 12px; margin-bottom: 10px }

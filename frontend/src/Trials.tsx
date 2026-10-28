@@ -213,6 +213,7 @@ function Reader({ t, placed, run, name }: { t: Trial; placed: Placed | undefined
       </div>
       <h3>{describe(t)}</h3>
       <span className={`badge ${t.status}`}>{t.status} at {t.stage}</span>
+      {t.intraday && <> <span className="badge intraday">intraday</span></>}
       {t.reasons.map((r, i) => <p key={i} className="reason">{r}</p>)}
       {placed && <><h4>Statistics</h4><Statistics p={placed} t={t} run={run} name={name} /></>}
       <h4>Research direction</h4><p>{d.direction ?? <span className="muted">none recorded</span>}</p>

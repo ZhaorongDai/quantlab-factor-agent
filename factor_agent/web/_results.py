@@ -24,7 +24,8 @@ class Factor:
     ``"refusals"`` (what its round's refusals quote, for a run without
     events) or ``"carried_over"`` (neither gives it, so it is an earlier
     round's); both are ``None`` while nothing gives a threshold.
-    ``decile_returns`` and ``coverage`` are the Evaluator's.
+    ``decile_returns`` and ``coverage`` are the Evaluator's. ``intraday``
+    is its trial's (``Trial.intraday``): its graph holds a session aggregation.
     """
 
     label: str
@@ -47,6 +48,7 @@ class Factor:
     decile_returns: tuple[float | None, ...]
     coverage: float | None
     metrics: dict
+    intraday: bool = False
 
 
 def factors(trials: tuple[Trial, ...], replayed: Replayed) -> tuple[Factor, ...]:
@@ -70,5 +72,6 @@ def factors(trials: tuple[Trial, ...], replayed: Replayed) -> tuple[Factor, ...]
             nearest=neighbour(metrics.get("nearest"), metrics.get("nearest_correlation")),
             nearest_known=neighbour(metrics.get("nearest_known"), metrics.get("nearest_known_correlation")),
             decile_returns=deciles, coverage=metrics.get("coverage"), metrics=metrics,
+            intraday=trial.intraday,
         ))
     return tuple(found)
