@@ -585,12 +585,76 @@ operators:
     dimension: same
     stages: [intraday, daily]
     description: x set to NaN outside its lower and upper quantiles across the market
+  # The session aggregations: each reduces a session's intraday bars to one value per stock and day,
+  # NaN for a session where x has no value (count and sum: 0). For an intraday family only.
   - name: SessionMean
     class: factor_agent.aggregations.SessionMean
     signature: "SessionMean(x)"
     dimension: same
     stages: [aggregation]
-    description: mean of x over the session's bars where it has a value, one value per day
+    description: "mean of x over the session's bars with a value"
+  - name: SessionSum
+    class: factor_agent.aggregations.SessionSum
+    signature: "SessionSum(x)"
+    dimension: same
+    stages: [aggregation]
+    description: "sum of x over the session's bars with a value; 0 when none has one"
+  - name: SessionStd
+    class: factor_agent.aggregations.SessionStd
+    signature: "SessionStd(x)"
+    dimension: same
+    stages: [aggregation]
+    description: "standard deviation of x over the session's bars with a value (unbiased, as WindowedStddev)"
+  - name: SessionMin
+    class: factor_agent.aggregations.SessionMin
+    signature: "SessionMin(x)"
+    dimension: same
+    stages: [aggregation]
+    description: "least value of x in the session"
+  - name: SessionMax
+    class: factor_agent.aggregations.SessionMax
+    signature: "SessionMax(x)"
+    dimension: same
+    stages: [aggregation]
+    description: "greatest value of x in the session"
+  - name: SessionFirst
+    class: factor_agent.aggregations.SessionFirst
+    signature: "SessionFirst(x)"
+    dimension: same
+    stages: [aggregation]
+    description: "first value of x present in the session"
+  - name: SessionLast
+    class: factor_agent.aggregations.SessionLast
+    signature: "SessionLast(x)"
+    dimension: same
+    stages: [aggregation]
+    description: "last value of x present in the session"
+  - name: SessionSkew
+    class: factor_agent.aggregations.SessionSkew
+    signature: "SessionSkew(x)"
+    dimension: pure
+    stages: [aggregation]
+    description: "skewness of x over the session's bars with a value (unbiased, as WindowedSkew)"
+  - name: SessionCount
+    class: factor_agent.aggregations.SessionCount
+    signature: "SessionCount(x)"
+    dimension: pure
+    stages: [aggregation]
+    description: "number of the session's bars where x has a value; 0 when none has one"
+  - name: SessionWeightedMean
+    class: factor_agent.aggregations.SessionWeightedMean
+    signature: "SessionWeightedMean(x, w)"
+    inputs: [series, series]
+    dimension: first
+    stages: [aggregation]
+    description: "mean of x weighted by w over the session's bars where both have a value"
+  - name: SessionCorr
+    class: factor_agent.aggregations.SessionCorr
+    signature: "SessionCorr(x, y)"
+    inputs: [series, series]
+    dimension: pure
+    stages: [aggregation]
+    description: "correlation of x and y over the session's bars where both have a value"
 
 excluded:
   KunQuant.Op.UnaryElementwiseOp: an abstract base class, never in a graph

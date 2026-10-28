@@ -293,7 +293,7 @@ class Vocabulary:
     def names(self) -> frozenset[str]:
         """Every name candidate code may read without binding it first."""
         lag = {"PeriodLag"} if self.period_lags else set()
-        return frozenset(self.fields) | frozenset(self._operators) | frozenset(BUILTINS) | {"Builder"} | lag
+        return frozenset(self.fields) | frozenset(self._usable) | frozenset(BUILTINS) | {"Builder"} | lag
 
     @property
     def classes(self) -> dict[str, type]:
@@ -463,7 +463,7 @@ class Vocabulary:
         def operator(spec: OpSpec) -> str:
             return f"- {spec.signature}: {spec.description}" if spec.description else f"- {spec.signature}"
 
-        lines = [operator(spec) for spec in self._operators.values()]
+        lines = [operator(spec) for spec in self._usable.values()]
         if self.period_lags:
             lines.append(
                 "- PeriodLag(x, k): field x as of the k-th earlier period, counted in periods, not in bars; "
@@ -486,6 +486,13 @@ class Vocabulary:
         }
 
     # Internals.
+
+    @property
+    def _usable(self) -> dict[str, OpSpec]:
+        """The operators candidate code may call: the session aggregations only with an intraday family."""
+        if self.intraday_family is not None:
+            return self._operators
+        return {name: spec for name, spec in self._operators.items() if spec.stages != (AGGREGATION,)}
 
     @cached_property
     def _column_fields(self) -> dict[str, str]:

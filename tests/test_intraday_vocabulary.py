@@ -11,7 +11,7 @@ import pytest
 import yaml
 
 from factor_agent.gate.vocabulary import Vocabulary, VocabularyError
-from tests.vocabulary_files import price_volume
+from tests.vocabulary_files import intraday, price_volume
 
 DAILY = {
     "family": "daily_bars",
@@ -143,3 +143,11 @@ def test_the_example_file_keeps_unbounded_memory_and_month_based_operators_daily
     for name in ("Add", "WindowedAvg", "Rank", "Select"):
         assert vocabulary.spec(name).stages == ("intraday", "daily"), name
     assert vocabulary.spec("SessionMean").stages == ("aggregation",)
+
+
+def test_a_vocabulary_without_an_intraday_family_neither_names_nor_shows_the_aggregations():
+    daily, minutes = price_volume(), intraday()
+    assert "SessionMean" not in daily.names
+    assert "SessionMean" not in daily.prompt()["operators"]
+    assert "SessionMean" in minutes.names
+    assert "- SessionMean(x): " in minutes.prompt()["operators"]

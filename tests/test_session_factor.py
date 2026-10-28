@@ -1,8 +1,8 @@
 """Session columns from intraday bars: ``SessionFactor`` on the synthetic minute dataset of ``synthetic_intraday``.
 
 Candidate code is recorded through a real Gate, under a vocabulary of the
-intraday bars' columns and session inputs and a few operators, so a
-``SessionMean`` is the one node the Gate records; the factor computes each
+intraday bars' columns and session inputs and the example operator file, so
+an aggregation is the one node the Gate records; the factor computes each
 graph on the minute bars and reads one value per stock and session.
 Expected values come from a few lines of numpy per session.
 """
@@ -23,10 +23,12 @@ from quantlab.factor.kunquant_compile import CACHE_ENV
 
 from factor_agent.candidate import Candidate
 from factor_agent.config import GateConfig
-from factor_agent.gate import Gate, Passed
+from factor_agent.gate import Gate, Passed, Rejected
+from factor_agent.gate.graph import Graph
 from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.session import SessionFactor
 from factor_agent.zoo import Zoo
+from tests.vocabulary_files import EXAMPLE_OPERATORS
 from tests.synthetic_intraday import (
     DAYS, EMPTY_DAY, EMPTY_SYMBOL, HALF_DAY, LATE_SYMBOL, SYMBOLS, intraday_dataset, minute_bars,
     session_bars, session_of,
@@ -35,6 +37,7 @@ from tests.synthetic_intraday import (
 FIELDS = {
     "family": "minute_bars",
     "description": "one-minute trade bars",
+    "intraday": {"windows": [5]},
     "fields": [
         {"name": "close", "column": "close", "unit": "dollars/shares", "description": "last trade price of the bar"},
         {"name": "volume", "column": "volume", "unit": "shares", "description": "shares traded in the bar"},
@@ -47,15 +50,11 @@ FIELDS = {
     ],
 }
 
-OPERATORS = {
-    "operators": [
-        {"name": "SessionMean", "class": "factor_agent.aggregations.SessionMean", "signature": "SessionMean(x)",
-         "dimension": "same", "description": "mean of x over the session's bars with a value"},
-        {"name": "Mul", "class": "KunQuant.ops.Mul", "signature": "Mul(x, y)", "inputs": ["series", "series"],
-         "dimension": "product"},
-        {"name": "Add", "class": "KunQuant.ops.Add", "signature": "Add(x, y)", "inputs": ["series", "series"],
-         "dimension": "match"},
-    ],
+#: Each aggregation of one input and what it measures of a price, by the example operator file's dimension rules.
+AGGREGATIONS = {
+    "SessionMean": "price", "SessionSum": "price", "SessionStd": "price", "SessionMin": "price",
+    "SessionMax": "price", "SessionFirst": "price", "SessionLast": "price", "SessionSkew": "pure number",
+    "SessionCount": "pure number",
 }
 
 
@@ -63,10 +62,9 @@ OPERATORS = {
 def vocabulary(tmp_path_factory):
     root = tmp_path_factory.mktemp("session_factor")
     (root / "fields.yaml").write_text(yaml.safe_dump(FIELDS))
-    (root / "operators.yaml").write_text(yaml.safe_dump(OPERATORS))
     with pytest.MonkeyPatch.context() as patch:
         patch.setenv(CACHE_ENV, str(root / "kunquant_cache"))
-        yield Vocabulary.load([root / "fields.yaml"], root / "operators.yaml")
+        yield Vocabulary.load([root / "fields.yaml"], EXAMPLE_OPERATORS)
 
 
 @pytest.fixture(scope="module")
@@ -74,12 +72,16 @@ def panel():
     return minute_bars()
 
 
-def _graph(vocabulary, code):
-    result = Gate(GateConfig(timeout_seconds=10.0), vocabulary).check(
+def _check(vocabulary, code, gate=None):
+    return (gate or Gate(GateConfig(timeout_seconds=10.0), vocabulary)).check(
         Candidate(hypothesis="Intraday prices.", mechanism_type="behavioural_bias",
                   horizon_rationale="A week.", description="Test.", code=code),
         Zoo(),
     )
+
+
+def _graph(vocabulary, code):
+    result = _check(vocabulary, code)
     assert isinstance(result, Passed), getattr(result, "reasons", None)
     return result.graph
 
@@ -113,6 +115,29 @@ def _session_mean(values: np.ndarray) -> float:
     return present.mean() if len(present) else np.nan
 
 
+def _of_present(reduce, empty=np.nan):
+    """``reduce`` of the values present in a session, ``empty`` when there is none."""
+    def reduced(values: np.ndarray) -> float:
+        present = values[np.isfinite(values)]
+        return reduce(present) if len(present) else empty
+    return reduced
+
+
+#: A numpy reference of each aggregation of one input, on one session's values.
+REFERENCES = {
+    "SessionMean": _of_present(np.mean),
+    "SessionSum": _of_present(np.sum, 0.0),
+    "SessionCount": _of_present(len, 0.0),
+    "SessionMin": _of_present(np.min),
+    "SessionMax": _of_present(np.max),
+    "SessionFirst": _of_present(lambda present: present[0]),
+    "SessionLast": _of_present(lambda present: present[-1]),
+    # As pandas and KunQuant's windows: the unbiased standard deviation and skewness.
+    "SessionStd": _of_present(lambda present: pd.Series(present).std()),
+    "SessionSkew": _of_present(lambda present: pd.Series(present).skew()),
+}
+
+
 def _values(daily, name) -> np.ndarray:
     assert pd.DatetimeIndex(daily["timestamp"].values).strftime("%Y-%m-%d").tolist() == list(DAYS)
     return daily[name].sel(symbol=list(SYMBOLS)).transpose("timestamp", "symbol").values
@@ -123,6 +148,26 @@ def test_a_session_mean_is_one_node_of_the_recorded_graph(vocabulary):
     assert [node.op for node in graph.nodes] == ["Input", "Input", "Mul", "SessionMean"]
 
 
+def _dimension(vocabulary, code):
+    return _check(vocabulary, code).stats["dimension"]
+
+
+def test_each_aggregation_measures_what_its_dimension_rule_says(vocabulary):
+    for aggregation, dimension in AGGREGATIONS.items():
+        assert _dimension(vocabulary, f"alpha = {aggregation}(close)") == dimension, aggregation
+    assert _dimension(vocabulary, "alpha = SessionSum(volume)") == "volume"
+    # A weighted mean measures what x does, whatever the weight; a correlation is a pure number.
+    assert _dimension(vocabulary, "alpha = SessionWeightedMean(close, volume)") == "price"
+    assert _dimension(vocabulary, "alpha = SessionCorr(close, volume)") == "pure number"
+
+
+def test_a_correlation_with_its_inputs_swapped_is_a_rewritten_duplicate(vocabulary):
+    gate = Gate(GateConfig(timeout_seconds=10.0), vocabulary)
+    assert isinstance(_check(vocabulary, "alpha = SessionCorr(close, volume)", gate), Passed)
+    swapped = _check(vocabulary, "alpha = SessionCorr(volume, close)", gate)
+    assert isinstance(swapped, Rejected) and any("duplicate" in r for r in swapped.reasons), swapped
+
+
 def test_the_session_mean_of_a_field_is_the_mean_of_its_values_present_in_the_session(vocabulary, panel):
     daily = _sessions(vocabulary, {"mean_close": "alpha = SessionMean(close)"})
     expected = _per_session(panel, lambda bars: _session_mean(bars["close"]))
@@ -130,17 +175,23 @@ def test_the_session_mean_of_a_field_is_the_mean_of_its_values_present_in_the_se
     assert np.isnan(expected[DAYS.index(EMPTY_DAY), SYMBOLS.index(EMPTY_SYMBOL)])
 
 
-def test_a_sessions_value_uses_that_sessions_bars_only(vocabulary, panel):
+@pytest.mark.parametrize("aggregation", [*AGGREGATIONS, "SessionWeightedMean", "SessionCorr"])
+def test_a_sessions_value_uses_that_sessions_bars_only(vocabulary, panel, aggregation):
     middle = DAYS.index(DAYS[1])
     changed = panel.copy(deep=True)
     others = ~session_of(panel, DAYS[middle])
     for name in ("close", "volume"):
-        changed[name].values[others] *= 1.5
-    codes = {"mean_dollars": "alpha = SessionMean(close * volume)", "mean_price": "alpha = SessionMean(last_price)"}
+        changed[name].values[others] *= 1.5 + 0.1 * np.arange(others.sum())[:, None]
+    if aggregation in AGGREGATIONS:
+        codes = {"dollars": f"alpha = {aggregation}(close * volume)", "price": f"alpha = {aggregation}(last_price)"}
+    else:
+        codes = {"dollars": f"alpha = {aggregation}(close, volume)",
+                 "price": f"alpha = {aggregation}(last_price, volume)"}
     before, after = _sessions(vocabulary, codes), _sessions(vocabulary, codes, changed)
     for name in codes:
         np.testing.assert_array_equal(_values(after, name)[middle], _values(before, name)[middle])
-        assert not np.allclose(_values(after, name)[0], _values(before, name)[0], equal_nan=True)
+        if aggregation != "SessionCount":  # which counts the bars with a value, unchanged
+            assert not np.allclose(_values(after, name)[0], _values(before, name)[0], equal_nan=True)
 
 
 def _last_price(close: np.ndarray) -> np.ndarray:
@@ -220,14 +271,31 @@ def test_two_session_means_of_one_subgraph_share_their_accumulators(vocabulary):
     one = _factor(vocabulary, {"a": "alpha = SessionMean(close * volume)"})
     two = _factor(vocabulary, {"a": "alpha = SessionMean(close * volume)", "b": "alpha = SessionMean(close * volume)"})
     other = _factor(vocabulary, {"a": "alpha = SessionMean(close * volume)", "b": "alpha = SessionMean(close)"})
-    assert _accumulators(two.graph()) == _accumulators(one.graph()) == 2
-    assert _accumulators(other.graph()) == 4
+    # A mean is its count, its first value and the sum of its values less the first.
+    assert _accumulators(two.graph()) == _accumulators(one.graph()) == 3
+    assert _accumulators(other.graph()) == 6
     daily = two.resample("1d", "last").compute(DAYS[0], DAYS[-1])
     np.testing.assert_array_equal(daily["a"].values, daily["b"].values)
 
 
+def test_aggregations_of_one_subgraph_share_their_sums(vocabulary):
+    std = _factor(vocabulary, {"std": "alpha = SessionStd(close * volume)"})
+    both = _factor(vocabulary, {
+        "mean": "alpha = SessionMean(close * volume)", "std": "alpha = SessionStd(volume * close)",
+        "first": "alpha = SessionFirst(close * volume)", "count": "alpha = SessionCount(close * volume)",
+    })
+    # The standard deviation adds the sum of squares to the mean's count, first value and sum.
+    assert _accumulators(both.graph()) == _accumulators(std.graph()) == 4
+
+
 def test_a_graph_that_does_not_end_in_an_aggregation_is_refused(vocabulary):
-    factor = _factor(vocabulary, {"a": "alpha = SessionMean(close) * volume"})
+    # The Gate refuses such a graph (an intraday field reaching the daily stage), so it is recorded without it.
+    graphs = {"a": Graph.record(vocabulary.execute("alpha = SessionMean(close) * volume")["alpha"], vocabulary).to_json()}
+    factor = SessionFactor(FactorConfig(
+        warmup_bars=0, dataset=intraday_dataset(), mode="batch", njobs=1,
+        data_columns=SessionFactor.data_columns(graphs),
+        kwargs={"graphs": graphs, "classes": vocabulary.class_paths(graphs.values())},
+    ))
     with pytest.raises(ValueError, match="graph a does not end in a session aggregation"):
         factor.graph()
 
@@ -236,3 +304,95 @@ def test_the_session_mean_is_expanded_only_when_the_function_is_built(vocabulary
     factor = _factor(vocabulary, {"a": "alpha = SessionMean(close)"})
     ops = {type(op).__name__ for op in factor.graph().ops}
     assert "Accumulator" in ops and "SessionMean" not in ops
+
+
+def _of_pairs(reduce):
+    """``reduce(x, y)`` of the bars of a session where both have a value, NaN when there is none."""
+    def reduced(x: np.ndarray, y: np.ndarray) -> float:
+        both = np.isfinite(x) & np.isfinite(y)
+        return reduce(x[both], y[both]) if both.any() else np.nan
+    return reduced
+
+
+#: A numpy reference of each aggregation of two inputs.
+PAIR_REFERENCES = {
+    "SessionWeightedMean": _of_pairs(lambda x, w: np.sum(x * w) / np.sum(w) if np.sum(w) != 0 else np.nan),
+    "SessionCorr": _of_pairs(lambda x, y: np.corrcoef(x, y)[0, 1] if len(x) > 1 else np.nan),
+}
+
+#: The absolute error a pure number of float32 sums keeps, near 0.
+ABSOLUTE = {"SessionSkew": 5e-5}
+
+
+@pytest.mark.parametrize("aggregation", REFERENCES)
+def test_each_aggregation_of_one_input_is_its_numpy_reference_on_the_values_present(vocabulary, panel, aggregation):
+    daily = _sessions(vocabulary, {
+        "of_close": f"alpha = {aggregation}(close)",
+        "of_dollars": f"alpha = {aggregation}(close * volume)",
+        "of_price": f"alpha = {aggregation}(last_price)",
+    })
+    reference = REFERENCES[aggregation]
+    for name, values in {
+        "of_close": lambda bars: bars["close"],
+        "of_dollars": lambda bars: bars["close"] * bars["volume"],
+        "of_price": lambda bars: _last_price(bars["close"]),
+    }.items():
+        expected = _per_session(panel, lambda bars: reference(values(bars)))
+        np.testing.assert_allclose(_values(daily, name), expected, rtol=2e-5, atol=ABSOLUTE.get(aggregation, 1e-6),
+                                   err_msg=name)
+    empty = _values(daily, "of_close")[DAYS.index(EMPTY_DAY), SYMBOLS.index(EMPTY_SYMBOL)]
+    if aggregation in ("SessionCount", "SessionSum"):
+        assert empty == 0
+    else:
+        assert np.isnan(empty)
+
+
+def _price_levels(panel):
+    """``panel`` with closes around 125 to 1000 dollars that move a tenth as much: deviations far below the level."""
+    levels = panel.copy(deep=True)
+    close = levels["close"].values
+    level = 125.0 * np.arange(1, len(SYMBOLS) + 1)
+    close[:] = level * (1 + 0.1 * np.log(close / np.nanmean(close, axis=0)))
+    return levels
+
+
+def test_moments_of_price_levels_keep_their_relative_accuracy_in_float32(vocabulary, panel):
+    levels = _price_levels(panel)
+    daily = _sessions(vocabulary, {"std": "alpha = SessionStd(close)", "skew": "alpha = SessionSkew(close)"}, levels)
+    std = _per_session(levels, lambda bars: REFERENCES["SessionStd"](bars["close"]))
+    # Sums of the prices themselves in float32 would lose the deviations; numpy's in float64 keep them.
+    assert np.nanmax(std / _per_session(levels, lambda bars: _session_mean(bars["close"]))) < 2e-3
+    np.testing.assert_allclose(_values(daily, "std"), std, rtol=1e-4)
+    skew = _per_session(levels, lambda bars: REFERENCES["SessionSkew"](bars["close"]))
+    np.testing.assert_allclose(_values(daily, "skew"), skew, rtol=1e-3, atol=1e-3)
+
+
+def _position(bars):
+    return np.arange(len(bars["close"]), dtype=float)
+
+
+@pytest.mark.parametrize("aggregation", PAIR_REFERENCES)
+def test_each_aggregation_of_two_inputs_is_its_numpy_reference_on_the_bars_where_both_have_a_value(
+    vocabulary, panel, aggregation,
+):
+    daily = _sessions(vocabulary, {
+        "by_volume": f"alpha = {aggregation}(close, volume)",
+        "by_position": f"alpha = {aggregation}(last_price, session_position)",
+        "by_dollars": f"alpha = {aggregation}(volume, close * volume)",
+    })
+    reference = PAIR_REFERENCES[aggregation]
+    for name, (x, y) in {
+        "by_volume": (lambda bars: bars["close"], lambda bars: bars["volume"]),
+        "by_position": (lambda bars: _last_price(bars["close"]), _position),
+        "by_dollars": (lambda bars: bars["volume"], lambda bars: bars["close"] * bars["volume"]),
+    }.items():
+        expected = _per_session(panel, lambda bars: reference(x(bars), y(bars)))
+        np.testing.assert_allclose(_values(daily, name), expected, rtol=2e-5, atol=1e-5, err_msg=name)
+    assert np.isnan(_values(daily, "by_volume")[DAYS.index(EMPTY_DAY), SYMBOLS.index(EMPTY_SYMBOL)])
+
+
+def test_a_correlation_of_price_levels_keeps_its_relative_accuracy_in_float32(vocabulary, panel):
+    levels = _price_levels(panel)
+    daily = _sessions(vocabulary, {"trend": "alpha = SessionCorr(close, session_position)"}, levels)
+    expected = _per_session(levels, lambda bars: PAIR_REFERENCES["SessionCorr"](bars["close"], _position(bars)))
+    np.testing.assert_allclose(_values(daily, "trend"), expected, rtol=1e-4, atol=1e-4)
