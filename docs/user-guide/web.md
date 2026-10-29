@@ -64,7 +64,7 @@ Every page of a run starts with its health line, read from the run's events file
 | About … left | the time the rounds the round and trial limits still allow would take, at the pace of the last three rounds |
 | Tokens | the tokens of every call so far, as the providers report them: input (of which read from the provider's cache) and output (of which spent reasoning); "Tokens by round" opens them round by round. No prices: spending limits belong to your provider |
 | Crashed | the campaign's process has exited without recording a stop; running the campaign again resumes it |
-| may be stuck | no LLM call was sent or came back for 15 minutes while asking the LLM, or the evaluation has lasted 30 minutes |
+| may be stuck | no LLM call was sent or came back for 15 minutes while asking the LLM; an evaluation is never reported stuck, since its length follows the data (an intraday round's takes hours) |
 
 The campaign's process is looked for only on the machine the campaign runs on: when the
 frontend runs on another machine, the process is reported as unknown, never as gone. A

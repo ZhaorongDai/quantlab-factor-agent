@@ -188,14 +188,13 @@ def test_the_trials_page_places_each_trial_against_the_threshold_admission_judge
     assert view.threshold == pytest.approx(expected)
 
 
-def test_a_run_evaluating_its_round_stalls_after_thirty_minutes_of_evaluation(runs):
+def test_a_run_evaluating_its_round_never_stalls(runs):
     run_dir = runs / "evaluating" / "run"
     health = RunView.read(run_dir).health
     assert (health.phase, health.round) == ("evaluating", 1)
-    # The evaluation starts as soon as the round's last call is back.
+    # The evaluation starts as soon as the round's last call is back; an intraday round's lasts hours.
     started = health.last_call
-    assert not RunView.read(run_dir, now=started + timedelta(minutes=29)).health.stalled
-    assert RunView.read(run_dir, now=started + timedelta(minutes=31)).health.stalled
+    assert not RunView.read(run_dir, now=started + timedelta(hours=3)).health.stalled
 
 
 def test_a_run_whose_round_is_written_is_planning_the_next_and_never_stalls(runs):

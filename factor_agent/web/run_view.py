@@ -78,7 +78,7 @@ from factor_agent.web._acceptance import AcceptanceReports, Comparison, Contribu
 from factor_agent.web._diagnosis import Finding, diagnosis
 from factor_agent.web._files import LineChange, Replayed, read_json, utc, written
 from factor_agent.web._health import (
-    RECENT_ROUNDS, STALL_ASKING, STALL_EVALUATING, Health, RoundTokens, Stop, Tokens, health, process_state, stop,
+    RECENT_ROUNDS, STALL_ASKING, Health, RoundTokens, Stop, Tokens, health, process_state, stop,
 )
 from factor_agent.web._ledger import (
     Collision, Neighbour, Trial, aggregations, correlation_limit, read_trials, statuses,
@@ -89,7 +89,7 @@ from factor_agent.web._round import Check, LLMCall, PendingTrial, RoundCall, Run
 from factor_agent.web._trials import Placed, Refusal, TrialRef, trials_page
 
 __all__ = [
-    "RECENT_ROUNDS", "STALL_ASKING", "STALL_EVALUATING", "AcceptanceReports", "AdmissionLimits", "Check", "Collision", "Comparison",
+    "RECENT_ROUNDS", "STALL_ASKING", "AcceptanceReports", "AdmissionLimits", "Check", "Collision", "Comparison",
     "ConfigCopy", "Contribution", "Factor", "Finding", "Health", "HoldoutOpen", "LLMCall", "LineChange", "MemoryLine",
     "MemoryVersion", "Neighbour",
     "PendingTrial", "Placed", "Refusal", "RoundCall", "RoundTokens", "RunFiles", "RunSummary", "RunView", "RunningRound", "SnapshotFile", "Stop",

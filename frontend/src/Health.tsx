@@ -50,13 +50,7 @@ export default function Health({ run, clock }: { run: Run; clock: number }) {
       {h.crashed && (
         <p className="warn">Process exited without a stop. Rerun the campaign to resume.</p>
       )}
-      {h.stalled && (
-        <p className="warn">
-          {h.phase === 'evaluating'
-            ? 'Evaluating for over 30 min: may be stuck.'
-            : 'No LLM call for over 15 min: may be stuck.'}
-        </p>
-      )}
+      {h.stalled && <p className="warn">No LLM call for over 15 min: may be stuck.</p>}
       {!s.stop && !h.crashed && h.process === 'unknown' && h.phase && (
         <p className="muted small">Process on another host: liveness unknown.</p>
       )}

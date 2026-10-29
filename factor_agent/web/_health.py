@@ -65,8 +65,9 @@ class Health:
     events file; ``crashed`` is true when the process is gone and the run
     recorded no stop. ``last_call`` is when the latest LLM call came back
     (UTC). ``stalled`` is true when the run looks stuck: no call was sent
-    or came back for ``STALL_ASKING`` while asking, or the evaluation has
-    lasted ``STALL_EVALUATING``. ``calls`` counts the calls of the round in
+    or came back for ``STALL_ASKING`` while asking. An evaluation never
+    looks stuck: its length follows the data (an intraday round's takes
+    hours), so no limit tells a slow one from a stuck one. ``calls`` counts the calls of the round in
     progress by role, since the run was last opened; a run without an
     events file has only these counts, from its call files. ``tokens`` are
     the tokens of every call of the run, a round a resume dropped
@@ -100,9 +101,6 @@ _PHASES = {
 
 #: How long a run asking the LLM may go without a call sent or back before it looks stuck.
 STALL_ASKING = timedelta(minutes=15)
-
-#: How long an evaluation may last before the run looks stuck.
-STALL_EVALUATING = timedelta(minutes=30)
 
 #: How many of the latest timed rounds the time left is estimated from.
 RECENT_ROUNDS = 3
@@ -187,15 +185,12 @@ def _tokens(ends: list[events.CallEnd]) -> Tokens:
 
 
 def _stalled(phase: str | None, replayed: Replayed, now: datetime) -> bool:
-    """Whether a run asking has had no call sent or back for ``STALL_ASKING``, or its evaluation lasted ``STALL_EVALUATING``."""
-    if phase == "asking":
-        # The opening counts as the first sign of life, a failed call's end as one too.
-        activity = [e.time for e in replayed.current if isinstance(e, (events.Start, events.CallStart, events.CallEnd))]
-        return now - activity[-1] > STALL_ASKING
-    if phase == "evaluating":
-        started = [e.time for e in replayed.current if isinstance(e, events.EvaluationStart)]
-        return now - started[-1] > STALL_EVALUATING
-    return False
+    """Whether a run asking has had no call sent or back for ``STALL_ASKING``."""
+    if phase != "asking":
+        return False
+    # The opening counts as the first sign of life, a failed call's end as one too.
+    activity = [e.time for e in replayed.current if isinstance(e, (events.Start, events.CallStart, events.CallEnd))]
+    return now - activity[-1] > STALL_ASKING
 
 
 def process_state(opened: events.Start | None) -> str:
