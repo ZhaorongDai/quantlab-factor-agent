@@ -17,7 +17,7 @@ from collections.abc import Callable
 
 from factor_agent.config import DEFAULT_MECHANISMS
 from factor_agent.config import ROLES
-from factor_agent.llm.base import ProviderQuotaExhausted, Reply, Request
+from factor_agent.llm.base import ProviderQuotaExhausted, ProviderReplyMalformed, Reply, Request
 
 #: What the fake says when it refuses a request for the quota.
 QUOTA_MESSAGE = "fake: Insufficient Balance"
@@ -67,6 +67,9 @@ class FakeLLM:
     quota : callable, optional
         ``quota(request)`` is true for every request the fake refuses with
         ``ProviderQuotaExhausted``, as a provider whose balance ran out would.
+    malformed : callable, optional
+        ``malformed(request)`` is true for every request the fake answers
+        with ``ProviderReplyMalformed``, as a provider answering ``null`` would.
     plan : callable, optional
         ``plan(round, quota, prompt)`` returns the planner's directions; by
         default one new direction per slot.
@@ -83,13 +86,14 @@ class FakeLLM:
     def __init__(
         self, propose: Callable, fix: Callable | None = None, consistent: Callable | None = None,
         interrupt: Callable | None = None, plan: Callable | None = None, distill: Callable | None = None,
-        quota: Callable | None = None,
+        quota: Callable | None = None, malformed: Callable | None = None,
     ):
         self._propose = propose
         self._fix = fix or (lambda number, failures: [f["refused_version"] for f in failures])
         self._consistent = consistent or (lambda candidate: "inconsistent" not in candidate["description"])
         self._interrupt = interrupt or (lambda request: False)
         self._quota = quota or (lambda request: False)
+        self._malformed = malformed or (lambda request: False)
         self._plan = plan or new_directions
         self._distill = distill or memory
         self.requests: list[Request] = []
@@ -105,6 +109,8 @@ class FakeLLM:
             raise Interrupted(request.role)
         if self._quota(request):
             raise ProviderQuotaExhausted(QUOTA_MESSAGE)
+        if self._malformed(request):
+            raise ProviderReplyMalformed("fake: the reply was null")
         with self._lock:
             self.requests.append(request)
         text = getattr(self, f"_{request.role}")(request.prompt)

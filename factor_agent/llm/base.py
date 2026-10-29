@@ -1,5 +1,6 @@
 """The one external seam: an LLM backend turns a request into a reply."""
 
+import time
 from dataclasses import dataclass, field
 from typing import Protocol
 
@@ -38,10 +39,49 @@ class ProviderQuotaExhausted(RuntimeError):
     """
 
 
+class ProviderReplyMalformed(RuntimeError):
+    """The provider answered, without an error, something that is not a reply; its message says what it lacked.
+
+    Such as a body of ``null`` (DeepSeek, after the blank lines it sends
+    while a call waits), a reply without its text or its usage, or output
+    that is not the JSON it should be. The SDKs do not retry it, as the
+    answer came back as a success; a campaign asks again, a few times
+    (``AskingAgain``), before raising it.
+    """
+
+
 class LLMBackend(Protocol):
     """Anything that completes a request."""
 
     def complete(self, request: Request) -> Reply: ...
+
+
+#: Seconds waited before each call asked again after an answer that was not a reply: two calls again, then it raises.
+ASK_AGAIN_WAITS = (5.0, 30.0)
+
+
+class AskingAgain:
+    """A backend that asks ``backend`` again when it answers something that is not a reply.
+
+    A campaign calls every role's backend through one, its own backends and
+    those passed in alike.
+
+    ``ProviderReplyMalformed`` is retried after each wait of
+    ``ASK_AGAIN_WAITS`` and raised once they are spent; every other error
+    is raised at once.
+    """
+
+    def __init__(self, backend: LLMBackend):
+        self.backend = backend
+
+    def complete(self, request: Request) -> Reply:
+        """Complete ``request`` with ``backend``, asking again after an answer that was not a reply."""
+        for wait in ASK_AGAIN_WAITS:
+            try:
+                return self.backend.complete(request)
+            except ProviderReplyMalformed:
+                time.sleep(wait)
+        return self.backend.complete(request)
 
 
 def make_backend(spec: dict) -> LLMBackend:

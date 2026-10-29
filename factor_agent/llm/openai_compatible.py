@@ -4,7 +4,7 @@ Gemini's compatible endpoint, a local vLLM or Ollama), the key from the environm
 import openai
 
 from factor_agent.llm._common import key_from_environment
-from factor_agent.llm.base import ProviderQuotaExhausted, Reply, Request
+from factor_agent.llm.base import ProviderQuotaExhausted, ProviderReplyMalformed, Reply, Request
 
 
 class OpenAICompatibleBackend:
@@ -77,8 +77,9 @@ class OpenAICompatibleBackend:
             If the provider answers HTTP 402 (Payment Required): the balance or quota is exhausted.
         openai.APIError
             If the call fails otherwise, after the SDK's retries (which never retry a 402).
-        RuntimeError
-            If the reply reports no token usage.
+        ProviderReplyMalformed
+            If the provider answers something that is not a reply: no body
+            (``null``), no choice, no message or no token usage.
         """
         try:
             response = self._client.chat.completions.create(
@@ -88,11 +89,25 @@ class OpenAICompatibleBackend:
             if exc.status_code == 402:
                 raise ProviderQuotaExhausted(f"openai_compatible: {self.model}: {exc.message}") from exc
             raise
+        lacking = _lacking(response)
+        if lacking:
+            raise ProviderReplyMalformed(f"openai_compatible: {self.model} answered a reply without {lacking}")
         usage = response.usage
-        if usage is None:
-            raise RuntimeError(f"openai_compatible: {self.model} reported no token usage")
         return Reply(
             text=response.choices[0].message.content or "",
             usage={"input_tokens": usage.prompt_tokens, "output_tokens": usage.completion_tokens},
             model_id=response.model, params=self.params, raw=response.to_json(indent=None),
         )
+
+
+def _lacking(response) -> str | None:
+    """What ``response`` lacks to be a reply (its body, a choice, the message, the usage), or None."""
+    if response is None:
+        return "a body"
+    if not getattr(response, "choices", None):
+        return "a choice"
+    if getattr(response.choices[0], "message", None) is None:
+        return "a message"
+    if getattr(response, "usage", None) is None:
+        return "token usage"
+    return None

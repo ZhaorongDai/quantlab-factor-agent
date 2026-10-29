@@ -92,7 +92,7 @@ from factor_agent.gate import Gate
 from factor_agent.gate.graph import Graph
 from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.ledger import Ledger, TrialRecord
-from factor_agent.llm.base import LLMBackend, ProviderQuotaExhausted, make_backend
+from factor_agent.llm.base import AskingAgain, LLMBackend, ProviderQuotaExhausted, make_backend
 from factor_agent.llm.log import LLMLog, RecordingBackend
 from factor_agent.prompts import Prompts, Templates
 from factor_agent.researcher import Proposal, Researcher
@@ -247,7 +247,7 @@ class Campaign:
         events.write(self._opened(snapshot, state, dropped))
         researcher = Researcher(
             {
-                role: (RecordingBackend(backend, log), config.roles[role].model)
+                role: (RecordingBackend(AskingAgain(backend), log), config.roles[role].model)
                 for role, backend in self._role_backends().items()
             },
             prompts,

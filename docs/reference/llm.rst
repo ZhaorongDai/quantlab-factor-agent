@@ -15,6 +15,8 @@ Interface
    factor_agent.llm.base.Request
    factor_agent.llm.base.Reply
    factor_agent.llm.base.ProviderQuotaExhausted
+   factor_agent.llm.base.ProviderReplyMalformed
+   factor_agent.llm.base.AskingAgain
    factor_agent.llm.base.make_backend
 
 Backends

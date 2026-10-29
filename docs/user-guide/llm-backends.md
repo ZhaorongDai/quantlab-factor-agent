@@ -57,7 +57,14 @@ When the provider refuses a call because the balance or quota is exhausted (HTTP
 an OpenAI-compatible provider; Anthropic's billing error or too-low credit balance), the
 backend raises `ProviderQuotaExhausted`. The campaign drops the round in progress, records
 the stop `provider_quota` with the provider's message and returns; `run()` after topping
-up runs that round again. Every other provider error is raised.
+up runs that round again.
+
+A provider sometimes answers a call as a success with something that is not a reply: a body
+of `null` (DeepSeek, after the blank lines it sends while a call waits), a reply without
+its text or its token usage, or Claude Code output that is not its JSON. The SDKs do not
+retry it. A campaign asks any role's backend again after 5 s, then after 30 s, and then
+raises `ProviderReplyMalformed`; a backend of your own raises it for such an answer to
+be asked again too. Every other provider error is raised.
 
 ## Your own backend
 

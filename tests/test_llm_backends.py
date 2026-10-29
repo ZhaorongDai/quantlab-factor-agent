@@ -18,7 +18,7 @@ import threading
 import pytest
 
 from factor_agent.config import ROLES
-from factor_agent.llm.base import ProviderQuotaExhausted, Request, make_backend
+from factor_agent.llm.base import AskingAgain, ProviderQuotaExhausted, ProviderReplyMalformed, Request, make_backend
 from factor_agent.llm.log import LLMLog, RecordingBackend
 from tests import synthetic_market
 from tests.campaign_runner import candidate, run, write_config
@@ -121,6 +121,11 @@ def test_a_replay_that_runs_out_of_recorded_calls_fails_clearly(tmp_path, record
         run(path, None, market["cache"])
 
 
+@pytest.fixture(autouse=True)
+def _ask_again_at_once(monkeypatch):
+    monkeypatch.setattr("factor_agent.llm.base.ASK_AGAIN_WAITS", (0.0, 0.0))
+
+
 def _request(role="proposer", prompt="Write one factor.") -> Request:
     return Request(role=role, model="unused", prompt=prompt)
 
@@ -178,10 +183,14 @@ def test_the_claude_code_adapter_reads_the_json_reply_and_uses_the_local_login(t
 
 
 class _Provider:
-    """A local HTTP server answering every POST with ``reply`` and HTTP ``status``, and keeping what it was sent."""
+    """A local HTTP server answering every POST with ``reply`` and HTTP ``status``, and keeping what it was sent.
 
-    def __init__(self, reply: dict, status: int = 200):
-        self.reply = reply
+    ``reply`` is a JSON body, raw bytes sent as they are, or a list of
+    either: the bodies of the calls in turn, the last one for every call after.
+    """
+
+    def __init__(self, reply: dict | bytes | list, status: int = 200):
+        self.replies = reply if isinstance(reply, list) else [reply]
         self.status = status
         self.received: list[dict] = []
         provider = self
@@ -190,7 +199,8 @@ class _Provider:
             def do_POST(self):
                 body = self.rfile.read(int(self.headers["Content-Length"]))
                 provider.received.append({"path": self.path, "headers": {k.lower(): v for k, v in self.headers.items()}, "body": json.loads(body)})
-                data = json.dumps(provider.reply).encode()
+                reply = provider.replies[min(len(provider.received), len(provider.replies)) - 1]
+                data = reply if isinstance(reply, bytes) else json.dumps(reply).encode()
                 self.send_response(provider.status)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(data)))
@@ -323,6 +333,78 @@ def test_other_provider_errors_are_raised_as_before(provider, monkeypatch):
     server = provider(_anthropic_error("authentication_error", "invalid x-api-key"), status=401)
     with pytest.raises(anthropic.AuthenticationError):
         _anthropic(server, monkeypatch).complete(_request())
+
+
+#: Bodies a provider has answered HTTP 200 with that are not a reply: DeepSeek's keep-alive blank lines then
+#: ``null``, an empty object, a reply without its usage or its text.
+MALFORMED = {
+    "null": b"\n\n\n null", "empty object": {}, "no usage": {k: v for k, v in OPENAI_REPLY.items() if k != "usage"},
+    "no choices": {**OPENAI_REPLY, "choices": []},
+}
+ANTHROPIC_MALFORMED = {
+    "null": b"\n\n null", "empty object": {}, "no usage": {k: v for k, v in ANTHROPIC_REPLY.items() if k != "usage"},
+    "no content": {k: v for k, v in ANTHROPIC_REPLY.items() if k != "content"},
+}
+
+
+@pytest.mark.parametrize("body", MALFORMED.values(), ids=MALFORMED.keys())
+def test_an_openai_compatible_answer_that_is_not_a_reply_is_malformed(provider, body):
+    server = provider(body)
+    with pytest.raises(ProviderReplyMalformed, match="deepseek-chat"):
+        _openai_compatible(server).complete(_request())
+    assert len(server.received) == 1
+
+
+@pytest.mark.parametrize("body", ANTHROPIC_MALFORMED.values(), ids=ANTHROPIC_MALFORMED.keys())
+def test_an_anthropic_answer_that_is_not_a_reply_is_malformed(provider, monkeypatch, body):
+    server = provider(body)
+    with pytest.raises(ProviderReplyMalformed, match="claude-opus-5-5"):
+        _anthropic(server, monkeypatch).complete(_request())
+    assert len(server.received) == 1
+
+
+@pytest.mark.parametrize("output", ["", "not json", "null", '{"type": "result", "is_error": false}'])
+def test_a_claude_code_output_that_is_not_a_reply_is_malformed(tmp_path, output):
+    fake_claude = tmp_path / "claude"
+    fake_claude.write_text(f"#!/bin/sh\ncat > /dev/null\nprintf '%s' '{output}'\n")
+    fake_claude.chmod(0o755)
+    backend = make_backend({"backend": "claude_code", "model": "claude-opus-5-5", "executable": str(fake_claude)})
+    with pytest.raises(ProviderReplyMalformed, match="claude_code"):
+        backend.complete(_request())
+
+
+def test_asking_again_after_an_answer_that_is_not_a_reply_gets_the_next_one(provider):
+    server = provider([b"\n\n\n null", OPENAI_REPLY])
+    assert AskingAgain(_openai_compatible(server)).complete(_request()).text == "the answer"
+    assert len(server.received) == 2
+
+
+def test_asking_again_gives_up_after_three_answers_that_are_not_replies(provider):
+    server = provider(b"null")
+    with pytest.raises(ProviderReplyMalformed, match="deepseek-chat"):
+        AskingAgain(_openai_compatible(server)).complete(_request())
+    assert len(server.received) == 3
+
+
+def test_asking_again_raises_every_other_error_at_once(provider):
+    server = provider({"error": {"message": "Insufficient Balance", "type": "unknown_error"}}, status=402)
+    with pytest.raises(ProviderQuotaExhausted):
+        AskingAgain(_openai_compatible(server)).complete(_request())
+    assert len(server.received) == 1
+
+
+def test_a_campaign_asks_any_backend_again_after_an_answer_that_is_not_a_reply(tmp_path, recorded, market):
+    answered = set()
+
+    def malformed_once(request):  # the first call of every role answers null, as DeepSeek's reviewer did
+        first = request.role not in answered
+        answered.add(request.role)
+        return first
+
+    fake = FakeLLM(_propose, fix=_rewrite, consistent=_consistent, malformed=malformed_once)
+    run(write_config(tmp_path, market["components"], round=SETTINGS), fake, market["cache"])
+    assert (tmp_path / "run" / "ledger.jsonl").read_text() == (recorded["root"] / "run" / "ledger.jsonl").read_text()
+    assert answered >= {"planner", "proposer", "reviewer"}
 
 
 def test_max_tokens_and_max_completion_tokens_together_are_refused():

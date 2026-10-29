@@ -13,7 +13,7 @@ import os
 import subprocess
 import tempfile
 
-from factor_agent.llm.base import Reply, Request
+from factor_agent.llm.base import ProviderReplyMalformed, Reply, Request
 
 
 class ClaudeCodeBackend:
@@ -65,6 +65,8 @@ class ClaudeCodeBackend:
             If Claude Code exits with an error or reports one.
         subprocess.TimeoutExpired
             If the call takes longer than ``timeout_seconds``.
+        ProviderReplyMalformed
+            If Claude Code succeeds but writes no JSON object with a ``result``.
         """
         env = {k: v for k, v in os.environ.items() if k not in _CREDENTIALS}
         with tempfile.TemporaryDirectory(prefix="factor_agent_claude_") as empty:
@@ -74,9 +76,16 @@ class ClaudeCodeBackend:
             )
         if finished.returncode != 0:
             raise RuntimeError(f"claude_code: exit {finished.returncode}: {(finished.stderr or finished.stdout)[-2000:]}")
-        reply = json.loads(finished.stdout)
+        try:
+            reply = json.loads(finished.stdout)
+        except json.JSONDecodeError:
+            reply = None
+        if not isinstance(reply, dict):
+            raise ProviderReplyMalformed(f"claude_code: the output is not a JSON object: {finished.stdout[-2000:]!r}")
         if reply.get("is_error"):
             raise RuntimeError(f"claude_code: the call failed: {str(reply.get('result'))[:2000]}")
+        if not isinstance(reply.get("result"), str):
+            raise ProviderReplyMalformed(f"claude_code: the reply has no result: {finished.stdout[-2000:]!r}")
         usage = reply.get("usage") or {}
         models = reply.get("modelUsage") or {}
         return Reply(
