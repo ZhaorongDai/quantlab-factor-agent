@@ -245,6 +245,12 @@ directions:
   # Barclay and Hendershott (2003), RFS.
   - "information_diffusion: late price discovery. Information that enters the price late in the session has had less time to be absorbed and its move continues the next days; the part of the session's move from its first last_price to its last made in its last bars (session_bars_left), weighted by the volume traded there (bar_volume), over one to two weeks, not the late return alone or the day's return. Barclay and Hendershott, Price discovery and trading after hours, Review of Financial Studies."
 
+# A candidate may read up to 10 distinct input fields, not the default 5: a minute-bar mechanism
+# often needs a price, the volume, its parts (buy, sell, odd-lot, off-exchange) and the session's
+# clock beside one another.
+gate:
+  max_base_fields: 10
+
 evaluator:
   warmup_bars: 260
   njobs: 51            # KunQuant threads
