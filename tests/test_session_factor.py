@@ -12,13 +12,15 @@ import re
 import numpy as np
 import pandas as pd
 import pytest
+import quantlab.factor.base
+import xarray as xr
 import yaml
 from KunQuant.Driver import compileit
 from KunQuant.Op import Builder, ConstantOp, Input, Output
 from KunQuant.ops import Accumulator, Equals, LessEqual, Select, SetAccumulator, SetInfOrNanToValue
 from KunQuant.Stage import Function
 from quantlab.factor.config import FactorConfig
-from quantlab.factor.kunquant import BATCH_OPTIONS, run_batch_graph
+from quantlab.factor.kunquant import BATCH_OPTIONS, FactorKunQuant, run_batch_graph
 from quantlab.factor.kunquant_compile import CACHE_ENV
 
 from factor_agent.candidate import Candidate
@@ -430,3 +432,38 @@ def test_the_memory_a_bar_takes_counts_the_session_inputs_and_grows_with_what_is
     assert ranked.cell_bytes()[0] > peak
     both = _factor(vocabulary, {"a": "alpha = SessionMean(volume)", "b": "alpha = SessionMax(volume)"})
     assert both.cell_bytes()[0] > peak
+
+
+#: Aggregations of several kinds, a half day, a late open and a day without a trade among the sessions.
+_RESAMPLED = {
+    "mean": "alpha = SessionMean(close)", "std": "alpha = SessionStd(close / BackRef(close, 1))",
+    "first": "alpha = SessionFirst(volume)", "count": "alpha = SessionCount(close)",
+    "corr": "alpha = SessionCorr(close, volume)",
+}
+
+
+@pytest.mark.parametrize(("start", "end"), [
+    (DAYS[0], DAYS[-1]),
+    (DAYS[1], DAYS[1]),  # the sessions before and after the range are read and left out
+    (DAYS[1], pd.Timestamp(DAYS[-1])),  # a timestamp end still covers its day's session
+    (f"{DAYS[1]} 18:00", DAYS[-1]),  # a start inside a session leaves that session out
+])
+def test_the_sessions_are_the_minute_values_resampled_onto_days(vocabulary, panel, start, end):
+    daily = _factor(vocabulary, _RESAMPLED, panel).resample("1d", "last")
+    # quantlab's own resample of the minute values, the reference the session columns must match.
+    expected = FactorKunQuant.compute(daily, start, end)
+    taken = daily.compute(start, end)
+
+    xr.testing.assert_equal(taken, expected)
+    assert {name: taken[name].dtype for name in taken} == {name: expected[name].dtype for name in expected}
+
+
+def test_the_sessions_are_taken_from_their_last_bars_without_resampling_the_minutes(vocabulary, panel, monkeypatch):
+    # A session's value is on its last bar only, so the minute panel is never grouped by day.
+    def refuse(*args, **kwargs):
+        raise AssertionError("the minute panel was resampled")
+
+    monkeypatch.setattr(quantlab.factor.base, "resample_panel", refuse)
+    daily = _factor(vocabulary, _RESAMPLED, panel).resample("1d", "last").compute(DAYS[0], DAYS[-1])
+
+    assert daily.sizes["timestamp"] == len(DAYS)

@@ -62,6 +62,8 @@ from quantlab.factor.chunking import ChunkedBuilder
 from quantlab.factor.config import FactorConfig
 from quantlab.factor.kunquant import BATCH_OPTIONS, FactorKunQuant
 from quantlab.factor.predefined.intraday import LAST_PRICE, SESSION_BARS_LEFT, SESSION_POSITION, session_inputs
+from quantlab.utils.date_range import as_label
+from quantlab.utils.resample import resolve_resample_how
 
 from factor_agent.aggregations import (
     SessionAggregation, SessionCorr, SessionCount, SessionFirst, SessionLast, SessionMax, SessionMean, SessionMin,
@@ -352,6 +354,29 @@ class SessionFactor(FactorKunQuant):
         super()._validate_config()
         if self.config.mode != "batch":
             raise ValueError(f"{self.class_name}: batch mode only; the session inputs are computed from a whole panel")
+
+    def compute(self, start, end) -> xr.Dataset:
+        """Compute as ``FactorKunQuant`` does, a resample to ``"1d"`` with ``"last"`` taking each session's last bar.
+
+        Every output holds a value on its session's last bar only, so a
+        session's last value is the one on that bar: the bars are read and
+        computed as for any resample (the padding around the range
+        included), and the sessions labelled in the range keep their last
+        bar's values, without grouping the minute panel by day. Any other
+        resample is ``FactorKunQuant``'s.
+        """
+        config = self.config
+        last_only = config.resample_freq == "1d" and set(
+            resolve_resample_how(config.resample_how, list(self.get_factor_names()), self.class_name).values()
+        ) == {"last"}
+        if not last_only:
+            return super().compute(start, end)
+        inputs = config.dataset.panel(*self._input_range(start, end), variables=self._input_variables())
+        panel = self._compute_panel(inputs)[list(self.get_factor_names())]
+        sessions = np.asarray(config.dataset.resample_labels(panel["timestamp"].values, "1d"))
+        last = np.flatnonzero(np.append(sessions[1:] != sessions[:-1], True))
+        daily = panel.isel(timestamp=last).assign_coords(timestamp=sessions[last])
+        return daily.sel(timestamp=slice(as_label(start), as_label(end))).transpose("timestamp", "symbol")
 
     def _recorded(self) -> dict:
         return dict((self.config.kwargs or {})["graphs"])
