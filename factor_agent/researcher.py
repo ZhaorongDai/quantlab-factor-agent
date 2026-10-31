@@ -303,8 +303,9 @@ class Researcher:
             for proposal, item in zip(sent_back, self._ask_to_fix(number, sent_back))
         ]
 
-    def distill(self, number: int, memory: str, history: str) -> str | None:
-        """The memory the distiller folds from the previous ``memory`` and ``history``, the trials since it.
+    def distill(self, number: int, memory: str, history: str, accepted: str) -> str | None:
+        """The memory the distiller folds from the previous ``memory``, ``history`` (the trials since it) and
+        ``accepted``, every factor accepted so far (``_feedback.accepted``).
 
         The reply must hold the three parts under their headings, in order;
         each part keeps its first ``MEMORY_ITEMS`` items. An empty reply, or
@@ -313,6 +314,7 @@ class Researcher:
         """
         reply = self._ask("distiller", self.prompts.render(
             "distill", round=number, memory=memory or "(none: this is the first memory)", history=history,
+            accepted=accepted or "(none: no candidate has been accepted yet)",
         ), _Scope(number))
         return _memory(reply)
 

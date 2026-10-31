@@ -2,7 +2,7 @@
 
 Each role's prompt opens with the role, its task and who uses its answer,
 holds the long inputs in the middle, each inside an XML tag (``<quota>``,
-``<directions>``, ``<refused_candidates>``, ``<candidates>``, ``<previous_memory>``, ``<history>``,
+``<directions>``, ``<refused_candidates>``, ``<candidates>``, ``<previous_memory>``, ``<accepted>``, ``<history>``,
 and the context sections under their keys), and ends by restating the task
 and the shape of the answer. A fenced ``json`` block holds only that shape,
 the last thing in the prompt, so no input reads like an answer to copy.
@@ -337,7 +337,8 @@ You are the keeper of the memory of a search for cross-sectional factors on {mar
 predict the return over the next {horizon} bars. The planner and the proposer of the next rounds read
 your memory in their context, next to the latest feedback, to choose which mechanisms to pursue and
 how to write them, so it carries the lessons that the list of trials is too long to show. You receive
-the previous memory and the trials since it was written, and write the next memory from both.
+the previous memory, the trials since it was written and every factor accepted so far, and write the
+next memory from them.
 
 Round: {round}
 
@@ -345,14 +346,25 @@ Round: {round}
 {memory}
 </previous_memory>
 
+<accepted>
+{accepted}
+</accepted>
+
 <history>
 {history}
 </history>
 
 """ + f"""Now fold the new trials in <history> into the previous memory, in three parts:
 - {MEMORY_PARTS[0]}: the kinds of mechanism and construction that were accepted, each with
-  why it worked.
-- {MEMORY_PARTS[1]}: what keeps being refused, each as a rule to follow with its reason.
+  why it worked; only the factors in <accepted> were, so this part holds those and nothing else,
+  and while <accepted> holds none it is the one item "- none accepted yet: <what the trials
+  suggest to try next>". Drop an item of the previous memory that is about no factor in <accepted>.
+  A factor a refusal names, a correlation with it being too high, is a factor that existed before
+  the search (of the reference set, or known) or one in <accepted>: it shows what a candidate
+  repeated, not one this search accepted.
+- {MEMORY_PARTS[1]}: what keeps being refused, each as a rule to follow with its reason; a rule
+  needs refusals of several trials for the same reason, and a mechanism refused once or twice is
+  not yet one to avoid.
 - {MEMORY_PARTS[2]}: which way the evaluated mechanisms worked, as the factor directions in
   <history> show them, such as "volume surges were followed by outperformance".
 Keep what the new trials do not contradict, merge items that say the same thing, and drop a finding
@@ -403,7 +415,7 @@ PLACEHOLDERS = {
         frozenset({"code_rules", "vocabulary", "fields", "n", "failures"}), frozenset({"round", "data", "mechanisms"}),
     ),
     "review": (frozenset({"candidates", "data"}), frozenset({"round", "mechanisms"})),
-    "distill": (frozenset({"memory", "history"}), frozenset({"round", "data", "mechanisms"})),
+    "distill": (frozenset({"memory", "history"}), frozenset({"round", "data", "mechanisms", "accepted"})),
 }
 
 

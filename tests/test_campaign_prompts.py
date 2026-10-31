@@ -148,6 +148,13 @@ def test_the_distiller_prompt_ends_with_the_three_parts_of_the_memory(lunar):
     assert "at most 6" in ending
 
 
+def test_the_distiller_is_told_that_a_factor_a_refusal_names_is_an_existing_one_not_an_accepted_one(lunar):
+    distill = lunar.of_role("distiller")[0].prompt
+    rules = distill[distill.index("</history>"):]
+    assert "only the factors in <accepted>" in rules
+    assert "A factor a refusal names" in rules and "not one this search accepted" in rules
+
+
 def test_the_built_in_templates_load_as_replaced_templates(tmp_path):
     files = {}
     for name, text in TEMPLATES.items():

@@ -150,6 +150,15 @@ def last_round(records: list[TrialRecord]) -> str:
     return "\n".join(blocks)
 
 
+def accepted(records: list[TrialRecord]) -> str:
+    """The accepted factors as the distiller reads them: name, mechanism type, hypothesis and direction, no statistic."""
+    return "\n".join(
+        f"- {accepted_label(r)} [{r.candidate['mechanism_type']}]: {r.candidate['hypothesis']}; "
+        f"{direction_text(r.metrics['ic_mean'])}"
+        for r in records if r.status == "accepted"
+    )
+
+
 def best(records: list[TrialRecord], contributions: dict[str, Contribution]) -> str:
     """The accepted factors: name, mechanism, code, and marginal weight and residual IC in the accepted pool."""
     blocks = []

@@ -36,7 +36,7 @@ times their number must fit in `round.candidates`. Without `mechanisms` the type
 | `propose` | proposer | `data`, `context`, `code_rules`, `vocabulary`, `fields`, `n`, `directions` | `round`, `mechanisms` |
 | `retry` | proposer's fix request | `code_rules`, `vocabulary`, `fields`, `n`, `failures` | `round`, `data`, `mechanisms` |
 | `review` | reviewer | `candidates`, `data` | `round`, `mechanisms` |
-| `distill` | distiller | `memory`, `history` | `round`, `data`, `mechanisms` |
+| `distill` | distiller | `memory`, `history` | `round`, `data`, `mechanisms`, `accepted` |
 
 Every template may use `market` and `horizon`. A template is a Python format string; each
 `{placeholder}` is filled when the prompt is made. When the config is read, each replaced

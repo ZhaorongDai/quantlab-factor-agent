@@ -22,7 +22,7 @@ follow refuse what is merely a variant of an existing factor.
 | planner | one | seed directions, factor families, memory, recent trials, last round's feedback | one direction per slot |
 | proposer | one per proposal group, plus fixes | the directions, the data section, the vocabulary | candidates |
 | reviewer | one per proposal group, plus one for rewrites | each candidate and the data section | a verdict per candidate |
-| distiller | one every `round.memory_every` rounds | the trials since the last memory | `memory.md` |
+| distiller | one every `round.memory_every` rounds | the trials since the last memory and the factors accepted so far | `memory.md` |
 
 Each role names its own backend and model, so the reviewer can be another provider's
 model than the proposer's. See [LLM backends](llm-backends.md).

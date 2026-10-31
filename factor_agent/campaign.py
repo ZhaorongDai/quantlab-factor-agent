@@ -276,7 +276,9 @@ class Campaign:
             try:
                 if _feedback.distill_due(state.rounds, state.memory_round, config.round.memory_every):
                     since = [r for r in records if r.round > state.memory_through]
-                    memory = researcher.distill(number, state.memory, _feedback.history(since, statistics=False))
+                    memory = researcher.distill(
+                        number, state.memory, _feedback.history(since, statistics=False), _feedback.accepted(records),
+                    )
                     state.memory_round = state.rounds
                     if memory is None:
                         print(

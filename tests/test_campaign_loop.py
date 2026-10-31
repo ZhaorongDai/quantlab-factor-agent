@@ -411,6 +411,21 @@ def test_the_distiller_folds_the_trials_since_the_last_distillation_into_the_pre
     assert "Distilled memory number 2" in _section(third, "previous_memory") and "- round 2," not in third
 
 
+def test_the_distiller_is_given_every_factor_accepted_so_far_not_only_those_since_the_last_memory(two_recent_rounds):
+    accepted = [r for r in two_recent_rounds["result"].records if r.status == "accepted"]
+    assert [(r.round, r.candidate["description"]) for r in accepted] == [(1, "intraday move")]
+    last = two_recent_rounds["fake"].of_role("distiller")[-1].prompt
+    assert "- round 1," not in _section(last, "history")
+    listed = _section(last, "accepted")
+    assert listed.startswith("- intraday move (accepted in round 1) [") and accepted[0].candidate["hypothesis"] in listed
+    assert not re.search(r"\d\.\d", listed)  # as the history: the mechanism and its direction, no statistic
+
+
+def test_a_distiller_with_nothing_accepted_is_told_so(eleven_rounds):
+    for request in eleven_rounds["fake"].of_role("distiller"):
+        assert _section(request.prompt, "accepted") == "(none: no candidate has been accepted yet)"
+
+
 def test_every_memory_version_is_saved_and_memory_md_is_the_current_one(two_recent_rounds):
     run_dir = two_recent_rounds["run_dir"]
     versions = sorted(p.name for p in (run_dir / "memory").iterdir())

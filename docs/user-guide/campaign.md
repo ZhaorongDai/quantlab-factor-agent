@@ -201,3 +201,6 @@ residual IC in the accepted pool. The planner also reads the trials of the last
 `context.recent_rounds` rounds one line each, and the older trials counted by mechanism
 type and outcome. Every `round.memory_every` rounds the distiller folds the trials since
 the last memory into `memory.md`; an empty or unparsable reply keeps the previous memory.
+It also reads every factor accepted so far, each with its mechanism type, hypothesis and
+direction, and the memory's working patterns are about those factors only: a factor a
+refusal names is one of the reference set, a known one or one accepted earlier.
