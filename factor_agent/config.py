@@ -185,6 +185,13 @@ class AdmissionConfig:
     min_monotonicity: float = 0.6
     #: Smallest mean daily share of the members on which the candidate has a value.
     min_coverage: float = 0.5
+    #: Power of the trial count the anchor's p-value is divided by: 1 is Bonferroni, a smaller
+    #: one lets the threshold rise more slowly (0.5 counts 100 trials as 10).
+    trial_exponent: float = 1.0
+
+    def __post_init__(self):
+        if not 0 < self.trial_exponent <= 1:
+            raise ValueError(f"admission: trial_exponent is {self.trial_exponent}; it lies in (0, 1]")
 
 
 @dataclass(frozen=True)

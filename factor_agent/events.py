@@ -76,8 +76,10 @@ class Start(Event):
     ``versions`` the code versions the run's snapshot records for this
     opening; ``rounds`` the rounds already written. ``max_rounds``,
     ``max_trials`` and ``patience`` are the stop conditions, ``candidates``
-    the slots of a round; ``t_threshold``, ``max_correlation``,
-    ``min_coverage`` and ``min_monotonicity`` the admission settings.
+    the slots of a round; ``t_threshold``, ``trial_exponent``,
+    ``max_correlation``, ``min_coverage`` and ``min_monotonicity`` the
+    admission settings (``trial_exponent`` is 1 in a record written before it
+    was).
     """
 
     type = "start"
@@ -93,6 +95,7 @@ class Start(Event):
     max_correlation: float
     min_coverage: float
     min_monotonicity: float
+    trial_exponent: float = 1.0
 
 
 @dataclass(frozen=True, kw_only=True)

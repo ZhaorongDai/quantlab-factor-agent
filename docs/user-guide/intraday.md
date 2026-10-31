@@ -223,6 +223,11 @@ acceptance. Its known factors are the high-frequency example's, every stored fac
 minute bars among them, and its seed directions name mechanisms only the minute bars show.
 The paths are stores under one data root: point them at your own.
 
+`configs/us3000_intraday2_ret5.yaml` is a second campaign on the same data: ten other seed
+directions, a t threshold rising with the square root of the trial count
+(`admission.trial_exponent: 0.5`, see [admission](evaluation.md#admission)), and a
+distillation after every round, in a run directory of its own.
+
 ## Evaluation and its cost
 
 Each round, the Evaluator splits every candidate that passed the review into its stages.

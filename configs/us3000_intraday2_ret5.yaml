@@ -1,0 +1,301 @@
+# A second intraday campaign: us3000_intraday_ret5.yaml with ten other seed directions, a t
+# threshold rising with the square root of the trial count instead of the count itself, and a
+# distillation after every round.
+#
+# The first campaign accepted two factors in 180 trials and neither added to the acceptance model
+# on the validation segment. Its best refused candidates had partial-IC t near 4.0 when the
+# threshold had risen to 4.4: with admission.trial_exponent 0.5, a hundred trials count as ten (3.82
+# at 100, 4.03 at 600), a weaker guard against a lucky draw among many that the validation and
+# hold-out segments have to make up for. Everything else, data, segments, reference, known
+# factors, roles and acceptance, is the first campaign's, in a run directory of its own.
+run_dir: /data/quantlab/runs/factor_agent_us3000_intraday2_ret5
+
+# The data as the prompts describe it.
+market: adjusted daily bars and one-minute trade bars of every regular session of every US common stock
+
+# Every segment lies inside the minute bars, whose first session is 2016-10-10. The daily warm-up
+# before it has no session values, so a candidate averaging them over n days is missing on the
+# training segment's first n days, counted against its coverage.
+segments:
+  training:   {start: 2016-10-10, end: 2021-12-31}
+  validation: {start: 2022-01-03, end: 2023-12-29}
+  holdout:    {start: 2024-01-02, end: 2026-10-15}
+  purge_bars: 5
+
+data:
+  prices:
+    datasets:
+    - zarr_file_path: /data/quantlab/market/sharadar/sharadar_sep_1d/sharadar_sep_1d.zarr
+      start_date: '1900-01-01'
+      end_date: '2100-01-01'
+      symbols: null
+      kwargs: null
+      name: quantlab.dataset.sharadar.stock.SharadarStockDataset
+      raw_data_dir_path: /data/quantlab/downloads/sharadar
+      market: us_equity
+      frequency: 1d
+      vendor: sharadar
+      table: sep
+      permatickers: null
+      roster_universe: null
+      category_filter: [Domestic Common Stock, Domestic Common Stock Primary Class, Domestic Common Stock Secondary
+          Class]
+    name: quantlab.dataset.bad_prints.BadPrintMaskedDataset
+    jump: 5.0
+    volume_ratio: 20.0
+    lookback: 20
+    price_variable: adjClose
+    volume_variable: adjVolume
+    masked_variables: [open, high, low, close, adjOpen, adjHigh, adjLow, adjClose, marketcap]
+    intrabar_variables: [adjOpen]
+  label:
+    label:
+      warmup_bars: 15
+      dataset:
+        datasets:
+        - zarr_file_path: /data/quantlab/market/sharadar/sharadar_sep_1d/sharadar_sep_1d.zarr
+          start_date: '1900-01-01'
+          end_date: '2100-01-01'
+          symbols: null
+          kwargs: null
+          name: quantlab.dataset.sharadar.stock.SharadarStockDataset
+          raw_data_dir_path: /data/quantlab/downloads/sharadar
+          market: us_equity
+          frequency: 1d
+          vendor: sharadar
+          table: sep
+          permatickers: null
+          roster_universe: null
+          category_filter: [Domestic Common Stock, Domestic Common Stock Primary Class, Domestic Common Stock Secondary
+              Class]
+        name: quantlab.dataset.bad_prints.BadPrintMaskedDataset
+        jump: 5.0
+        volume_ratio: 20.0
+        lookback: 20
+        price_variable: adjClose
+        volume_variable: adjVolume
+        masked_variables: [open, high, low, close, adjOpen, adjHigh, adjLow, adjClose, marketcap]
+        intrabar_variables: [adjOpen]
+      file_path: /data/quantlab/labels/market/ret_5/ret_5.zarr
+      factor_names: [ret_5]
+      kwargs: {n_forward_periods: 5}
+      resample_freq: null
+      resample_how: null
+      name: quantlab.label.predefined.fret.Return
+      mode: batch
+      data_columns: [adjOpen]
+      njobs: 48
+    membership:
+      zarr_file_path: /data/quantlab/universe/us3000/membership_estu/membership_estu.zarr
+      start_date: '2000-02-02'
+      end_date: '2100-01-01'
+      symbols: null
+      kwargs: {barra_store: /data/quantlab/factors/market/barra_style/barra_style.zarr}
+      name: quantlab.dataset.estu.EstuConstituentDataset
+      as_of: null
+    name: quantlab.label.predefined.membership_mask.MembershipMaskedLabel
+  membership: /data/quantlab/universe/us3000/membership_estu
+  # The one-minute trade bars an intraday family reads: Massive's trades in one-minute bars of each
+  # regular session, mapped onto permatickers once and kept in their own store, read on the symbols
+  # of SEP's domestic common stock (the store the daily prices read). Their session values are
+  # matched to the daily bars by date and permaticker. The minute bars start on 2016-10-10.
+  intraday:
+    dataset:
+      source:
+        trade_bars:
+          zarr_file_path: /data/quantlab/market/massive/massive_trade_bars_1m/massive_trade_bars_1m.zarr
+          name: quantlab.dataset.massive.trade_bars.MassiveTradeBarDataset
+          start_date: '2016-10-10'
+          end_date: '2100-01-01'
+          symbols: null
+          kwargs: null
+          raw_data_dir_path: /data/quantlab/downloads/massive
+          market: us_equity
+          frequency: tick
+          vendor: massive
+          bar_interval: 1m
+          session_start: '09:30'
+          session_end: '16:00'
+          tickers: null
+        ticker_map:
+          path: /data/quantlab/market/massive/massive_ticker_map/massive_ticker_map
+          massive_dir: /data/quantlab/downloads/massive
+          sharadar_dir: /data/quantlab/downloads/sharadar
+          name: quantlab.dataset.massive.ticker_map.TickerMap
+        name: quantlab.dataset.massive.permaticker_bars.PermatickerTradeBarDataset
+      zarr_file_path: /data/quantlab/market/massive/massive_permaticker_bars_1m/massive_permaticker_bars_1m.zarr
+      name: quantlab.dataset.massive.mapped_bars.MappedTradeBarDataset
+    roster:
+      zarr_file_path: /data/quantlab/market/sharadar/sharadar_sep_1d/sharadar_sep_1d.zarr
+      name: quantlab.dataset.sharadar.stock.SharadarStockDataset
+      start_date: '1900-01-01'
+      end_date: '2100-01-01'
+      symbols: null
+      kwargs: null
+      raw_data_dir_path: /data/quantlab/downloads/sharadar
+      market: us_equity
+      frequency: 1d
+      vendor: sharadar
+      table: sep
+      permatickers: null
+      roster_universe: null
+      category_filter:
+      - Domestic Common Stock
+      - Domestic Common Stock Primary Class
+      - Domestic Common Stock Secondary Class
+    name: quantlab.dataset.roster.RosterDataset
+# Ranked across the market, neutralised against industry and log market cap, as the shared
+# *_neutral stores are; masked to the members of day t (data.membership).
+scoring:
+  neutralize:
+    exposures:
+    - /data/quantlab/market/sharadar/sharadar_daily_1d
+    - /data/quantlab/market/sharadar/sharadar_industry_1d
+    size_column: marketcap
+    industry_column: industry
+
+# What candidates may write with (paths relative to this file).
+fields: [fields/sharadar_price_volume.yaml, fields/massive_minute_bars.yaml]
+operators: operators/kunquant_example.yaml
+
+reference:
+  - store: /data/quantlab/factors/market/alpha101_neutral
+    factor_names: [alpha016, alpha015, alpha044, alpha013, alpha050, alpha055, alpha043, alpha040, alpha012, alpha003, alpha009,
+        alpha026, alpha011, alpha007, alpha021, alpha041, alpha049, alpha005, alpha045, alpha023, alpha024,
+        alpha006, alpha020, alpha002, alpha036, alpha078, alpha019, alpha081, alpha022, alpha030, alpha088,
+        alpha099, alpha061, alpha034, alpha064, alpha027, alpha017, alpha028, alpha025, alpha039, alpha042,
+        alpha008, alpha052, alpha075, alpha071, alpha004, alpha046, alpha074, alpha001, alpha037, alpha018,
+        alpha065, alpha054, alpha085, alpha035, alpha066, alpha031, alpha094, alpha062, alpha047, alpha095,
+        alpha096, alpha072, alpha073, alpha053, alpha077, alpha029, alpha068, alpha083, alpha086]
+  - store: /data/quantlab/factors/market/fundamental_alpha_neutral
+    factor_names: [cash_profitability, fcf_yield, operating_profitability, f_score, ebit_to_ev, earnings_sue, roe, composite_issuance,
+        net_payout_yield, revenue_sue, insider_buyers, roa_change, investment_to_assets, io_change, insider_breadth,
+        insider_purchase]
+  - store: /data/quantlab/factors/market/alpha158_neutral
+    factor_names: [CORR5, CORD5, LOW1, MIN10, VSUMN20, LOW2, CORD10, VSUMN60, VSUMN30, QTLD10, VSUMN10, VSUMN5, CORD20,
+        MIN30, CORD30, QTLU5, VWAP4, QTLD20, VWAP0, CLOSE1, CORR20, CORR30, CORD60, HIGH1, RSV5, LOW0, ROC10,
+        VOLUME1, MA30, CNTP5, RANK10, VOLUME3, KLOW, VOLUME2, KUP2, VOLUME4, KLOW2, VMA60, QTLU60, IMAX5, KMID2,
+        MAX10, RSV20, KLEN, CORR60, IMAX10, IMAX20, IMIN5, CNTN60, HIGH0, CNTP10, STD10, VOLUME0, IMIN10, STD5,
+        STD20, KUP, IMAX30, CNTP20, IMIN20, IMIN30, CLOSE0]
+  - store: /data/quantlab/factors/market/barra_style
+    factor_names: [style_residual_volatility, style_nonlinear_size, desc_etop, desc_lncap, desc_dastd, desc_cetop, desc_yild,
+        desc_dtoa, desc_rstr, desc_cmra, desc_sgro, desc_egro, style_beta, desc_stoa]
+  - store: /data/quantlab/factors/market/alternative_alpha_ear252_neutral
+    factor_names: [earnings_announcement_return]
+  - store: /data/quantlab/factors/market/intraday_low_corr
+    factor_names: [hf_liquid_pv, hf_steady_close_small_trades, hf_close_pv_overnight, hf_auction_vwap, hf_lit_intraday,
+        hf_liquid_vwap, hf_lit_steady_overnight, hf_liquid_reversal, hf_auction_rv]
+  - store: /data/quantlab/factors/market/alternative_alpha_neutral
+    factor_names: [lazy_prices_business, distress_events, lazy_prices_risk_jaccard, news_attention, news_sentiment, short_volume_ratio]
+  - store: /data/quantlab/factors/market/intraday_signals
+    factor_names: [hf_efficiency, hf_small_lit_trades, hf_close_liquidity]
+  - store: /data/quantlab/factors/market/intraday_stats_20d_neutral
+    factor_names: [corr_pv_20d, amihud_20d, trade_size_20d, ret_open30_20d]
+  - store: /data/quantlab/factors/market/intraday_vol_liquidity
+    factor_names: [liquid_60d, lowvol_10d]
+  - store: /data/quantlab/factors/market/beta_spy_neutral
+    factor_names: [beta]
+  - store: /data/quantlab/factors/market/short_horizon_neutral
+    factor_names: [intraday_20, reversal_3, intraday_5]
+
+# Known factors besides the reference set: a candidate rewriting one of them is refused. Whole-market
+# factor libraries of quantlab's factor families, and every stored factor of the minute bars: the
+# price-volume factors averaging PriceVolumeIntradayStats's session statistics over several
+# horizons, the 20-day means of every IntradayStats statistic, of which the reference holds four,
+# and HfShortHorizonAlpha, 32 short-horizon factors from the same session statistics (stored raw:
+# their correlation with a candidate is of normal scores per date, unneutralised). A candidate that
+# recomputes one of those statistics from the minute bars and averages it meets that factor at
+# admission, as a correlation above the limit.
+known:
+  - /data/quantlab/factors/market/alpha101_neutral
+  - /data/quantlab/factors/market/alpha158_neutral
+  - /data/quantlab/factors/market/fundamental_alpha_neutral
+  - /data/quantlab/factors/market/daily_anomaly_neutral
+  - /data/quantlab/factors/market/short_horizon_neutral
+  - /data/quantlab/factors/market/barra_style
+  - /data/quantlab/factors/market/price_volume_intraday_neutral
+  - /data/quantlab/factors/market/intraday_stats_20d_neutral
+  - /data/quantlab/factors/market/hf_short_horizon
+
+# Seed directions: two per mechanism type, each a mechanism only the minute bars show, none of
+# us3000_intraday_ret5.yaml's ten. The known minute factors are means and variabilities of each
+# session statistic and HfShortHorizonAlpha's tests of the obvious mechanisms (realized skewness,
+# jumps, semibetas, order imbalance and its reversal, volatility shocks, high- and low-volume minute
+# moves, the off-exchange share shock, closing-time periodicity), and the first campaign's refusals
+# were mostly correlations with jump and amplitude factors, so no direction is a size of the
+# session's moves. Papers are cited without their year, so no prompt names a date after the
+# training segment; the years are in the comments.
+directions:
+  # Bhattacharya, Holden and Jacobsen (2012), Management Science.
+  - "behavioural_bias: round-number buying and selling. Investors place limit orders at round prices and treat them as barriers, so buyers cluster just above a round dollar and sellers just below it, and the pressure reverses once the price has moved away; the order imbalance (bar_buy_volume against bar_sell_volume) of the bars whose last_price lies just above against those just below a whole dollar, over one to two weeks, not the session's imbalance alone or the price level. Bhattacharya, Holden and Jacobsen, Penny wise, dollar foolish: buy-sell imbalances on and around round numbers, Management Science."
+  # Kaniel, Saar and Titman (2008), JF.
+  - "behavioural_bias: contrarian individual investors. Individuals buy what has just fallen and sell what has just risen, and by doing so supply the liquidity institutions demand; the stocks they buy outperform over the following month. Off-exchange volume (bar_offexchange_volume against bar_volume), where individuals' orders are filled, on the bars where last_price falls against the bars where it rises, over two to four weeks, not the off-exchange share or its shock. Kaniel, Saar and Titman, Individual investor trading and stock returns, Journal of Finance."
+  # Hendershott, Livdan and Roesch (2020), JFE.
+  - "risk_compensation: overnight risk. Risk borne while the market is closed, when it cannot be traded away, is the risk the market prices; the share of the stock's variance earned between the last price of one session and the first last_price of the next, against the variance of its bar returns within the session, over one to three months, not the overnight return's level or the session's volatility. Hendershott, Livdan and Roesch, Asset pricing: a tale of night and day, Journal of Financial Economics."
+  # Nagel (2012), RFS.
+  - "risk_compensation: liquidity provision. Those who take the other side of short-lived order flow are paid for the risk of holding it, and the stocks whose minute prices reverse most pay them most; the first-order autocorrelation of the bar returns of last_price within the session, negative where liquidity is provided, over one to three months, not the order imbalance's reversal or the daily reversal. Nagel, Evaporating liquidity, Review of Financial Studies."
+  # Chordia, Subrahmanyam and Anshuman (2001), JFE.
+  - "liquidity: the variability of liquidity. Expected returns fall with the variability of trading activity, not only with its level: a stock whose dollar volume (bar_dollar_volume) is spread evenly over the session's bars trades differently from one whose volume comes in bursts; the dispersion of bar dollar volume across the session (its standard deviation against its mean), over a few weeks, not the volume level or its shock against the past. Chordia, Subrahmanyam and Anshuman, Trading activity and expected stock returns, Journal of Financial Economics."
+  # Corwin and Schultz (2012), JF.
+  - "liquidity: the spread in the bars' ranges. A bar's high is mostly a buy and its low mostly a sell, so the range of one bar holds the spread and the variance of one bar, and the range of two bars together the spread and twice the variance; the spread they imply from bar_high and bar_low of pairs of consecutive bars, averaged over the session and over a few weeks, not the bars' amplitude or the minute Amihud ratio. Corwin and Schultz, A simple way to estimate bid-ask spreads from daily high and low prices, Journal of Finance."
+  # Kyle (1985), Econometrica.
+  - "microstructure: price impact of signed order flow. Market makers move the price with the order flow they cannot tell from informed trading, by an amount that grows with the share of informed traders in the stock; the slope of the bar returns of last_price on the bar's signed volume (bar_buy_volume minus bar_sell_volume, against the session's volume) within the session, over one to three months, not the Amihud ratio of unsigned volume or the resilience after a large bar. Kyle, Continuous auctions and insider trading, Econometrica."
+  # Easley, Hvidkjaer and O'Hara (2002), JF.
+  - "microstructure: the probability of informed trading. Informed traders come on one side of the market, so a stock with many bars of one-sided flow carries information risk that investors are paid to bear; the share of the session's bars whose absolute imbalance (bar_buy_volume against bar_sell_volume) is far above the stock's usual, over one to three months, not the session's net imbalance or its reversal. Easley, Hvidkjaer and O'Hara, Is information risk a determinant of asset returns?, Journal of Finance."
+  # Gao, Han, Li and Zhou (2018), JFE.
+  - "information_diffusion: the first half-hour predicting the last. News of the night is absorbed in the first bars of the session, and those who trade late, with the news still unabsorbed, finish the move; how strongly the return of the session's first half-hour of last_price (session_position) and the return of its last half-hour (session_bars_left) move together across sessions, with the sign of the past month's return, not the first half-hour's return alone. Gao, Han, Li and Zhou, Market intraday momentum, Journal of Financial Economics."
+  # Da, Gurun and Warachka (2014), RFS.
+  - "information_diffusion: information arriving continuously. Investors underreact to information that comes in many small pieces more than to the same news in a few large ones, so a move made bar by bar continues; the share of the session's bars of last_price that move in the direction of the session's return, against those that move against it, signed with the session's return and averaged over one to three months, not the jump share or the realized skewness. Da, Gurun and Warachka, Frog in the pan: continuous information and momentum, Review of Financial Studies."
+
+# A candidate may read up to 10 distinct input fields, not the default 5: a minute-bar mechanism
+# often needs a price, the volume, its parts (buy, sell, odd-lot, off-exchange) and the session's
+# clock beside one another.
+gate:
+  max_base_fields: 10
+
+evaluator:
+  warmup_bars: 260
+  njobs: 51            # KunQuant threads
+
+admission:
+  t_threshold: 3.0
+  trial_exponent: 0.5   # the threshold rises with the square root of the trial count
+  max_correlation: 0.7
+  min_monotonicity: 0.6
+
+round:
+  candidates: 20
+  min_per_type: 3
+  retries: 2
+  max_rounds: 30
+  max_trials: 600
+  patience: 5
+  memory_every: 1    # the ledger is distilled into the memory after every round
+  seed: 0
+  groups: 4          # proposal groups whose calls run side by side
+
+context:
+  recent_rounds: 5    # the planner lists the last 5 rounds' trials; older ones are counted
+
+acceptance:
+  # The acceptance model: a deep xgboost on cross-sectional ranks; quantlab puts xgboost on CUDA when
+  # there is one. Its factors are the baseline: empty, the reference set.
+  model:
+    name: quantlab.model.predefined.xgb.XGBoostRegressor
+    factors: []
+    hyperparameters: {training_target: cs_rank, early_stopping: true, early_stopping_patience: 100,
+                      objective: "reg:squarederror", num_boost_round: 2000, eta: 0.03, max_depth: 6,
+                      min_child_weight: 1000, subsample: 0.8, colsample_bytree: 0.5}
+  seeds: [0, 1, 2]
+  top_k: 100
+  factor_root: /data/quantlab/factors/market   # exported stores, beside the other whole-market factors
+
+# All four roles: DeepSeek V4 Pro on DeepSeek's own API. The library counts no money: the spending
+# limit is the provider's (a prepaid balance or an account limit).
+llm:
+  planner:   &deepseek {backend: openai_compatible, model: deepseek-v4-pro,
+                        base_url: "https://api.deepseek.com", api_key_env: DEEPSEEK_API_KEY,
+                        max_tokens: 32000, timeout_seconds: 900}
+  proposer:  *deepseek
+  reviewer:  *deepseek
+  distiller: *deepseek

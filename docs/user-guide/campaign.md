@@ -100,6 +100,7 @@ known factor at a time.
 | `gate.max_base_fields` | 5 | distinct input fields a candidate may read |
 | `gate.max_common_subtree_nodes` | 5 | the largest subtree a candidate may share with a zoo factor |
 | `admission.t_threshold` | 3.0 | partial-IC t the first evaluated trial needs |
+| `admission.trial_exponent` | 1.0 | power of the trial count the threshold's correction divides by; below 1 it rises more slowly |
 | `admission.max_correlation` | 0.7 | largest absolute correlation with a reference, accepted or known factor |
 | `admission.min_monotonicity` | 0.6 | smallest Spearman correlation of the deciles with the decile number |
 | `admission.min_coverage` | 0.5 | smallest mean daily share of the members with a value |
@@ -175,7 +176,7 @@ holds as NaN is written as `null`.
 
 | `type` | When | Fields |
 |---|---|---|
-| `start`, `resume` | the campaign opens the run directory, before its first call | `pid`, `host`, `versions` (the code versions), `rounds` (written so far), `candidates`, `max_rounds`, `max_trials`, `patience`, `t_threshold`, `max_correlation`, `min_coverage`, `min_monotonicity`; a `resume` also has `dropped`, the round it drops or `null` |
+| `start`, `resume` | the campaign opens the run directory, before its first call | `pid`, `host`, `versions` (the code versions), `rounds` (written so far), `candidates`, `max_rounds`, `max_trials`, `patience`, `t_threshold`, `trial_exponent`, `max_correlation`, `min_coverage`, `min_monotonicity`; a `resume` also has `dropped`, the round it drops or `null` |
 | `plan` | the planner's directions are set | `round`, `directions` (in slot order: `mechanism_type`, `action`, `parent`, `direction`), `quota`, `issues` |
 | `call_start` | an LLM call is sent | `call` (a number unique since the latest `start` or `resume`), `round`, `role`, `model`, `group` (the proposal group, `null` for the planner and the distiller), `slots` |
 | `call_end` | an LLM call comes back or fails | the fields of its `call_start`, and `file` (the call file in `llm_log/`, `null` when the call failed), `seconds`, `input_tokens`, `output_tokens`, `cache_hits`, `reasoning`, `truncated` (cut off at the output limit), `empty`, `error` |

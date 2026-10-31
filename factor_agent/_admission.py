@@ -22,7 +22,10 @@ The threshold is a Bonferroni correction anchored at ``t_threshold``
 (Harvey, Liu and Zhu 2016). The direction is read from the data, so each
 trial is two tests, one per direction: the one-sided p-value of
 ``t_threshold`` is divided by twice the trial count n (3.0 becomes about
-3.21 at one trial, 3.82 at 10, 4.35 at 100 and 4.73 at 600).
+3.21 at one trial, 3.82 at 10, 4.35 at 100 and 4.73 at 600). With
+``trial_exponent`` a below 1 it is divided by twice n to the a instead, a
+threshold rising more slowly than Bonferroni's (at 0.5, 3.82 at 100 and
+4.03 at 600).
 """
 
 import math
@@ -39,7 +42,7 @@ _SAMPLED_DATES = f"one training date in {KNOWN_SAMPLE_EVERY}"
 
 def t_threshold(config: AdmissionConfig, trials: int) -> float:
     """The partial-IC Newey-West t a candidate needs as the ``trials``-th evaluated trial."""
-    return float(stats.norm.isf(stats.norm.sf(config.t_threshold) / (2 * max(trials, 1))))
+    return float(stats.norm.isf(stats.norm.sf(config.t_threshold) / (2 * max(trials, 1) ** config.trial_exponent)))
 
 
 def direction(ic_mean: float) -> int:

@@ -369,6 +369,7 @@ class Campaign:
             candidates=settings.candidates, max_rounds=settings.max_rounds, max_trials=settings.max_trials,
             patience=settings.patience, t_threshold=admission.t_threshold, max_correlation=admission.max_correlation,
             min_coverage=admission.min_coverage, min_monotonicity=admission.min_monotonicity,
+            trial_exponent=admission.trial_exponent,
         )
         if len(snapshot.versions) == 1:
             return Start(**opened)

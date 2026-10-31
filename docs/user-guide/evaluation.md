@@ -73,7 +73,9 @@ is the recorded reason. The t threshold is a Bonferroni correction anchored at
 `admission.t_threshold`: since the direction is read from the data, each evaluated trial
 counts as two tests, and the one-sided p-value of the anchor is divided by twice the trial
 count. With the default 3.0 the threshold is about 3.21 at the first trial, 3.82 at 10,
-4.35 at 100 and 4.73 at 600.
+4.35 at 100 and 4.73 at 600. `admission.trial_exponent` a, 1 by default, divides it by
+twice the trial count to the a instead: at 0.5 a hundred trials count as ten, and the
+threshold is 3.82 at 100 and 4.03 at 600, a weaker guard against a lucky draw among many.
 
 ## Reading the ledger
 

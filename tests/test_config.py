@@ -304,3 +304,15 @@ def test_per_token_prices_in_a_role_are_refused_as_gone(tmp_path, price):
     llm["reviewer"][price] = 1.0
     with pytest.raises(TypeError, match=f"llm.reviewer.{price} is gone"):
         CampaignConfig.from_file(_minimal(tmp_path, llm=llm))
+
+
+def test_the_threshold_grows_with_the_whole_trial_count_by_default_and_with_a_power_of_it_when_set(tmp_path):
+    assert CampaignConfig.from_file(_minimal(tmp_path)).admission.trial_exponent == 1.0
+    config = CampaignConfig.from_file(_minimal(tmp_path, admission={"trial_exponent": 0.5}))
+    assert config.admission.trial_exponent == 0.5
+
+
+@pytest.mark.parametrize("exponent", [0.0, -0.5, 1.5])
+def test_a_trial_exponent_outside_zero_to_one_is_refused(tmp_path, exponent):
+    with pytest.raises(ValueError, match=f"admission: trial_exponent is {exponent}"):
+        CampaignConfig.from_file(_minimal(tmp_path, admission={"trial_exponent": exponent}))

@@ -7,6 +7,7 @@ session inputs the campaign adds), the config's intraday dataset is rebuilt
 from its config without opening a store, and the rest is checked by its text.
 """
 
+import dataclasses
 import re
 
 import pytest
@@ -26,6 +27,7 @@ from tests.test_intraday_fields import SEP_COLUMNS
 from tests.vocabulary_files import CONFIGS, EXAMPLE_OPERATORS, MINUTE_BARS, PRICE_VOLUME
 
 EXAMPLE = CONFIGS / "us3000_intraday_ret5.yaml"
+SECOND = CONFIGS / "us3000_intraday2_ret5.yaml"
 DAILY = CONFIGS / "us3000_ret5.yaml"
 #: The columns of the one-minute trade bars and the session inputs added to them.
 INTRADAY_COLUMNS = set(TRADE_BAR_VARIABLES) | set(SESSION_INPUTS)
@@ -118,8 +120,24 @@ def test_every_mechanism_type_has_two_seed_directions_on_the_minute_fields_and_n
     assert all(set(re.findall(r"\b\w+\b", direction)) & minute_fields for direction in config.directions)
 
 
-@pytest.mark.parametrize("path", [EXAMPLE, MINUTE_BARS], ids=lambda path: path.name)
+@pytest.mark.parametrize("path", [EXAMPLE, SECOND, MINUTE_BARS], ids=lambda path: path.name)
 def test_the_files_name_no_path_outside_the_data_root_and_no_ticket(path):
     text = path.read_text()
     assert all(p.startswith("/data/quantlab/") for p in re.findall(r"(?<![\w.:/])/[\w./-]+", text))
     assert not re.search(r"#\d|\bticket\b|\bADR\b|training server", text)
+
+
+def test_the_second_campaign_differs_from_the_first_only_in_its_run_dir_directions_threshold_and_memory(config):
+    second = CampaignConfig.from_file(SECOND)
+    assert second.run_dir == "/data/quantlab/runs/factor_agent_us3000_intraday2_ret5" != config.run_dir
+    assert len(second.directions) == 10 and not set(second.directions) & set(config.directions)
+    assert (second.admission.trial_exponent, second.round.memory_every) == (0.5, 1)
+    assert dataclasses.replace(
+        second, run_dir=config.run_dir, directions=config.directions,
+        admission=config.admission, round=config.round,
+    ) == config
+
+
+def test_the_second_campaigns_directions_cover_every_type_twice_on_the_minute_fields_and_name_no_year(vocabulary):
+    test_every_mechanism_type_has_two_seed_directions_on_the_minute_fields_and_none_names_a_year(
+        CampaignConfig.from_file(SECOND), vocabulary)
