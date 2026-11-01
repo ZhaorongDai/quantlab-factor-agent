@@ -227,6 +227,9 @@ The paths are stores under one data root: point them at your own.
 directions, a t threshold rising with the square root of the trial count
 (`admission.trial_exponent: 0.5`, see [admission](evaluation.md#admission)), and a
 distillation after every round, in a run directory of its own.
+`configs/us3000_intraday3_claude_ret5.yaml` is that campaign with every role on Claude Opus 5.5
+through the Anthropic API (`ANTHROPIC_API_KEY`, see [LLM backends](llm-backends.md)), for 5
+rounds.
 
 ## Evaluation and its cost
 
