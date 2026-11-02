@@ -25,7 +25,7 @@ import dataclasses
 import json
 import re
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 
@@ -33,7 +33,7 @@ from factor_agent.candidate import Candidate
 from factor_agent.events import CallEnd, CallStart, Event, Events, GateOutcome, GateStep, ReviewVerdict, reply_facts
 from factor_agent.gate import Gate, Passed
 from factor_agent.llm.base import LLMBackend, ProviderQuotaExhausted, Request
-from factor_agent.prompts import MEMORY_ITEMS, MEMORY_PARTS, SECTIONS, Prompts
+from factor_agent.prompts import ACTION_RULES, MEMORY_ITEMS, MEMORY_PARTS, ONLY_NEW, SECTIONS, Prompts
 from factor_agent.zoo import Zoo
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
@@ -48,10 +48,10 @@ PROPOSER_SECTIONS = ("families", "memory", "last_round", "best")
 
 @dataclass(frozen=True)
 class Direction:
-    """One planned slot of a round: its mechanism type, the action, the parent factor and the idea.
+    """One planned slot of a round: its mechanism type, the action, the parent trial and the idea.
 
-    ``parent`` names an accepted factor for a mutation or a refinement, and
-    is empty for a new direction.
+    ``parent`` is the id of the evaluated trial a mutation or a refinement
+    builds on (``_feedback.trial_id``), and is empty for a new direction.
     """
 
     mechanism_type: str
@@ -161,29 +161,41 @@ class Researcher:
         self._types = prompts.mechanism_types
 
     def plan(
-        self, number: int, quota: dict[str, int], context: dict[str, str], parents: list[str],
+        self, number: int, quota: dict[str, int], context: dict[str, str], parents: list[str] | None,
     ) -> tuple[list[Direction], list[str]]:
         """Return round ``number``'s directions, ``quota[type]`` of each type in type order, and the plan's issues.
 
-        ``parents`` are the accepted factors a mutation or a refinement may
-        name. A direction the planner leaves out, or writes with an unknown
-        type, action or parent, is replaced by a new direction of its type;
-        each such repair is one issue.
+        ``parents`` are the ids of the trials a mutation or a refinement may
+        name, or None when the planner reads no earlier trial and every
+        direction is new. A direction naming another parent is kept as a new
+        direction; one the planner leaves out, or writes with an unknown type
+        or action, is replaced by a new direction of its type. Each such
+        repair is one issue.
         """
         prompt = self.prompts.render(
             "plan", round=number, context=render_context(context, PLANNER_SECTIONS), quota=json.dumps(quota),
+            actions=ONLY_NEW if parents is None else ACTION_RULES,
         )
+        parents = parents or []
         issues, by_type = [], {kind: [] for kind in self._types}
         try:
             items = _json_array(self._ask("planner", prompt, _Scope(number)))
         except ValueError as exc:
             items, issues = [], [f"planner: {exc}"]
         for i, item in enumerate(items, 1):
-            problem = _direction_problem(item, parents, self._types)
+            problem = _direction_problem(item, self._types)
             if problem:
                 issues.append(f"planner: direction {i} {problem}")
-            else:
-                by_type[item["mechanism_type"]].append(Direction(**{k: item[k] for k in Direction.__annotations__}))
+                continue
+            if item["action"] == "new":
+                item = {**item, "parent": ""}
+            elif item["parent"] not in parents:
+                issues.append(
+                    f"planner: direction {i} names {item['parent']!r}, which is not an evaluated trial; "
+                    f"it is planned as a new direction"
+                )
+                item = {**item, "action": "new", "parent": ""}
+            by_type[item["mechanism_type"]].append(Direction(**{k: item[k] for k in Direction.__annotations__}))
         directions = []
         for kind in self._types:
             if len(by_type[kind]) > quota[kind]:
@@ -200,6 +212,7 @@ class Researcher:
 
     def propose(
         self, number: int, directions: list[Direction], context: dict[str, str], gate: Gate, zoo: Zoo, retries: int,
+        parents: Mapping[str, str] | None = None,
     ) -> list[Proposal]:
         """Ask for one candidate per direction and return one ``Proposal`` per direction, in order.
 
@@ -208,15 +221,23 @@ class Researcher:
         Every candidate the parser or ``gate`` (checking originality against
         ``zoo``) refuses is sent back with its reasons, all of a group's in
         one request, up to ``retries`` times; the candidates are checked in
-        slot order once every group's reply is back.
+        slot order once every group's reply is back. A direction with a
+        parent in ``parents`` (a trial's id, and the trial as
+        ``_feedback.parent`` writes it) carries that trial as its
+        ``parent_trial``.
         """
+        parents = parents or {}
         directions_by_group = _split(len(directions), self.groups)
         context = render_context(context, PROPOSER_SECTIONS)
         items = self._ask_groups(
             "proposer", number, dict(enumerate(directions_by_group)), list(range(len(directions))),
             lambda slots: self.prompts.render(
                 "propose", round=number, context=context, n=len(slots),
-                directions=json.dumps([{"number": i + 1, **directions[s].to_dict()} for i, s in enumerate(slots)], indent=2),
+                directions=json.dumps([
+                    {"number": i + 1, **directions[s].to_dict(),
+                     **({"parent_trial": parents[directions[s].parent]} if directions[s].parent in parents else {})}
+                    for i, s in enumerate(slots)
+                ], indent=2),
             ),
             lambda slots, text: _items(text, [None] * len(slots)),
         )
@@ -495,16 +516,14 @@ def _unwrapped(item: object) -> object:
     return nested[0] if nested else item
 
 
-def _direction_problem(item: object, parents: list[str], types: tuple[str, ...]) -> str:
-    """Why a planner item is not a usable direction, or an empty string."""
+def _direction_problem(item: object, types: tuple[str, ...]) -> str:
+    """Why a planner item is not a usable direction, whatever its parent, or an empty string."""
     if not isinstance(item, dict) or not all(isinstance(item.get(k), str) for k in Direction.__annotations__):
         return f"needs the string fields {list(Direction.__annotations__)}"
     if item["mechanism_type"] not in types:
         return f"has the unknown mechanism type {item['mechanism_type']!r}"
     if item["action"] not in ACTIONS:
         return f"has the unknown action {item['action']!r}"
-    if item["action"] != "new" and item["parent"] not in parents:
-        return f"names {item['parent']!r}, which is not an accepted factor"
     return ""
 
 

@@ -153,16 +153,7 @@ The mechanism types:
 {mechanisms}
 </mechanism_types>
 
-Each research direction takes one of these actions:
-- "new": a mechanism not tried before; its "parent" is "".
-- "mutation": a mechanism orthogonal to an accepted factor, exploiting a different economic channel;
-  its "parent" names that factor.
-- "refinement": a different expression of the same mechanism as an accepted factor; its "parent"
-  names that factor. Change how the mechanism is measured, because a version that changes only the
-  windows or the parameters is refused.
-A "parent" is written exactly as the accepted factor's name appears in <best>, because it is matched
-against those names; a research direction whose parent matches none becomes a new one. Without a
-<best> section no factor has been accepted yet, so every research direction is new.
+{actions}
 
 <quota>
 {quota}
@@ -172,7 +163,7 @@ Now plan this round's research directions: for each mechanism type, as many as <
 Each research direction is an object with these fields:
 - "mechanism_type": one of the mechanism types in <quota>
 - "action": "new", "mutation" or "refinement"
-- "parent": the accepted factor's name for a mutation or a refinement, "" for a new research direction
+- "parent": the id of the trial a mutation or a refinement builds on, "" for a new research direction
 - "direction": the mechanism to pursue and the data it reads, in one or two sentences
 
 Answer with a JSON array of research directions, one element per research direction, each with these
@@ -188,6 +179,26 @@ fields and no others:
 ]
 ```
 """
+
+#: The planner's actions (``plan``'s ``actions``) when it reads the earlier trials.
+ACTION_RULES = """\
+Each research direction takes one of these actions:
+- "new": a mechanism not tried before; its "parent" is "".
+- "refinement": the mechanism of an earlier evaluated trial, accepted or refused, measured another
+  way: to remove what refused it (a residual t below the threshold, a correlation with an existing
+  factor, deciles that do not rise in the factor's direction) or to strengthen an accepted factor.
+  Its "parent" is that trial's id. Change how the mechanism is measured, because a version that
+  changes only the windows or the parameters is refused.
+- "mutation": another economic channel an earlier evaluated trial's result points to, such as the
+  mechanism that would explain a factor direction it found the other way round, or a channel
+  orthogonal to an accepted factor; its "parent" is that trial's id.
+A trial's id is the T<round>-<slot> that <recent_history>, <last_round> and <best> name it by, such as
+T3-07. The proposer is given the parent trial's code, its statistics and why it was refused. A research
+direction whose parent is not the id of an evaluated trial is planned as a new one."""
+
+#: The planner's actions when it reads no earlier trial (``context.feedback`` off).
+ONLY_NEW = """\
+Every research direction is new: its "action" is "new" and its "parent" is ""."""
 
 PROPOSE = """\
 You are a quantitative researcher. You write one candidate factor for each research direction in
@@ -406,7 +417,7 @@ _COMMON = frozenset({"market", "horizon"})
 #: Per template, the placeholders it must use and the ones it may use besides ``_COMMON``.
 PLACEHOLDERS = {
     "data": (frozenset({"market", "inputs", "scoring", "horizon"}), frozenset()),
-    "plan": (frozenset({"data", "context", "quota"}), frozenset({"round", "mechanisms"})),
+    "plan": (frozenset({"data", "context", "quota"}), frozenset({"round", "mechanisms", "actions"})),
     "propose": (
         frozenset({"data", "context", "code_rules", "vocabulary", "fields", "n", "directions"}),
         frozenset({"round", "mechanisms"}),

@@ -19,8 +19,8 @@ follow refuse what is merely a variant of an existing factor.
 
 | Role | Calls per round | Reads | Writes |
 |---|---|---|---|
-| planner | one | seed directions, factor families, memory, recent trials, last round's feedback | one direction per slot |
-| proposer | one per proposal group, plus fixes | the directions, the data section, the vocabulary | candidates |
+| planner | one | seed directions, factor families, memory, recent trials, last round's feedback | one direction per slot, new or building on an earlier trial |
+| proposer | one per proposal group, plus fixes | the directions (with the code and statistics of the trial one builds on), the data section, the vocabulary | candidates |
 | reviewer | one per proposal group, plus one for rewrites | each candidate and the data section | a verdict per candidate |
 | distiller | one every `round.memory_every` rounds | the trials since the last memory and the factors accepted so far | `memory.md` |
 

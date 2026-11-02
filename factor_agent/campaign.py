@@ -49,7 +49,11 @@ change it. Every ``memory_every`` rounds the distiller folds the trials
 since the last memory into it; an empty or unparsable reply keeps the
 previous memory. ``memory.md`` holds the current memory, which every later
 prompt carries, and ``memory/round_NN.md`` every version, by the round it
-was written before.
+was written before. Every trial is named by its id (``_feedback.trial_id``);
+a direction may build on any evaluated trial by its id, and the proposer
+is given that trial (``_feedback.parent``). With ``context.feedback`` off
+the planner and the proposer read only the seed directions and the factor
+families, every direction is new and no memory is distilled.
 
 Before each round the stop conditions are checked: the round limit, the
 trial limit and ``patience`` rounds in a row without an acceptance; the
@@ -274,8 +278,10 @@ class Campaign:
         while (stop := self._stop(state, records)) is None:
             number = state.rounds + 1
             try:
-                if _feedback.distill_due(state.rounds, state.memory_round, config.round.memory_every):
-                    since = [r for r in records if r.round > state.memory_through]
+                if config.context.feedback and _feedback.distill_due(
+                    state.rounds, state.memory_round, config.round.memory_every,
+                ):
+                    since = [(t, r) for t, r in _feedback.named(records) if r.round > state.memory_through]
                     memory = researcher.distill(
                         number, state.memory, _feedback.history(since, statistics=False), _feedback.accepted(records),
                     )
@@ -295,9 +301,14 @@ class Campaign:
                 quota = _scheduler.quota(number, records, config.round, prompts.mechanism_types)
                 accepted = [r for r in records if r.status == "accepted"]
                 context = self._context(records, state, reference, known, evaluator, accepted, recent_rounds, prompts)
-                directions, issues = researcher.plan(number, quota, context, [_feedback.accepted_label(r) for r in accepted])
+                parents = {
+                    trial: _feedback.parent(trial, r) for trial, r in _feedback.named(records) if r.evaluated
+                } if config.context.feedback else {}
+                directions, issues = researcher.plan(
+                    number, quota, context, list(parents) if config.context.feedback else None,
+                )
                 events.write(Plan(round=number, directions=[d.to_dict() for d in directions], quota=quota, issues=issues))
-                proposals = researcher.propose(number, directions, context, gate, zoo, config.round.retries)
+                proposals = researcher.propose(number, directions, context, gate, zoo, config.round.retries, parents)
                 round_records = self._round(number, proposals, researcher, gate, zoo, evaluator, records, events)
             except ProviderQuotaExhausted as exc:
                 stop = Stop("provider_quota", f"{exc}; round {number} was stopped and dropped")
@@ -356,7 +367,10 @@ class Campaign:
             recorded = RunSnapshot.read(replayed.pop())
             files, settings = recorded.search_files, recorded.settings
         else:
-            files, settings = self.config.search_files(), {"context": asdict(self.config.context)}
+            context = asdict(self.config.context)
+            if context["feedback"]:
+                del context["feedback"]  # as runs started before the setting recorded their context
+            files, settings = self.config.search_files(), {"context": context}
             if self.config.data.intraday is not None:
                 settings["intraday"] = {"dataset": json.loads(json.dumps(self.config.data.intraday))}
         self.config.templates(files)
@@ -401,20 +415,24 @@ class Campaign:
 
         The trials of the last ``recent_rounds`` rounds are the recent
         history, one line each; the older ones are counted in the earlier
-        summary, by mechanism type in the order of ``prompts``.
+        summary, by mechanism type in the order of ``prompts``. With
+        ``context.feedback`` off only the seed directions and the families.
         """
+        given = {"seed": _seed(self.config.directions), "families": _feedback.families(reference, known)}
+        if not self.config.context.feedback:
+            return given
         labels = [_feedback.accepted_label(r) for r in accepted]
         first_recent = _feedback.first_recent_round(state.rounds, recent_rounds)
+        trials = _feedback.named(records)
         return {
-            "seed": _seed(self.config.directions),
-            "families": _feedback.families(reference, known),
+            **given,
             "memory": state.memory,
             "earlier_summary": _feedback.earlier_summary(
                 [r for r in records if r.round < first_recent], prompts.mechanism_types,
             ),
-            "recent_history": _feedback.history([r for r in records if r.round >= first_recent]),
-            "last_round": _feedback.last_round([r for r in records if r.round == state.rounds]),
-            "best": _feedback.best(accepted, evaluator.contributions(labels) if labels else {}),
+            "recent_history": _feedback.history([(t, r) for t, r in trials if r.round >= first_recent]),
+            "last_round": _feedback.last_round([(t, r) for t, r in trials if r.round == state.rounds]),
+            "best": _feedback.best(trials, evaluator.contributions(labels) if labels else {}),
         }
 
     def _round(

@@ -32,7 +32,7 @@ times their number must fit in `round.candidates`. Without `mechanisms` the type
 | Template | Role | Must use | May also use |
 |---|---|---|---|
 | `data` | the data section, the same every round | `market`, `inputs`, `scoring`, `horizon` | |
-| `plan` | planner | `data`, `context`, `quota` | `round`, `mechanisms` |
+| `plan` | planner | `data`, `context`, `quota` | `round`, `mechanisms`, `actions` (the actions a direction may take and how it names its parent) |
 | `propose` | proposer | `data`, `context`, `code_rules`, `vocabulary`, `fields`, `n`, `directions` | `round`, `mechanisms` |
 | `retry` | proposer's fix request | `code_rules`, `vocabulary`, `fields`, `n`, `failures` | `round`, `data`, `mechanisms` |
 | `review` | reviewer | `candidates`, `data` | `round`, `mechanisms` |

@@ -58,7 +58,7 @@ known factors, proposal groups, segments and what "accepted" means.
 
 | Step | Who | Decides |
 |---|---|---|
-| Plan | planner (LLM) | one research direction per slot: a new mechanism, a mutation or a refinement of an accepted factor |
+| Plan | planner (LLM) | one research direction per slot: a new mechanism, or a mutation or a refinement of an earlier trial |
 | Propose | proposer (LLM) | a hypothesis, a description and KunQuant code for each direction |
 | Gate | code | the code builds in a sandbox, reads only the vocabulary, is not a rewrite of an existing factor |
 | Review | reviewer (LLM) | the hypothesis, description and code describe the same factor |

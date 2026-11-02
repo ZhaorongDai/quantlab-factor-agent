@@ -9,6 +9,9 @@ return, a date, or advice to change windows or parameters. The first round
 has no history; it sees the data, the seed directions and the existing
 factor families (the reference set's, then the known factors', marked as
 known) by name and description, without any statistic.
+
+Every trial is named by its id, ``T<round>-<slot>`` (``named``), by which a
+research direction names the trial it builds on (``parent``).
 """
 
 import math
@@ -63,16 +66,37 @@ def families(reference, known=()) -> str:
     return "\n".join(lines)
 
 
-def history(records: list[TrialRecord], statistics: bool = True) -> str:
-    """One line per trial. Without ``statistics`` no metric is shown and the reasons' decimals are masked."""
-    lines = []
+def trial_id(number: int, slot: int) -> str:
+    """The id of the trial of round ``number`` in ``slot`` (from 0): ``T<round>-<slot from 1, two digits>``."""
+    return f"T{number}-{slot + 1:02d}"
+
+
+def named(records: list[TrialRecord]) -> list[tuple[str, TrialRecord]]:
+    """``records`` with their ids; a round's records are in slot order, as the ledger holds them."""
+    slots: dict[int, int] = {}
+    pairs = []
     for r in records:
-        line = f"- round {r.round}, {_direction(r)}: {r.candidate.get('description', '(unparsed)')} -> {_outcome(r)}"
+        slots[r.round] = slots.get(r.round, -1) + 1
+        pairs.append((trial_id(r.round, slots[r.round]), r))
+    return pairs
+
+
+def history(trials: list[tuple[str, TrialRecord]], statistics: bool = True) -> str:
+    """One line per trial (``named``). Without ``statistics`` no metric is shown and the reasons' decimals are masked."""
+    lines = []
+    for trial, r in trials:
+        line = (
+            f"- {trial}, round {r.round}, {_direction(r)}: {r.candidate.get('description', '(unparsed)')} "
+            f"-> {_outcome(r)}"
+        )
         if r.evaluated:
             line += f"; {direction_text(r.metrics['ic_mean'])}"
         if statistics and r.evaluated:
             m = r.metrics
-            line += f"; training IC {_num(m['ic_mean'], 4)}, residual IC {_num(m['partial_ic_mean'], 4)}"
+            line += (
+                f"; training IC {_num(m['ic_mean'], 4)}, residual IC {_num(m['partial_ic_mean'], 4)} "
+                f"(t {_num(m['partial_ic_t'], 2)})"
+            )
         if not statistics and r.reasons:
             line += "; " + _DECIMAL.sub("#", " ".join(r.reasons))
         lines.append(line)
@@ -119,35 +143,53 @@ def _refusal(r: TrialRecord) -> str:
     return {"review": "review inconsistent", "evaluate": "compile"}.get(r.stage, r.stage)
 
 
-def last_round(records: list[TrialRecord]) -> str:
-    """Every candidate of a round with its outcome, its statistics and why it was refused."""
+def last_round(trials: list[tuple[str, TrialRecord]]) -> str:
+    """Every candidate of a round (``named``) with its outcome, its statistics and why it was refused."""
     blocks = []
-    for i, r in enumerate(records, 1):
+    for i, (trial, r) in enumerate(trials, 1):
         lines = [
-            f"{i}. [{_direction(r)}] {r.candidate.get('description', '(unparsed)')}",
+            f"{i}. {trial} [{_direction(r)}] {r.candidate.get('description', '(unparsed)')}",
             f"   hypothesis: {r.candidate.get('hypothesis', '')}",
             f"   outcome: {_outcome(r)}",
         ]
-        if r.evaluated:
-            m = r.metrics
-            nearest = (
-                f"nearest existing factor {m['nearest']}, correlation {_num(m['nearest_correlation'], 2)}"
-                if m["nearest"] else "no existing factor to compare with"
-            )
-            if m["nearest_known"]:
-                nearest += (
-                    f"; nearest known factor {m['nearest_known']}, "
-                    f"sampled correlation {_num(m['nearest_known_correlation'], 2)}"
-                )
-            lines.append(
-                f"   training IC {_num(m['ic_mean'], 4)} (Newey-West t {_num(m['ic_t'], 2)}); "
-                f"residual IC {_num(m['partial_ic_mean'], 4)} (Newey-West t {_num(m['partial_ic_t'], 2)}); {nearest}"
-            )
-            lines.append(f"   {direction_text(m['ic_mean'])}")
-        if r.reasons:
-            lines.append("   reasons: " + " | ".join(r.reasons))
-        blocks.append("\n".join(lines))
+        blocks.append("\n".join(lines + _statistics(r)))
     return "\n".join(blocks)
+
+
+def parent(trial: str, r: TrialRecord) -> str:
+    """The trial a research direction builds on, as its proposer reads it: what it computed, its code, statistics and reasons."""
+    code = "\n".join("     " + line for line in r.candidate.get("code", "").splitlines())
+    lines = [
+        f"{trial}, round {r.round}, {r.candidate.get('mechanism_type', '?')}: {r.candidate.get('description', '')}",
+        f"   hypothesis: {r.candidate.get('hypothesis', '')}",
+        f"   outcome: {_outcome(r)}",
+        "   code:", code,
+    ]
+    return "\n".join(lines + _statistics(r))
+
+
+def _statistics(r: TrialRecord) -> list[str]:
+    """A trial's training statistics, its factor direction and why it was refused, as lines."""
+    lines = []
+    if r.evaluated:
+        m = r.metrics
+        nearest = (
+            f"nearest existing factor {m['nearest']}, correlation {_num(m['nearest_correlation'], 2)}"
+            if m["nearest"] else "no existing factor to compare with"
+        )
+        if m["nearest_known"]:
+            nearest += (
+                f"; nearest known factor {m['nearest_known']}, "
+                f"sampled correlation {_num(m['nearest_known_correlation'], 2)}"
+            )
+        lines.append(
+            f"   training IC {_num(m['ic_mean'], 4)} (Newey-West t {_num(m['ic_t'], 2)}); "
+            f"residual IC {_num(m['partial_ic_mean'], 4)} (Newey-West t {_num(m['partial_ic_t'], 2)}); {nearest}"
+        )
+        lines.append(f"   {direction_text(m['ic_mean'])}")
+    if r.reasons:
+        lines.append("   reasons: " + " | ".join(r.reasons))
+    return lines
 
 
 def accepted(records: list[TrialRecord]) -> str:
@@ -159,17 +201,17 @@ def accepted(records: list[TrialRecord]) -> str:
     )
 
 
-def best(records: list[TrialRecord], contributions: dict[str, Contribution]) -> str:
-    """The accepted factors: name, mechanism, code, and marginal weight and residual IC in the accepted pool."""
+def best(trials: list[tuple[str, TrialRecord]], contributions: dict[str, Contribution]) -> str:
+    """The accepted factors (of ``named`` trials): id, name, mechanism, code, and marginal weight and residual IC in the accepted pool."""
     blocks = []
-    for r in records:
+    for trial, r in trials:
         if r.status != "accepted":
             continue
         label = accepted_label(r)
         part = contributions.get(label)
         code = "\n".join("     " + line for line in r.candidate["code"].splitlines())
         lines = [
-            f"- {label} [{r.candidate['mechanism_type']}]: {r.candidate['hypothesis']}",
+            f"- {trial}: {label} [{r.candidate['mechanism_type']}]: {r.candidate['hypothesis']}",
             f"  {direction_text(r.metrics['ic_mean'])}", "  code:", code,
         ]
         if part is not None:

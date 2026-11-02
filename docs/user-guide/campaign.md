@@ -114,6 +114,7 @@ known factor at a time.
 | `round.memory_every` | 5 | rounds between two distillations |
 | `round.seed` | 0 | seed of the Thompson sampling |
 | `context.recent_rounds` | 5 | rounds whose trials the planner reads one line each |
+| `context.feedback` | true | whether the planner and the proposer read the earlier trials and a memory is distilled; off, every direction is new (a control run) |
 
 ## Stopping and resuming
 
@@ -132,7 +133,7 @@ The first start copies the field, operator and replaced template files into
 `snapshot/` with their hashes, and the run searches with those copies. A resume whose
 files differ fails: a new search space needs a new run directory. A resume on other
 commits of factor_agent or quantlab only warns, and `state.json` lists the commits of every
-start and resume. `round.groups` may change on a resume; `context.recent_rounds` may not.
+start and resume. `round.groups` may change on a resume; `context.recent_rounds` and `context.feedback` may not.
 The reference set and the known factors are read from the config on every start. Every
 start and resume also keeps the config it was given as `config/open-<k>.yaml` (the first
 start is `open-1.yaml`), so a run says which settings it ran with even after the config
@@ -204,3 +205,15 @@ the last memory into `memory.md`; an empty or unparsable reply keeps the previou
 It also reads every factor accepted so far, each with its mechanism type, hypothesis and
 direction, and the memory's working patterns are about those factors only: a factor a
 refusal names is one of the reference set, a known one or one accepted earlier.
+
+Every trial is named in the prompts by its id, `T<round>-<slot>` (`T3-07` is round 3's
+seventh). A research direction may build on any evaluated trial, accepted or refused: a
+**refinement** measures the parent's mechanism another way, to remove what refused it or
+to strengthen an accepted factor; a **mutation** follows another channel the parent's
+result points to. The direction names the parent by its id, and the proposer is given the
+parent's code, statistics and reasons. A direction whose parent is not an evaluated trial
+is kept as a new one, and the plan event records the issue.
+
+With `context.feedback: false` the planner and the proposer read only the data, the seed
+directions and the factor families, every direction is new and no memory is distilled: a
+run that cannot learn from its trials, to compare a run that can with.

@@ -253,8 +253,8 @@ def test_the_memory_is_distilled_every_five_rounds_and_carried_into_later_prompt
     fake, result = eleven_rounds["fake"], eleven_rounds["result"]
     assert result.rounds == 11
     first, second = fake.of_role("distiller")
-    assert "- round 5," in first.prompt and "- round 6," not in first.prompt
-    assert "- round 10," in second.prompt and "- round 11," not in second.prompt
+    assert ", round 5," in first.prompt and ", round 6," not in first.prompt
+    assert ", round 10," in second.prompt and ", round 11," not in second.prompt
     assert not re.search(r"\d\.\d", first.prompt)  # the distiller sees outcomes and reasons, no statistic
     for request in fake.of_role("planner") + fake.of_role("proposer"):
         number = round_of(request.prompt)
@@ -386,7 +386,7 @@ def test_the_planner_lists_the_recent_rounds_trial_by_trial_and_counts_the_earli
     assert round_one == ("rejected", "review")
     planner = next(r.prompt for r in fake.of_role("planner") if round_of(r.prompt) == 4)
     recent = _section(planner, "recent_history").splitlines()
-    assert len(recent) == 10 and all(line.startswith(("- round 2,", "- round 3,")) for line in recent)
+    assert len(recent) == 10 and all(re.match(r"- T([23])-\d\d, round \1,", line) for line in recent)
     assert "## Recent history" in planner and "## Earlier summary" in planner
     summary = _section(planner, "earlier_summary")
     assert summary.splitlines() == [
@@ -397,25 +397,25 @@ def test_the_planner_lists_the_recent_rounds_trial_by_trial_and_counts_the_earli
         "- microstructure: 1 trials, 0 evaluated, 0 accepted; refused: parse 1",
         "- information_diffusion: 1 trials, 0 evaluated, 0 accepted; refused: gate 1",
     ]
-    assert "- round 1," not in planner
+    assert ", round 1," not in planner
     proposer = next(r.prompt for r in fake.of_role("proposer") if round_of(r.prompt) == 4)
     assert not has_tag(proposer, "recent_history") and not has_tag(proposer, "earlier_summary")
 
 
 def test_the_distiller_folds_the_trials_since_the_last_distillation_into_the_previous_memory(two_recent_rounds):
     first, second, third = (r.prompt for r in two_recent_rounds["fake"].of_role("distiller"))
-    assert "Distilled memory number" not in first and "- round 1," in first
+    assert "Distilled memory number" not in first and "- T1-01, round 1," in first
     trials = _section(second, "history").splitlines()
-    assert len(trials) == 5 and all(line.startswith("- round 2,") for line in trials)
+    assert len(trials) == 5 and all(re.match(r"- T2-\d\d, round 2,", line) for line in trials)
     assert "Distilled memory number 1" in _section(second, "previous_memory")
-    assert "Distilled memory number 2" in _section(third, "previous_memory") and "- round 2," not in third
+    assert "Distilled memory number 2" in _section(third, "previous_memory") and ", round 2," not in third
 
 
 def test_the_distiller_is_given_every_factor_accepted_so_far_not_only_those_since_the_last_memory(two_recent_rounds):
     accepted = [r for r in two_recent_rounds["result"].records if r.status == "accepted"]
     assert [(r.round, r.candidate["description"]) for r in accepted] == [(1, "intraday move")]
     last = two_recent_rounds["fake"].of_role("distiller")[-1].prompt
-    assert "- round 1," not in _section(last, "history")
+    assert ", round 1," not in _section(last, "history")
     listed = _section(last, "accepted")
     assert listed.startswith("- intraday move (accepted in round 1) [") and accepted[0].candidate["hypothesis"] in listed
     assert not re.search(r"\d\.\d", listed)  # as the history: the mechanism and its direction, no statistic
@@ -447,7 +447,7 @@ def test_an_empty_or_unparsable_distiller_reply_keeps_the_previous_memory(tmp_pa
     assert "Distilled memory number 1" in _section(planner, "memory")
     third = fake.of_role("distiller")[2].prompt
     assert "Distilled memory number 1" in _section(third, "previous_memory")
-    assert {line.split(",")[0] for line in _section(third, "history").splitlines()} == {"- round 2", "- round 3"}
+    assert {line.split(",")[1] for line in _section(third, "history").splitlines()} == {" round 2", " round 3"}
 
 
 def test_a_memory_part_keeps_at_most_six_items(tmp_path, market):

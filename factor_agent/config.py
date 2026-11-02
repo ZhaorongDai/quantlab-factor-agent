@@ -231,10 +231,17 @@ class ContextConfig:
     #: Rounds whose trials the planner reads one line each (the recent history); older trials are
     #: counted by mechanism type and outcome (the earlier summary).
     recent_rounds: int = 5
+    #: Whether the planner and the proposer read the earlier trials (the memory, the history, the
+    #: last round and the accepted factors) and a memory is distilled. Off, each round is planned
+    #: and written from the data and the seed directions alone, every direction new: the control
+    #: of a test of whether the search learns from its trials.
+    feedback: bool = True
 
     def __post_init__(self):
         if self.recent_rounds < 1:
             raise ValueError(f"context: recent_rounds is {self.recent_rounds}; at least the last round is listed")
+        if not isinstance(self.feedback, bool):
+            raise TypeError(f"context: feedback is {self.feedback!r}; it is true or false")
 
 
 #: The values of ``acceptance.contribution``.
