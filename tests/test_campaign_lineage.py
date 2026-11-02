@@ -165,3 +165,15 @@ def test_a_childs_history_line_shows_its_parents_residual_t(overlapping):
     [line] = [l for l in tagged_text(planner, "recent_history").splitlines() if l.startswith("- T2-01,")]
     assert "refinement of T1-01 (whose residual t was " in line
     assert "training IC" in line and "(t " in line
+
+
+def test_the_feedback_shows_the_order_of_the_deciles_returns_and_no_return(overlapping):
+    records = overlapping["result"].records
+    child = [r for r in records if r.round == 2][0]
+    deciles = child.metrics["decile_returns"]
+    order = sorted(range(10), key=lambda i: deciles[i])
+    ranks = [order.index(i) + 1 for i in range(10)]
+    planner = overlapping["fake"].of_role("planner")[2].prompt
+    first = tagged_text(planner, "last_round").split("\n2. ")[0]
+    assert "the deciles' returns ranked from 1 (lowest) to 10, lowest factor values first: " + " ".join(map(str, ranks)) in first
+    assert f"{deciles[0]:.4f}" not in planner

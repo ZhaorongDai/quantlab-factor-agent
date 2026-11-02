@@ -1,11 +1,12 @@
 """The context the planner and the proposer read: what is known, assembled from the ledger.
 
 It shows only training-segment statistics: each candidate's IC and its
-Newey-West t, its residual (partial) IC, the nearest existing factor and the
-correlation with it, the nearest known factor and its sampled correlation,
-the rejection reasons, and each accepted factor's marginal weight and
-residual IC in the accepted pool. It never shows a
-return, a date, or advice to change windows or parameters. The first round
+Newey-West t, its residual (partial) IC, what the pool explains of it and the
+pool factors most correlated with it, the order of its deciles' returns (as
+ranks), the nearest existing factor and the correlation with it, the nearest
+known factor and its sampled correlation, the rejection reasons, and each
+accepted factor's marginal weight and residual IC in the accepted pool. It
+never shows a return, a date, or advice to change windows or parameters. The first round
 has no history; it sees the data, the seed directions and the existing
 factor families (the reference set's, then the known factors', marked as
 known) by name and description, without any statistic.
@@ -207,6 +208,12 @@ def _statistics(r: TrialRecord, earlier: list[tuple[str, TrialRecord]] = ()) -> 
         overlap = _overlap(m, {accepted_label(e): t for t, e in earlier if e.status == "accepted"})
         if overlap:
             lines.append(overlap)
+        order = _decile_order(m.get("decile_returns") or [])
+        if order:
+            lines.append(
+                f"   the deciles' returns ranked from 1 (lowest) to 10, lowest factor values first: {order} "
+                f"(rising in the factor's direction is 1 to 10, or 10 to 1 for direction -1)"
+            )
         lines.append(f"   {direction_text(m['ic_mean'])}")
     if r.reasons:
         lines.append("   reasons: " + " | ".join(r.reasons))
@@ -249,6 +256,18 @@ def direction_text(ic_mean: float) -> str:
     if sign == 0:
         return "no factor direction (the training IC is zero or not a number)"
     return f"factor direction {sign:+d} (a higher value went with a {'higher' if sign > 0 else 'lower'} return)"
+
+
+def _decile_order(returns: list[float]) -> str:
+    """The rank of each decile's mean return among the deciles, lowest factor values first, or "" when one is missing.
+
+    The ranks show the shape (rising, U-shaped, broken at one end) that the
+    monotonicity check reads, and no return.
+    """
+    if len(returns) != 10 or not all(isinstance(x, (int, float)) and math.isfinite(x) for x in returns):
+        return ""
+    order = sorted(range(10), key=lambda i: returns[i])
+    return " ".join(str(order.index(i) + 1) for i in range(10))
 
 
 def _overlap(metrics: dict, ids: dict[str, str]) -> str:
