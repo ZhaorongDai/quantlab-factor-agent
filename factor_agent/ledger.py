@@ -23,7 +23,8 @@ class TrialRecord:
     candidate was written for (``mechanism_type``, ``action``, ``parent``,
     ``direction``). ``stats`` holds the Gate's statistics, ``graph`` the
     graph it built (``Graph.to_json``) and ``metrics`` the evaluation, once
-    there are any.
+    there are any; ``confirmation`` the evaluation on the confirmation
+    segment, which no prompt shows, when the campaign has one.
     """
 
     round: int
@@ -37,6 +38,7 @@ class TrialRecord:
     attempts: list[dict] = field(default_factory=list)
     direction: dict | None = None
     graph: list | None = None
+    confirmation: dict | None = None
 
     @property
     def evaluated(self) -> bool:

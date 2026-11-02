@@ -78,6 +78,17 @@ count. With the default 3.0 the threshold is about 3.21 at the first trial, 3.82
 twice the trial count to the a instead: at 0.5 a hundred trials count as ten, and the
 threshold is 3.82 at 100 and 4.03 at 600, a weaker guard against a lucky draw among many.
 
+The search adapts to what its feedback shows, and a guard counting trials cannot count
+that: in a test on daily bars, a run reading its trials accepted more factors than a run
+reading none, and their sum of validation partial t was no larger. With a
+`segments.confirmation`, the later part of the training data, every candidate is also
+evaluated there, against the reference set and the factors accepted before the round, and
+one passing every other check is accepted only if its partial IC there, in its direction,
+has a Newey-West t of at least `admission.confirm_t` (2.0). No prompt shows a statistic of
+the confirmation segment: the refusal says the factor did not hold there, without a number,
+and the ledger keeps its statistics as the trial's `confirmation`. The acceptance model is
+then trained up to the end of the confirmation segment.
+
 ## Reading the ledger
 
 ```python
@@ -89,5 +100,6 @@ print(collections.Counter((r["status"], r["stage"]) for r in rows))
 
 An evaluated trial has `metrics` (`ic_mean`, `ic_t`, `partial_ic_mean`, `partial_ic_t`,
 `nearest`, `nearest_correlation`, `nearest_known`, `nearest_known_correlation`,
-`decile_returns`, `coverage`, `n_days`, `start`, `end`); a refused one has `reasons`, and
+`decile_returns`, `coverage`, `n_days`, `start`, `end`, `pool_share`, `overlaps`), and with a
+confirmation segment `confirmation`, the same statistics there; a refused one has `reasons`, and
 `attempts` holds every refused version before the last.

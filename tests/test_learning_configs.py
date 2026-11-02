@@ -23,3 +23,16 @@ def test_the_arms_search_without_a_factor_library_for_eight_rounds_on_claude():
 def test_arm_a2_repeats_arm_a_in_a_run_directory_of_its_own():
     assert A2.run_dir == "/data/quantlab/runs/factor_agent_learn_daily_a2"
     assert dataclasses.replace(A2, run_dir=A.run_dir, source=A.source) == A
+
+
+A3, B3 = (CampaignConfig.from_file(CONFIGS / f"learn_daily_{arm}.yaml") for arm in ("a3", "b3"))
+
+
+def test_arms_a3_and_b3_are_a_and_b_with_the_training_data_split_into_what_the_search_sees_and_a_confirmation():
+    for split, whole in ((A3, A), (B3, B)):
+        assert (split.segments.training.end, split.segments.confirmation.start) == ("2009-12-31", "2010-01-04")
+        assert split.segments.confirmation.end == whole.segments.training.end
+        assert split.admission.confirm_t == 2.0
+        assert dataclasses.replace(
+            split, run_dir=whole.run_dir, source=whole.source, segments=whole.segments, admission=whole.admission,
+        ) == whole

@@ -73,12 +73,16 @@ class HoldoutLock:
 
 @dataclass(frozen=True)
 class Segments:
-    """The training, validation and hold-out segments, in that order, and the purge between them.
+    """The training, confirmation, validation and hold-out segments, in that order, and the purge between them.
 
     Parameters
     ----------
     training : Segment
         The segment the campaign evaluates.
+    confirmation : Segment, optional
+        The later part of the training data: a candidate is evaluated there
+        too and must hold there to be accepted, and no prompt shows a
+        statistic of it (``AdmissionConfig.confirm_t``).
     validation, holdout : Segment, optional
         The segments ``Acceptance`` reads; each starts after the one before ends.
     purge_bars : int
@@ -86,12 +90,13 @@ class Segments:
     """
 
     training: Segment
+    confirmation: Segment | None = None
     validation: Segment | None = None
     holdout: Segment | None = None
     purge_bars: int = PURGE_BARS
 
     def __post_init__(self):
-        order = [s for s in (self.training, self.validation, self.holdout) if s is not None]
+        order = [s for s in (self.training, self.confirmation, self.validation, self.holdout) if s is not None]
         for before, after in zip(order, order[1:]):
             if pd.Timestamp(after.start) <= pd.Timestamp(before.end):
                 raise ValueError(f"segment {after.name} starts on {after.start}, before {before.name} ends ({before.end})")

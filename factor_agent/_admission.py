@@ -16,7 +16,11 @@ in order and the first that fails is the reason:
    threshold for the number of evaluated trials so far;
 5. its decile returns, in its direction, rise with the decile: their
    Spearman correlation with the decile number is at least
-   ``min_monotonicity``.
+   ``min_monotonicity``;
+6. with a confirmation segment, its partial IC there, in its direction,
+   has a Newey-West t of at least ``confirm_t`` (``confirmed``); the
+   reason says so without a number, since no prompt shows a statistic of
+   that segment.
 
 The threshold is a Bonferroni correction anchored at ``t_threshold``
 (Harvey, Liu and Zhu 2016). The direction is read from the data, so each
@@ -65,7 +69,20 @@ _KINDS = (
     ("cross-sectional correlation ", "correlation"),
     ("the partial IC's ", "partial IC"),
     ("decile monotonicity ", "monotonicity"),
+    ("the factor did not hold on the confirmation period", "confirmation"),
 )
+
+#: Why a candidate that passed every other check is refused when its partial IC does not hold on the
+#: confirmation segment: without a number, since no prompt may show a statistic of that segment.
+NOT_CONFIRMED = (
+    "the factor did not hold on the confirmation period, a later part of the training data whose "
+    "statistics the search is not shown: its residual IC there was too weak or went the other way"
+)
+
+
+def confirmed(ic_mean: float, confirmation_partial_t: float, config: AdmissionConfig) -> bool:
+    """Whether the partial IC on the confirmation segment holds in the direction of the training ``ic_mean``."""
+    return direction(ic_mean) * confirmation_partial_t >= config.confirm_t
 
 
 def reason_kind(reason: str) -> str:

@@ -188,8 +188,14 @@ class AdmissionConfig:
     #: Power of the trial count the anchor's p-value is divided by: 1 is Bonferroni, a smaller
     #: one lets the threshold rise more slowly (0.5 counts 100 trials as 10).
     trial_exponent: float = 1.0
+    #: Newey-West t of the partial IC, in the factor's direction, a candidate needs on the
+    #: confirmation segment (``segments.confirmation``), whose statistics no prompt shows; read
+    #: only when there is one.
+    confirm_t: float = 2.0
 
     def __post_init__(self):
+        if isinstance(self.confirm_t, bool) or not isinstance(self.confirm_t, (int, float)):
+            raise TypeError(f"admission: confirm_t is {self.confirm_t!r}; it is a number")
         if not 0 < self.trial_exponent <= 1:
             raise ValueError(f"admission: trial_exponent is {self.trial_exponent}; it lies in (0, 1]")
 
@@ -611,18 +617,18 @@ def _entries(section: str, raw: list | None) -> tuple:
 
 
 def _segments(raw: dict) -> Segments:
-    """The ``segments`` section: ``training`` and, optionally, ``validation``, ``holdout`` and ``purge_bars``.
+    """The ``segments`` section: ``training`` and, optionally, ``confirmation``, ``validation``, ``holdout`` and ``purge_bars``.
 
     Raises
     ------
     TypeError
         If the section holds another key.
     """
-    unknown = set(raw) - {"training", "validation", "holdout", "purge_bars"}
+    unknown = set(raw) - {"training", "confirmation", "validation", "holdout", "purge_bars"}
     if unknown:
         raise TypeError(f"campaign config: unknown segment key(s) {sorted(unknown)}")
     segments = {
         name: Segment(name, str(raw[name]["start"]), str(raw[name]["end"]))
-        for name in ("training", "validation", "holdout") if name in raw
+        for name in ("training", "confirmation", "validation", "holdout") if name in raw
     }
     return Segments(**segments, purge_bars=int(raw.get("purge_bars", PURGE_BARS)))

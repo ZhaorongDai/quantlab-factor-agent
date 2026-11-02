@@ -271,10 +271,24 @@ class Campaign:
             vocabulary=vocabulary,
             intraday=intraday,
         )
+        confirming = None if config.segments.confirmation is None else Evaluator.for_segment(
+            config.segments.confirmation,
+            prices=prices,
+            label=label,
+            scoring=scoring,
+            reference=reference,
+            warmup_bars=config.evaluator.warmup_bars,
+            njobs=config.evaluator.njobs,
+            purge_bars=config.segments.purge_bars,
+            vocabulary=vocabulary,
+            intraday=intraday,
+        )
         zoo = Zoo.from_existing(reference, vocabulary, known=known)
         _write_zoo(run_dir / "zoo.json", zoo)
         gate = Gate(config.gate, vocabulary, seen=[Graph.from_json(r.graph, vocabulary.classes) for r in records if r.graph])
         _restore(records, zoo, evaluator, vocabulary)
+        if confirming is not None:
+            _join(confirming, [r for r in records if r.status == "accepted"], vocabulary)
         while (stop := self._stop(state, records)) is None:
             number = state.rounds + 1
             try:
@@ -310,7 +324,9 @@ class Campaign:
                 )
                 events.write(Plan(round=number, directions=[d.to_dict() for d in directions], quota=quota, issues=issues))
                 proposals = researcher.propose(number, directions, context, gate, zoo, config.round.retries, parents)
-                round_records = self._round(number, proposals, researcher, gate, zoo, evaluator, records, events)
+                round_records = self._round(
+                    number, proposals, researcher, gate, zoo, evaluator, records, events, confirming, vocabulary,
+                )
             except ProviderQuotaExhausted as exc:
                 stop = Stop("provider_quota", f"{exc}; round {number} was stopped and dropped")
                 break
@@ -440,7 +456,8 @@ class Campaign:
 
     def _round(
         self, number: int, proposals: list[Proposal], researcher: Researcher, gate: Gate, zoo: Zoo, evaluator: Evaluator,
-        earlier: list[TrialRecord], events: Events,
+        earlier: list[TrialRecord], events: Events, confirming: Evaluator | None = None,
+        vocabulary: Vocabulary | None = None,
     ) -> list[TrialRecord]:
         """Review, evaluate and admit one round's proposals; return its records in proposal order.
 
@@ -451,7 +468,10 @@ class Campaign:
         each is judged at the evaluated-trial count after the round: the
         earlier rounds' plus every candidate of the round that ran, whatever
         its place in the proposal order. They are admitted in that order,
-        and the accepted ones are added to ``zoo``. The evaluation's start
+        and the accepted ones are added to ``zoo``. With a ``confirming``
+        evaluator (of the confirmation segment) every candidate is evaluated
+        there first, against the pool before the round, and one accepted
+        joins its pool after the round. The evaluation's start
         and each outcome go to ``events``, and each evaluated candidate's
         daily IC to ``ic/round_NN.json`` (``_keep_daily_ic``).
         """
@@ -483,7 +503,9 @@ class Campaign:
         def admit(position: int, metrics: Metrics, ran: int) -> str | None:
             proposal = proposals[passed[position]]
             daily[passed[position]] = metrics.daily
-            record = self._admit(number, proposal, metrics, evaluated + ran)
+            record = self._admit(
+                number, proposal, metrics, evaluated + ran, confirmations[position] if confirmations else None,
+            )
             records[passed[position]] = record
             events.write(AdmissionOutcome(
                 round=number, slot=passed[position], status=record.status, stage=record.stage,
@@ -495,7 +517,11 @@ class Campaign:
             return zoo.add(proposal.candidate.description, _feedback.accepted_source(number), proposal.checked.graph).label
 
         events.write(EvaluationStart(round=number, slots=list(passed)))
-        results = evaluator.evaluate([proposals[i].checked.graph for i in passed], admit)
+        graphs = [proposals[i].checked.graph for i in passed]
+        confirmations = confirming.evaluate(graphs) if confirming is not None and graphs else None
+        results = evaluator.evaluate(graphs, admit)
+        if confirming is not None:
+            _join(confirming, [r for r in records if r is not None and r.status == "accepted"], vocabulary)
         _keep_daily_ic(Path(self.config.run_dir), number, daily)
         for i, result in zip(passed, results):
             if isinstance(result, CompileFailure):
@@ -519,12 +545,27 @@ class Campaign:
             direction=proposal.direction.to_dict(),
         )
 
-    def _admit(self, number: int, proposal: Proposal, metrics: Metrics, trials: int) -> TrialRecord:
-        """Decide one evaluated candidate, the ``trials``-th evaluated trial of the campaign."""
-        reasons = _admission.reasons(metrics, trials, self.config.admission)
+    def _admit(
+        self, number: int, proposal: Proposal, metrics: Metrics, trials: int,
+        confirmation: Metrics | CompileFailure | None = None,
+    ) -> TrialRecord:
+        """Decide one evaluated candidate, the ``trials``-th evaluated trial of the campaign.
+
+        With its ``confirmation`` (its evaluation on the confirmation
+        segment) a candidate passing every other check is refused unless it
+        holds there (``_admission.confirmed``); a confirmation that did not
+        compile does not hold.
+        """
+        admission = self.config.admission
+        reasons = _admission.reasons(metrics, trials, admission)
+        kept = confirmation.to_dict() if isinstance(confirmation, Metrics) else None
+        if not reasons and confirmation is not None and (
+            kept is None or not _admission.confirmed(metrics.ic_mean, confirmation.partial_ic_t, admission)
+        ):
+            reasons = [_admission.NOT_CONFIRMED]
         return TrialRecord(
             status="rejected" if reasons else "accepted", stage="admission", reasons=reasons,
-            metrics=metrics.to_dict(), **self._common(number, proposal),
+            metrics=metrics.to_dict(), confirmation=kept, **self._common(number, proposal),
         )
 
     @staticmethod
@@ -596,6 +637,24 @@ def _restore(records: list[TrialRecord], zoo: Zoo, evaluator: Evaluator, vocabul
     broken = [label for label, result in zip(labels, results) if isinstance(result, CompileFailure)]
     if broken:
         raise RuntimeError(f"Campaign: cannot resume, accepted factor(s) no longer compile: {broken}")
+
+
+def _join(evaluator: Evaluator, accepted: list[TrialRecord], vocabulary: Vocabulary) -> None:
+    """Add the ``accepted`` factors to ``evaluator``'s pool, in order: the confirmation segment's pool.
+
+    Raises
+    ------
+    RuntimeError
+        If an accepted factor's graph does not compile there.
+    """
+    if not accepted:
+        return
+    labels = [_feedback.accepted_label(r) for r in accepted]
+    graphs = [Graph.from_json(r.graph, vocabulary.classes) for r in accepted]
+    results = evaluator.evaluate(graphs, lambda position, metrics, ran: labels[position])
+    broken = [label for label, result in zip(labels, results) if isinstance(result, CompileFailure)]
+    if broken:
+        raise RuntimeError(f"Campaign: accepted factor(s) do not compile on the confirmation segment: {broken}")
 
 
 def _columns(prices) -> set[str] | None:

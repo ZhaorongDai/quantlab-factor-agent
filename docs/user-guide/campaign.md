@@ -10,7 +10,7 @@ unknown sections, malformed entries and credentials. `Campaign(config).run()` ru
 |---|---|---|
 | `run_dir` | yes | the directory the run writes to |
 | `market` | yes | the data as the prompts describe it, one line |
-| `segments` | yes | `training`, `validation`, `holdout` (`{start, end}` each) and `purge_bars` |
+| `segments` | yes | `training`, `confirmation`, `validation`, `holdout` (`{start, end}` each, in that order) and `purge_bars`; `confirmation` is optional, see [admission](evaluation.md#admission) |
 | `data` | yes | `prices`, `label` and optionally `membership` and `intraday` |
 | `scoring` | yes | `neutralize`: the exposures to neutralise against, or `null` |
 | `fields`, `operators` | yes | the [vocabulary](vocabulary.md) files; `operator_modules` optionally |

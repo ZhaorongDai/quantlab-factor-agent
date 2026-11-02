@@ -308,7 +308,8 @@ class Acceptance:
             raise ValueError("acceptance: the config has no validation segment")
         members, suffix = self._selected(selection)
         return self._compare(
-            segments.validation, segments.training, members, suffix, contribution=self.config.acceptance.contribution,
+            segments.validation, segments.confirmation or segments.training, members, suffix,
+            contribution=self.config.acceptance.contribution,
         )
 
     def open_holdout(self, selection: list[str], force: bool = False) -> AcceptanceReport:
