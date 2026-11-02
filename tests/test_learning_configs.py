@@ -36,3 +36,15 @@ def test_arms_a3_and_b3_are_a_and_b_with_the_training_data_split_into_what_the_s
         assert dataclasses.replace(
             split, run_dir=whole.run_dir, source=whole.source, segments=whole.segments, admission=whole.admission,
         ) == whole
+
+
+A5 = CampaignConfig.from_file(CONFIGS / "learn_daily_a5.yaml")
+
+
+def test_arm_a5_is_arm_a3_shown_the_same_years_without_a_confirmation():
+    assert A5.run_dir == "/data/quantlab/runs/factor_agent_learn_daily_a5"
+    assert A5.segments.training == A3.segments.training and A5.segments.confirmation is None
+    assert dataclasses.replace(
+        A5, run_dir=A3.run_dir, source=A3.source, segments=A3.segments, admission=A3.admission,
+    ) == A3
+    assert dataclasses.replace(A5.admission, confirm_t=A3.admission.confirm_t) == A3.admission
