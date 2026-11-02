@@ -48,3 +48,12 @@ def test_arm_a5_is_arm_a3_shown_the_same_years_without_a_confirmation():
         A5, run_dir=A3.run_dir, source=A3.source, segments=A3.segments, admission=A3.admission,
     ) == A3
     assert dataclasses.replace(A5.admission, confirm_t=A3.admission.confirm_t) == A3.admission
+
+
+LOCAL = CampaignConfig.from_file(CONFIGS / "learn_daily_local.yaml")
+
+
+def test_the_local_arm_is_arm_a2_on_a_model_served_on_the_same_computer():
+    assert LOCAL.run_dir == "/data/quantlab/runs/factor_agent_learn_daily_local"
+    assert {(r.backend, r.model) for r in LOCAL.roles.values()} == {("openai_compatible", "qwen3.6-35b-a3b-ud-q4_k_xl")}
+    assert dataclasses.replace(LOCAL, run_dir=A2.run_dir, source=A2.source, roles=A2.roles) == A2
