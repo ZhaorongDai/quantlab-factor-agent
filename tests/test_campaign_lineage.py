@@ -115,3 +115,53 @@ def test_without_feedback_the_planner_is_told_every_direction_is_new(without_fee
 
 def tagged_text(prompt: str, tag: str) -> str:
     return prompt.split(f"<{tag}>\n", 1)[1].split(f"\n</{tag}>", 1)[0]
+
+
+#: Round 2's first candidate: the volume shock of round 1 (accepted) with a second term, so the pool
+#: explains part of it and names the accepted trial.
+OVERLAPPING = "alpha = volume / WindowedAvg(volume, 20) + close / open"
+
+
+def _overlap_plan(number, quota, prompt):
+    directions = new_directions(number, quota, prompt)
+    if number == 2:
+        directions[0] = {**directions[0], "action": "refinement", "parent": "T1-01",
+                         "direction": "the volume shock with the day's move"}
+    return directions
+
+
+def _overlap_propose(number, directions):
+    if number == 1:
+        return [candidate("volume shock", "alpha = volume / WindowedAvg(volume, 20)")] + [
+            noise(number, slot) for slot in range(1, len(directions))]
+    if number == 2:
+        return [candidate("volume shock with the move", OVERLAPPING)] + [
+            noise(number, slot) for slot in range(1, len(directions))]
+    return [noise(number, slot) for slot in range(len(directions))]
+
+
+@pytest.fixture(scope="module")
+def overlapping(tmp_path_factory, market):  # noqa: F811
+    fake = FakeLLM(_overlap_propose, plan=_overlap_plan)
+    result = _campaign(tmp_path_factory.mktemp("overlapping"), market, fake, max_rounds=3)
+    return {"result": result, "fake": fake}
+
+
+def test_the_feedback_says_how_much_of_a_candidate_the_pool_explains_and_names_the_trials_by_id(overlapping):
+    records = overlapping["result"].records
+    assert records[0].status == "accepted"
+    child = [r for r in records if r.round == 2][0]
+    assert child.metrics["pool_share"] > 0.05
+    assert child.metrics["overlaps"][0][0] == "volume shock (accepted in round 1)"
+    planner = overlapping["fake"].of_role("planner")[2].prompt
+    last = tagged_text(planner, "last_round")
+    first = last.split("\n2. ")[0]
+    assert "of its daily cross-section is explained by the reference set and the accepted factors" in first
+    assert "most correlated: T1-01 +" in first
+
+
+def test_a_childs_history_line_shows_its_parents_residual_t(overlapping):
+    planner = overlapping["fake"].of_role("planner")[2].prompt
+    [line] = [l for l in tagged_text(planner, "recent_history").splitlines() if l.startswith("- T2-01,")]
+    assert "refinement of T1-01 (whose residual t was " in line
+    assert "training IC" in line and "(t " in line

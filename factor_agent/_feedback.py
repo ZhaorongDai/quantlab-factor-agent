@@ -81,22 +81,32 @@ def named(records: list[TrialRecord]) -> list[tuple[str, TrialRecord]]:
     return pairs
 
 
-def history(trials: list[tuple[str, TrialRecord]], statistics: bool = True) -> str:
-    """One line per trial (``named``). Without ``statistics`` no metric is shown and the reasons' decimals are masked."""
+def history(
+    trials: list[tuple[str, TrialRecord]], statistics: bool = True, earlier: list[tuple[str, TrialRecord]] = (),
+) -> str:
+    """One line per trial (``named``). Without ``statistics`` no metric is shown and the reasons' decimals are masked.
+
+    ``earlier`` holds the run's trials (``named``), by which a trial's parent
+    is shown with its residual t, the measure its child is compared on.
+    """
+    by_id = dict(earlier)
     lines = []
     for trial, r in trials:
         line = (
-            f"- {trial}, round {r.round}, {_direction(r)}: {r.candidate.get('description', '(unparsed)')} "
-            f"-> {_outcome(r)}"
+            f"- {trial}, round {r.round}, {_direction(r, by_id if statistics else {})}: "
+            f"{r.candidate.get('description', '(unparsed)')} -> {_outcome(r)}"
         )
         if r.evaluated:
             line += f"; {direction_text(r.metrics['ic_mean'])}"
         if statistics and r.evaluated:
             m = r.metrics
             line += (
-                f"; training IC {_num(m['ic_mean'], 4)}, residual IC {_num(m['partial_ic_mean'], 4)} "
-                f"(t {_num(m['partial_ic_t'], 2)})"
+                f"; training IC {_num(m['ic_mean'], 4)} (t {_num(m['ic_t'], 2)}), "
+                f"residual IC {_num(m['partial_ic_mean'], 4)} (t {_num(m['partial_ic_t'], 2)})"
             )
+            share = m.get("pool_share", float("nan"))
+            if share is not None and math.isfinite(share) and share > 0:
+                line += f", {share:.0%} explained by the pool"
         if not statistics and r.reasons:
             line += "; " + _DECIMAL.sub("#", " ".join(r.reasons))
         lines.append(line)
@@ -143,20 +153,25 @@ def _refusal(r: TrialRecord) -> str:
     return {"review": "review inconsistent", "evaluate": "compile"}.get(r.stage, r.stage)
 
 
-def last_round(trials: list[tuple[str, TrialRecord]]) -> str:
-    """Every candidate of a round (``named``) with its outcome, its statistics and why it was refused."""
+def last_round(trials: list[tuple[str, TrialRecord]], earlier: list[tuple[str, TrialRecord]] = ()) -> str:
+    """Every candidate of a round (``named``) with its outcome, its statistics and why it was refused.
+
+    ``earlier`` holds the run's trials (``named``), by which a parent is
+    shown with its residual t and an accepted factor is named by its id.
+    """
+    by_id = dict(earlier)
     blocks = []
     for i, (trial, r) in enumerate(trials, 1):
         lines = [
-            f"{i}. {trial} [{_direction(r)}] {r.candidate.get('description', '(unparsed)')}",
+            f"{i}. {trial} [{_direction(r, by_id)}] {r.candidate.get('description', '(unparsed)')}",
             f"   hypothesis: {r.candidate.get('hypothesis', '')}",
             f"   outcome: {_outcome(r)}",
         ]
-        blocks.append("\n".join(lines + _statistics(r)))
+        blocks.append("\n".join(lines + _statistics(r, earlier)))
     return "\n".join(blocks)
 
 
-def parent(trial: str, r: TrialRecord) -> str:
+def parent(trial: str, r: TrialRecord, earlier: list[tuple[str, TrialRecord]] = ()) -> str:
     """The trial a research direction builds on, as its proposer reads it: what it computed, its code, statistics and reasons."""
     code = "\n".join("     " + line for line in r.candidate.get("code", "").splitlines())
     lines = [
@@ -165,11 +180,14 @@ def parent(trial: str, r: TrialRecord) -> str:
         f"   outcome: {_outcome(r)}",
         "   code:", code,
     ]
-    return "\n".join(lines + _statistics(r))
+    return "\n".join(lines + _statistics(r, earlier))
 
 
-def _statistics(r: TrialRecord) -> list[str]:
-    """A trial's training statistics, its factor direction and why it was refused, as lines."""
+def _statistics(r: TrialRecord, earlier: list[tuple[str, TrialRecord]] = ()) -> list[str]:
+    """A trial's training statistics, what the pool explains of it, its factor direction and why it was refused, as lines.
+
+    An accepted factor of ``earlier`` (``named``) is named by its id.
+    """
     lines = []
     if r.evaluated:
         m = r.metrics
@@ -186,6 +204,9 @@ def _statistics(r: TrialRecord) -> list[str]:
             f"   training IC {_num(m['ic_mean'], 4)} (Newey-West t {_num(m['ic_t'], 2)}); "
             f"residual IC {_num(m['partial_ic_mean'], 4)} (Newey-West t {_num(m['partial_ic_t'], 2)}); {nearest}"
         )
+        overlap = _overlap(m, {accepted_label(e): t for t, e in earlier if e.status == "accepted"})
+        if overlap:
+            lines.append(overlap)
         lines.append(f"   {direction_text(m['ic_mean'])}")
     if r.reasons:
         lines.append("   reasons: " + " | ".join(r.reasons))
@@ -230,10 +251,28 @@ def direction_text(ic_mean: float) -> str:
     return f"factor direction {sign:+d} (a higher value went with a {'higher' if sign > 0 else 'lower'} return)"
 
 
-def _direction(r: TrialRecord) -> str:
+def _overlap(metrics: dict, ids: dict[str, str]) -> str:
+    """What the pool explains of a candidate and the pool factors most correlated with it (accepted ones by ``ids``), or ""."""
+    share, overlaps = metrics.get("pool_share"), metrics.get("overlaps") or []
+    if share is None or not math.isfinite(share) or not overlaps:
+        return ""
+    named = ", ".join(f"{ids.get(name, name)} {_num(correlation, 2)}" for name, correlation in overlaps)
+    return (
+        f"   {max(share, 0):.0%} of its daily cross-section is explained by the reference set and the accepted "
+        f"factors (the part the residual IC leaves out); most correlated: {named}"
+    )
+
+
+def _direction(r: TrialRecord, by_id: dict[str, TrialRecord] | None = None) -> str:
+    """The trial's mechanism type and action, with its parent and, from ``by_id``, the parent's residual t."""
     d = r.direction or {}
     text = f"{d.get('mechanism_type', '?')}, {d.get('action', '?')}"
-    return f"{text} of {d['parent']}" if d.get("parent") else text
+    if not d.get("parent"):
+        return text
+    earlier = (by_id or {}).get(d["parent"])
+    if earlier is None or not earlier.evaluated:
+        return f"{text} of {d['parent']}"
+    return f"{text} of {d['parent']} (whose residual t was {_num(earlier.metrics['partial_ic_t'], 2)})"
 
 
 def _outcome(r: TrialRecord) -> str:

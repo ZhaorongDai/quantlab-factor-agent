@@ -301,8 +301,9 @@ class Campaign:
                 quota = _scheduler.quota(number, records, config.round, prompts.mechanism_types)
                 accepted = [r for r in records if r.status == "accepted"]
                 context = self._context(records, state, reference, known, evaluator, accepted, recent_rounds, prompts)
+                trials = _feedback.named(records)
                 parents = {
-                    trial: _feedback.parent(trial, r) for trial, r in _feedback.named(records) if r.evaluated
+                    trial: _feedback.parent(trial, r, trials) for trial, r in trials if r.evaluated
                 } if config.context.feedback else {}
                 directions, issues = researcher.plan(
                     number, quota, context, list(parents) if config.context.feedback else None,
@@ -430,8 +431,10 @@ class Campaign:
             "earlier_summary": _feedback.earlier_summary(
                 [r for r in records if r.round < first_recent], prompts.mechanism_types,
             ),
-            "recent_history": _feedback.history([(t, r) for t, r in trials if r.round >= first_recent]),
-            "last_round": _feedback.last_round([(t, r) for t, r in trials if r.round == state.rounds]),
+            "recent_history": _feedback.history(
+                [(t, r) for t, r in trials if r.round >= first_recent], earlier=trials,
+            ),
+            "last_round": _feedback.last_round([(t, r) for t, r in trials if r.round == state.rounds], trials),
             "best": _feedback.best(trials, evaluator.contributions(labels) if labels else {}),
         }
 

@@ -88,6 +88,9 @@ from factor_agent.zoo import Kind, factor_label, owner
 #: Groups the daily cross section is cut into for the decile returns.
 DECILES = 10
 
+#: Pool factors a candidate's metrics name as the most correlated with it (``Metrics.overlaps``).
+OVERLAPS = 3
+
 #: The known factors are kept on every this many of the scored dates, counting from the first.
 KNOWN_SAMPLE_EVERY = 5
 
@@ -115,7 +118,11 @@ class Metrics:
     ``nearest_correlation`` is that mean correlation, with its sign.
     ``nearest_known`` and ``nearest_known_correlation`` are the same for the
     known factors, on the sampled dates only (empty and NaN without known
-    factors).
+    factors). ``pool_share`` is the mean daily share of the candidate's
+    cross-sectional variance (of its normal scores) the pool explains, the
+    part the partial IC leaves out (0 with an empty pool), and ``overlaps``
+    the pool factors most correlated with it, ``(name, correlation)``, the
+    largest in absolute value first, at most ``OVERLAPS``.
     ``decile_returns`` holds the mean label of each decile, lowest
     candidate values first. ``coverage`` is the mean daily share of the
     scored members with a value before any fill. ``daily`` holds the daily
@@ -135,12 +142,17 @@ class Metrics:
     n_days: int
     start: str
     end: str
+    pool_share: float = float("nan")
+    overlaps: tuple[tuple[str, float], ...] = ()
     daily: DailyIC | None = field(default=None, compare=False, repr=False)
 
     def to_dict(self) -> dict:
         """Return the metrics as the ledger stores them, without the daily series."""
         stored = {key: value for key, value in vars(self).items() if key != "daily"}
-        return {**stored, "decile_returns": list(self.decile_returns)}
+        return {
+            **stored, "decile_returns": list(self.decile_returns),
+            "overlaps": [[name, correlation] for name, correlation in self.overlaps],
+        }
 
 
 @dataclass(frozen=True)
@@ -493,10 +505,12 @@ class _Scores:
         self.values = values
         self.admitted: list[tuple[int, str]] = []
         self.residuals = []
+        self.spreads = []
         daily_pool, daily_batch, daily_known = [], [], []
         candidates = [frame.daily_scores(v) for v in values]
         for d in range(len(frame.rows)):
             scores = np.column_stack([c[d] for c in candidates])
+            self.spreads.append(((scores - scores.mean(axis=0)) ** 2).sum(axis=0))
             daily_pool.append(_correlations(scores, frame.pool[d]))
             daily_batch.append(_correlations(scores, scores))
             basis = frame.day_basis(d)
@@ -524,6 +538,10 @@ class _Scores:
         row = np.concatenate([self.correlations[k], [self.batch_correlations[k, j] for j, _ in self.admitted]])
         nearest, correlation = _nearest(names, row)
         nearest_known, known_correlation = _nearest(frame.known_names, self.known_correlations[k])
+        explained = [
+            1 - float(self.residuals[d][:, k] @ self.residuals[d][:, k]) / self.spreads[d][k]
+            for d in range(len(frame.rows)) if self.spreads[d][k] > 0
+        ]
         scored = np.isfinite(ic)
         days = pd.DatetimeIndex(frame.label["timestamp"].values)[scored]
         ic_mean, ic_t = _mean_and_t(ic, horizon)
@@ -537,6 +555,8 @@ class _Scores:
             n_days=int(scored.sum()),
             start=days[0].strftime("%Y-%m-%d") if len(days) else "",
             end=days[-1].strftime("%Y-%m-%d") if len(days) else "",
+            pool_share=_share(explained, bool(names)),
+            overlaps=_overlaps(names, row),
             daily=DailyIC(
                 days=tuple(pd.DatetimeIndex(frame.label["timestamp"].values).strftime("%Y-%m-%d")),
                 ic=tuple(float(v) for v in ic), partial_ic=tuple(float(v) for v in partial),
@@ -562,6 +582,19 @@ def _nearest(names: Sequence[str], correlations: np.ndarray) -> tuple[str, float
         return "", float("nan")
     best = int(np.nanargmax(np.abs(correlations)))
     return names[best], float(correlations[best])
+
+
+def _share(explained: list[float], pool: bool) -> float:
+    """The mean of the daily shares the pool explains, in [0, 1]: 0 without a pool (only the intercept), NaN without a day."""
+    if not explained:
+        return float("nan")
+    return float(np.clip(np.mean(explained), 0, 1)) if pool else 0.0
+
+
+def _overlaps(names: Sequence[str], correlations: np.ndarray) -> tuple[tuple[str, float], ...]:
+    """The ``OVERLAPS`` names with the largest absolute finite correlations and those correlations, largest first."""
+    finite = [i for i in np.argsort(-np.abs(np.nan_to_num(correlations, nan=0.0))) if np.isfinite(correlations[i])]
+    return tuple((names[i], float(correlations[i])) for i in finite[:OVERLAPS])
 
 
 def _normal_scores(values: np.ndarray, axis: int) -> np.ndarray:

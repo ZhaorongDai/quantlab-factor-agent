@@ -60,6 +60,7 @@ On each scored date, only the members with a label are scored. The statistics:
 | partial IC | the rank IC of the residual of the candidate's normal scores on every pool factor's (with an intercept); its mean and t |
 | correlation | the mean daily correlation of normal scores with every pool factor; the largest in absolute value is the nearest |
 | nearest known | the same correlation with every known factor, on one scored date in five |
+| pool share | the mean daily share of the candidate's normal-score variance the pool explains (the part the partial IC leaves out), with the three pool factors most correlated with it; the feedback names accepted ones by trial id |
 | deciles | the mean label of each tenth of the daily cross section, lowest first |
 | coverage | the mean daily share of the members on which the graph itself has a value, before any fill |
 
