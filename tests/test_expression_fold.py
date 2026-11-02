@@ -12,9 +12,9 @@ import time
 
 import pytest
 from KunQuant.Driver import compileit
-from KunQuant.Op import Builder, Input, Output
+from KunQuant.Op import Builder, ForeachBackWindow, Input, IterValue, Output, WindowedTempOutput
 from KunQuant.Stage import Function
-from KunQuant.ops import Add, WindowedAvg
+from KunQuant.ops import Add, AddConst, ReduceAdd, WindowedAvg
 from KunQuant.passes import ExprFold
 
 import factor_agent  # noqa: F401  (the import makes the folding polynomial)
@@ -92,6 +92,37 @@ def test_equal_operators_over_distinct_equal_inputs_are_still_folded():
         Output(Add(left, right), "x")
 
     assert _folded(build).count("WindowedAvg") == 1
+
+
+def _two_loops(body) -> list[str]:
+    """Fold two equal loops over ``close``, each reducing what ``body`` makes of its value."""
+    def build():
+        close = Input("close")
+        for name in ("x", "y"):
+            window = WindowedTempOutput(close, 5)
+            with ForeachBackWindow(window, 5) as loop:
+                value = body(IterValue(loop, window))
+            Output(ReduceAdd(value), name)
+
+    return _folded(build)
+
+
+def test_equal_loop_bodies_reusing_their_values_are_folded(limit):
+    def body(value):
+        for _ in range(40):
+            value = Add(value, value)
+        return value
+
+    assert _two_loops(body).count("ReduceAdd") == 1
+
+
+def test_a_deep_chain_in_equal_loop_bodies_is_folded():
+    def body(value):
+        for _ in range(3000):
+            value = AddConst(value, 1.0)
+        return value
+
+    assert _two_loops(body).count("ReduceAdd") == 1
 
 
 def test_operators_over_different_inputs_are_not_folded():
