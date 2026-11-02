@@ -517,9 +517,10 @@ def test_a_candidate_with_a_value_on_few_members_is_rejected_for_coverage(admiss
     record = admission["records"]["sparse"]
     assert record.status == "rejected"
     assert 0.1 < record.metrics["coverage"] < 0.25
+    inner = "SubConst(MulConst(Log(Div(close, open)), 100), 1)"
     assert record.reasons == [
         f"coverage {record.metrics['coverage']:.2f} (the mean daily share of the members with a value) "
-        f"is below 0.5"
+        f"is below 0.5; it falls at Log({inner}), to {record.metrics['coverage']:.2f} from 1.00 for {inner}"
     ]
 
 
@@ -535,7 +536,8 @@ def test_a_candidate_filling_a_sparse_value_is_rejected_for_the_coverage_of_its_
     [record] = outcome["result"].accepted + outcome["result"].rejected
     assert record.status == "rejected"
     assert 0.1 < record.metrics["coverage"] < 0.25
-    assert any(reason.startswith("coverage ") and reason.endswith("is below 0.5") for reason in record.reasons)
+    [reason] = record.reasons
+    assert reason.startswith("coverage ") and "is below 0.5; it falls at Log(SubConst(" in reason
 
 
 def test_the_coverage_threshold_is_read_from_the_config(tmp_path):

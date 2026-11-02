@@ -20,6 +20,8 @@ One round:
 5. the Evaluator scores the rest on the training segment in one compile,
    admission decides (``_admission``) in proposal order, and an accepted
    candidate joins the zoo and the reference pool before the next is admitted;
+   a refusal for coverage says at which step of the graph the values are lost
+   (``Evaluator.trace_coverage``);
 6. the round's records go to the ledger and the state to ``state.json``.
 
 Before anything else ``run`` checks the replaced prompt templates for
@@ -83,16 +85,18 @@ import json
 import math
 import os
 import socket
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 from factor_agent import _admission, _feedback, _scheduler
-from factor_agent.config import ROLES, CampaignConfig
+from factor_agent.config import ROLES, AdmissionConfig, CampaignConfig
 from factor_agent.evaluator import CompileFailure, DailyIC, Evaluator, Metrics
 from factor_agent.events import (
     FILE as EVENTS_FILE, AdmissionOutcome, EvaluationStart, Events, Plan, Resume, RoundEnd, Start, Stopped,
 )
 from factor_agent.gate import Gate
+from factor_agent.gate._originality import render
 from factor_agent.gate.graph import Graph
 from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.ledger import Ledger, TrialRecord
@@ -505,6 +509,7 @@ class Campaign:
             daily[passed[position]] = metrics.daily
             record = self._admit(
                 number, proposal, metrics, evaluated + ran, confirmations[position] if confirmations else None,
+                lambda: _coverage_cause(evaluator, proposal.checked.graph, gate.vocabulary, self.config.admission),
             )
             records[passed[position]] = record
             events.write(AdmissionOutcome(
@@ -547,17 +552,20 @@ class Campaign:
 
     def _admit(
         self, number: int, proposal: Proposal, metrics: Metrics, trials: int,
-        confirmation: Metrics | CompileFailure | None = None,
+        confirmation: Metrics | CompileFailure | None = None, coverage_cause: Callable[[], str] | None = None,
     ) -> TrialRecord:
         """Decide one evaluated candidate, the ``trials``-th evaluated trial of the campaign.
 
         With its ``confirmation`` (its evaluation on the confirmation
         segment) a candidate passing every other check is refused unless it
         holds there (``_admission.confirmed``); a confirmation that did not
-        compile does not hold.
+        compile does not hold. A refusal for coverage goes on with what
+        ``coverage_cause`` says of where the candidate loses its values.
         """
         admission = self.config.admission
         reasons = _admission.reasons(metrics, trials, admission)
+        if reasons and coverage_cause is not None and _admission.reason_kind(reasons[0]) == "coverage":
+            reasons = [reasons[0] + coverage_cause()]
         kept = confirmation.to_dict() if isinstance(confirmation, Metrics) else None
         if not reasons and confirmation is not None and (
             kept is None or not _admission.confirmed(metrics.ic_mean, confirmation.partial_ic_t, admission)
@@ -577,6 +585,12 @@ class Campaign:
             stats=checked.stats, attempts=_attempts(proposal), direction=proposal.direction.to_dict(),
             graph=checked.graph.to_json(),
         )
+
+
+def _coverage_cause(evaluator: Evaluator, graph: Graph, vocabulary: Vocabulary, admission: AdmissionConfig) -> str:
+    """Where ``graph`` loses its values on ``evaluator``'s segment, continuing its coverage refusal (``_admission.coverage_cause``)."""
+    daily, trace = evaluator.trace_coverage(graph)
+    return _admission.coverage_cause(trace, lambda node: render(daily, node, vocabulary), admission.min_coverage)
 
 
 def _keep_daily_ic(run_dir: Path, number: int, daily: dict[int, DailyIC | None]) -> None:

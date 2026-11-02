@@ -50,6 +50,11 @@ The statistics of a candidate:
   input (``Graph.without_fills``), so a fill does not raise it; the scored
   values come from the graph as written.
 
+For a candidate refused for its coverage, ``trace_coverage`` computes the
+nodes of its graph one by one, unranked, and gives each one's coverage and
+the share on which it is infinite, so the refusal can say which step loses
+the values.
+
 Normal scores: on each date a factor's values are ranked among its own
 finite symbols and mapped to the standard normal quantiles of their ranks;
 a missing value scores 0, the middle rank. A candidate that smooths or
@@ -69,6 +74,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 import xarray as xr
+from KunQuant.Op import ForeachBackWindow, Output
 from KunQuant.Stage import Function
 from quantlab.analysis.factor_report import newey_west_lags, newey_west_t_stat
 from quantlab.factor.config import FactorConfig
@@ -177,6 +183,31 @@ class CompileFailure:
     error: str
 
 
+@dataclass(frozen=True)
+class NodeCoverage:
+    """One node of a graph on the scored member days (``Evaluator.trace_coverage``).
+
+    ``coverage`` is the mean daily share of the members on which the node
+    has a finite value, as a candidate's coverage is measured;
+    ``infinite`` the share of the member days on which it is infinite, and
+    ``infinite_days`` the share of the days with an infinite value on at
+    least one member. ``inputs`` are the node's inputs, by position in the
+    graph, that are traced too, and ``column`` says the node reads a column
+    of the data.
+    """
+
+    node: int
+    coverage: float
+    infinite: float
+    infinite_days: float
+    inputs: tuple[int, ...]
+    column: bool = False
+
+
+#: Nodes of a graph computed in one batch by ``Evaluator.trace_coverage``.
+_TRACED_PER_BATCH = 16
+
+
 #: Called with a candidate's position among the graphs, its metrics and the
 #: number of the batch's graphs that ran, in order; returns the name under
 #: which the candidate joins the reference pool, or None to leave it out.
@@ -219,6 +250,30 @@ class _RoundGraph(derived.DerivedColumnsFactor):
         if self._computed is None or self._computed[0] != (start, end):
             self._computed = ((start, end), super().compute(start, end))
         return self._computed[1]
+
+
+class _NodeValues(derived.DerivedColumnsFactor):
+    """Chosen nodes of one graph as they are computed, unranked: one output per node."""
+
+    def __init__(self, config: FactorConfig, graph: Graph, nodes: Sequence[int], providers: Sequence[derived.Provider]):
+        self._graph = graph
+        self._nodes = tuple(nodes)
+        self._derived = list(providers)
+        super().__init__(config)
+
+    def _providers(self) -> list[derived.Provider]:
+        return self._derived
+
+    def _get_factor_names(self) -> tuple[str, ...]:
+        return tuple(_node_name(i) for i in self._nodes)
+
+    def _get_factor_func(self) -> Function:
+        made, new = self._graph.build_nodes({})
+        return Function(new + [Output(made[i], _node_name(i)) for i in self._nodes])
+
+
+def _node_name(i: int) -> str:
+    return f"node_{i}"
 
 
 def _missing(name: str):
@@ -368,6 +423,53 @@ class Evaluator:
             warnings.simplefilter("ignore", RuntimeWarning)  # a factor spanned on every day stays NaN
             weight, ic = np.nanmean(weights, axis=0), np.nanmean(residual_ic, axis=0)
         return {name: Contribution(float(weight[j]), float(ic[j])) for j, name in enumerate(names)}
+
+    def trace_coverage(self, graph: Graph) -> tuple[Graph, list[NodeCoverage]]:
+        """Where ``graph`` loses its values: the coverage of each of its nodes on the scored member days.
+
+        The graph is the daily stage of a candidate of an intraday family
+        (its session columns read as inputs) and ``graph`` itself otherwise;
+        it is returned with the trace, whose nodes are its positions. A node
+        inside a loop, a loop and a constant are not traced; neither is a
+        node of a batch that does not compute (a node KunQuant cannot
+        output), so the trace may be empty. Coverage is measured on the
+        graph as written, its fills included.
+        """
+        frame = self._scored_frame()
+        daily = stages.split(graph, self._vocabulary).daily if self._vocabulary else graph
+        traced = [i for i, node in enumerate(daily.nodes) if _traceable(node, daily)]
+        inputs = {name for name in daily.input_names}
+        staged = [stages.split(graph, self._vocabulary)] if self._vocabulary else []
+        providers = period_lag.providers(period_lag.read(inputs, self._period_lags)) + self._session_columns(staged)
+        config = FactorConfig(
+            warmup_bars=self._warmup_bars, dataset=self._prices, mode="batch",
+            data_columns=derived.data_columns(inputs, providers), njobs=self._njobs,
+        )
+        start, end = self._segment.start, self._segment.end
+        found: dict[int, tuple[float, float, float]] = {}
+        for first in range(0, len(traced), _TRACED_PER_BATCH):
+            batch = traced[first:first + _TRACED_PER_BATCH]
+            try:
+                raw = _NodeValues(config, daily, batch, providers).compute(start, end)
+            except Exception:  # KunQuant refuses to output some node of the batch: leave the batch out
+                continue
+            for i in batch:
+                values = frame.on_axes(raw[_node_name(i)])
+                on_rows = [values[d, rows] for d, rows in enumerate(frame.rows) if len(rows)]
+                if not on_rows:
+                    continue
+                infinite = [np.isinf(v) for v in on_rows]
+                found[i] = (
+                    float(np.mean([np.isfinite(v).mean() for v in on_rows])),
+                    float(np.mean([v.mean() for v in infinite])),
+                    float(np.mean([v.any() for v in infinite])),
+                )
+        return daily, [
+            NodeCoverage(
+                i, *found[i], tuple(j for j in daily.nodes[i].inputs if j in found), daily.nodes[i].op == "Input",
+            )
+            for i in sorted(found)
+        ]
 
     def _scored_frame(self) -> "_Frame":
         """The scored dates, the label, the reference pool and the sampled known factors, read once."""
@@ -574,6 +676,14 @@ class _Scores:
             direction = direction / norm
             residuals[:, k + 1:] -= np.outer(direction, direction @ residuals[:, k + 1:])
         self.frame.add_to_pool({name: self.values[k]})
+
+
+def _traceable(node, graph: Graph) -> bool:
+    """Whether ``trace_coverage`` outputs ``node``: not a constant, not a loop nor inside one."""
+    if node.op == "ConstantOp" or node.parent is not None:
+        return False
+    cls = (graph.classes or {}).get(node.op)
+    return not (isinstance(cls, type) and issubclass(cls, ForeachBackWindow))
 
 
 def _nearest(names: Sequence[str], correlations: np.ndarray) -> tuple[str, float]:

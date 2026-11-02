@@ -214,6 +214,12 @@ result points to. The direction names the parent by its id, and the proposer is 
 parent's code, statistics and reasons. A direction whose parent is not an evaluated trial
 is kept as a new one, and the plan event records the issue.
 
+A candidate refused for its coverage is told where its graph loses its values: the first
+step whose coverage falls below `admission.min_coverage` while its inputs' does not, with
+its inputs' coverage and the share of the member days on which a step is infinite (a
+division by zero, say, on a day without a range), or the data column that has too few
+values.
+
 With `context.feedback: false` the planner and the proposer read only the data, the seed
 directions and the factor families, every direction is new and no memory is distilled: a
 run that cannot learn from its trials, to compare a run that can with.

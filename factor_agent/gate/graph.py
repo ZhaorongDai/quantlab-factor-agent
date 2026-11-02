@@ -105,6 +105,17 @@ class Graph:
         ValueError
             If the graph has no classes to build from.
         """
+        made, new = self.build_nodes(inputs)
+        return made[-1], new
+
+    def build_nodes(self, inputs: dict[str, OpBase]) -> tuple[list[OpBase], list[OpBase]]:
+        """Rebuild the operators as ``build`` does and return ``(the operator of every node, in order, every new operator)``.
+
+        Raises
+        ------
+        ValueError
+            If the graph has no classes to build from.
+        """
         if self.classes is None:
             raise ValueError("Graph.build: the graph was made without the classes of a vocabulary")
         made: list[OpBase] = []
@@ -125,7 +136,7 @@ class Graph:
             op._parent_loop = made[node.parent] if node.parent is not None else None
             made.append(op)
             new.append(op)
-        return made[-1], new
+        return made, new
 
     def without_fills(self) -> "Graph":
         """Return the graph with every ``SetInfOrNanToValue`` replaced by its input.

@@ -485,3 +485,29 @@ def test_admissions_across_and_within_batches_score_as_a_fresh_evaluator_with_th
     for after, expected in zip(grown, fresh):
         np.testing.assert_allclose(_numbers(after), _numbers(expected), rtol=0, atol=1e-6)
         assert after.nearest == expected.nearest.removesuffix(" (GraphFactor)")
+
+
+def test_the_coverage_trace_shows_an_infinite_input_emptying_a_cross_sectional_operator(market):
+    # Min(open, close) - open is 0 wherever the close is at or above the open, about half the
+    # member days, and dividing by it is infinite there; the z-score of a day with one infinite
+    # value has no value on any member.
+    graph = _graph("alpha = CrossSectionalZScore(close / (Min(open, close) - open))")
+    [metrics] = _evaluator(market).evaluate([graph])
+    daily, trace = _evaluator(market).trace_coverage(graph)
+    by_op = {daily.nodes[t.node].op: t for t in trace}
+    assert metrics.coverage == 0.0
+    assert by_op["CrossSectionalZScore"].coverage == 0.0
+    assert by_op["CrossSectionalZScore"].inputs == (by_op["Div"].node,)
+    assert 0.4 < by_op["Div"].infinite < 0.6
+    assert by_op["Div"].coverage == pytest.approx(1 - by_op["Div"].infinite)
+    assert by_op["Div"].infinite_days == 1.0
+    assert all(t.coverage == 1.0 and t.infinite == 0.0 for t in trace if t.node < by_op["Div"].node)
+
+
+def test_the_coverage_trace_leaves_out_constants_and_nodes_of_a_loop(market):
+    graph = _graph("alpha = WindowedLinearRegressionSlope(close, 10) / ConstantOp(2.0)")
+    daily, trace = _evaluator(market).trace_coverage(graph)
+    traced = {t.node for t in trace}
+    assert len(daily.nodes) - 1 in traced
+    assert all(daily.nodes[i].op != "ConstantOp" and daily.nodes[i].parent is None for i in traced)
+

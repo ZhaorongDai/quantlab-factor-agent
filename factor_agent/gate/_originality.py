@@ -62,7 +62,7 @@ def reasons(graph: Graph, zoo: "Zoo", max_common_nodes: int, vocabulary: "Vocabu
         terms = canonical_terms(graph)
         root = max((i for i, term in enumerate(terms) if term_key(term) == mine.root), default=len(terms) - 1)
         return [
-            f"the factor rewrites {_names(rewrites)}: {_render(graph, root, vocabulary)} is that factor's whole graph, up to "
+            f"the factor rewrites {_names(rewrites)}: {render(graph, root, vocabulary)} is that factor's whole graph, up to "
             "a transform that keeps or reverses its ranking; propose a different mechanism"
         ]
     found = []
@@ -76,7 +76,7 @@ def reasons(graph: Graph, zoo: "Zoo", max_common_nodes: int, vocabulary: "Vocabu
     if size > max_common_nodes:
         found.append(
             f"the factor shares a {size}-node subtree with {_names(sharing)}, more than the limit of "
-            f"{max_common_nodes}: {_render(graph, node, vocabulary)}; express the mechanism without reusing that expression"
+            f"{max_common_nodes}: {render(graph, node, vocabulary)}; express the mechanism without reusing that expression"
         )
     return found
 
@@ -116,7 +116,7 @@ def _names(entries: list["ZooEntry"]) -> str:
     return named + (f" and {rest} more" if rest > 0 else "")
 
 
-def _render(graph: Graph, node: int, vocabulary: "Vocabulary") -> str:
+def render(graph: Graph, node: int, vocabulary: "Vocabulary") -> str:
     """Return the expression under ``node`` as candidate code would write it."""
     hashes = canonical_hashes(graph)
     derived, mask = vocabulary.reference_hashes

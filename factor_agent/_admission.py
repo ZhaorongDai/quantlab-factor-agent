@@ -6,7 +6,8 @@ in order and the first that fails is the reason:
 
 1. on an average training day the candidate has a value on at least
    ``min_coverage`` of the members (its other statistics speak only for
-   the members it covers);
+   the members it covers); the campaign adds to the refusal where the
+   graph loses its values (``coverage_cause``);
 2. its training IC is a nonzero number, so it has a direction;
 3. its correlation with every reference and accepted factor is at most
    ``max_correlation`` in absolute value, and so is its sampled correlation
@@ -33,12 +34,13 @@ threshold rising more slowly than Bonferroni's (at 0.5, 3.82 at 100 and
 """
 
 import math
+from collections.abc import Callable, Sequence
 
 import numpy as np
 from scipy import stats
 
 from factor_agent.config import AdmissionConfig
-from factor_agent.evaluator import KNOWN_SAMPLE_EVERY, Metrics
+from factor_agent.evaluator import KNOWN_SAMPLE_EVERY, Metrics, NodeCoverage
 
 #: The dates a known factor's correlation is sampled on, as the reason says.
 _SAMPLED_DATES = f"one training date in {KNOWN_SAMPLE_EVERY}"
@@ -88,6 +90,45 @@ def confirmed(ic_mean: float, confirmation_partial_t: float, config: AdmissionCo
 def reason_kind(reason: str) -> str:
     """The kind of an admission reason ``reasons`` wrote: coverage, no direction, correlation, partial IC or monotonicity."""
     return next((kind for start, kind in _KINDS if reason.startswith(start)), "other")
+
+
+def coverage_cause(trace: Sequence[NodeCoverage], render: Callable[[int], str], min_coverage: float) -> str:
+    """Where a candidate refused for its coverage loses its values, from its ``trace`` (``Evaluator.trace_coverage``).
+
+    The step named is the first traced node below ``min_coverage`` whose
+    traced inputs are all at or above it, with the coverage of those inputs
+    and the share on which the step or an input is infinite; a data column
+    below it is named as the data it reads. ``render`` writes a node as
+    candidate code writes it. The text continues an admission reason; it is
+    empty when no such node is traced.
+    """
+    by_node = {t.node: t for t in trace}
+    for t in trace:
+        given = [by_node[j] for j in t.inputs]
+        if t.coverage >= min_coverage or any(g.coverage < min_coverage for g in given):
+            continue
+        if t.column:
+            return f"; the data column {render(t.node)} has a value on {t.coverage:.2f} of the member days"
+        cause = f"; it falls at {render(t.node)}, to {t.coverage:.2f}"
+        if given:
+            cause += " from " + ", ".join(f"{g.coverage:.2f} for {render(g.node)}" for g in given)
+        infinite = [(f"{render(g.node)} is", g) for g in given if g.infinite > 0]
+        if t.infinite > 0:
+            infinite = [("it is", t)]
+        for subject, g in infinite:
+            cause += (
+                f"; {subject} infinite on {_share(g.infinite)} of the member days and on {_share(g.infinite_days)} "
+                f"of the days at least once"
+            )
+        if infinite:
+            cause += " (a division by zero is infinite)"
+        return cause
+    return ""
+
+
+def _share(fraction: float) -> str:
+    """A share as a percentage, with a decimal below 1%, so a small nonzero share does not read 0%."""
+    return f"{fraction:.1%}" if fraction < 0.01 else f"{fraction:.0%}"
 
 
 def reasons(metrics: Metrics, trials: int, config: AdmissionConfig) -> list[str]:
