@@ -487,6 +487,7 @@ def test_admissions_across_and_within_batches_score_as_a_fresh_evaluator_with_th
         assert after.nearest == expected.nearest.removesuffix(" (GraphFactor)")
 
 
+
 def test_the_coverage_trace_shows_an_infinite_input_emptying_a_cross_sectional_operator(market):
     # Min(open, close) - open is 0 wherever the close is at or above the open, about half the
     # member days, and dividing by it is infinite there; the z-score of a day with one infinite
@@ -511,3 +512,40 @@ def test_the_coverage_trace_leaves_out_constants_and_nodes_of_a_loop(market):
     assert len(daily.nodes) - 1 in traced
     assert all(daily.nodes[i].op != "ConstantOp" and daily.nodes[i].parent is None for i in traced)
 
+
+def test_a_graph_measuring_what_a_tried_trial_measured_is_nearest_to_it(market):
+    evaluator = _evaluator(market)
+    evaluator.evaluate([_graph("alpha = close / open"), _graph("alpha = volume / WindowedAvg(volume, 20)")],
+                       tried=["T1-01", "T1-02"])
+    [again, other, broken] = evaluator.nearest_tried([
+        _graph("alpha = Log(close / open) * 2"), _graph("alpha = high / Max(open, close)"), UNCOMPILABLE,
+    ])
+    assert again[0] == "T1-01" and again[1] == pytest.approx(1.0, abs=1e-3)
+    assert abs(other[1]) < 0.5
+    assert isinstance(broken, CompileFailure)
+
+
+def test_the_tried_matrix_holds_every_pair_once_whichever_way_the_trials_joined(market):
+    graphs = [_graph("alpha = close / open"), _graph("alpha = volume / WindowedAvg(volume, 20)"),
+              _graph("alpha = high / Max(open, close)")]
+    one = _evaluator(market)
+    one.evaluate(graphs[:2], tried=["a", "b"])
+    one.evaluate(graphs[2:], tried=["c"])
+    other = _evaluator(market)
+    assert other.remember([graphs[0], UNCOMPILABLE, *graphs[1:]], ["a", "x", "b", "c"], batch=2) == ["x"]
+    names, matrix = one.tried()
+    assert names == other.tried()[0] == ["a", "b", "c"]
+    assert matrix == pytest.approx(other.tried()[1], abs=1e-6)
+    assert matrix == pytest.approx(matrix.T)
+    assert np.diag(matrix) == pytest.approx(1.0, abs=1e-6)
+
+
+def test_a_graph_that_did_not_compute_does_not_join_the_tried_trials(market):
+    evaluator = _evaluator(market)
+    evaluator.evaluate([UNCOMPILABLE, _graph("alpha = close / open")], tried=["x", "T1-02"])
+    assert evaluator.tried()[0] == ["T1-02"]
+
+
+def test_without_tried_trials_there_is_no_nearest_one(market):
+    [(name, correlation)] = _evaluator(market).nearest_tried([_graph("alpha = close / open")])
+    assert name == "" and np.isnan(correlation)

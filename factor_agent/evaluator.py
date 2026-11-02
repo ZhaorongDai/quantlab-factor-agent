@@ -100,6 +100,9 @@ OVERLAPS = 3
 #: The known factors are kept on every this many of the scored dates, counting from the first.
 KNOWN_SAMPLE_EVERY = 5
 
+#: The evaluated trials are kept on every this many of the scored dates, counting from the first (``Evaluator.tried``).
+TRIED_SAMPLE_EVERY = 20
+
 #: A pool factor (or an admitted candidate) whose residual norm on a day is
 #: below this adds no direction to that day's basis (it is already spanned),
 #: so collinear pool factors do not blow up the regression.
@@ -363,7 +366,9 @@ class Evaluator:
         """The segment this evaluator reads."""
         return self._segment
 
-    def evaluate(self, graphs: list[Graph], admit: Admit | None = None) -> list[Metrics | CompileFailure]:
+    def evaluate(
+        self, graphs: list[Graph], admit: Admit | None = None, tried: Sequence[str] | None = None,
+    ) -> list[Metrics | CompileFailure]:
         """Return one entry per graph, in order; see the module docstring.
 
         Parameters
@@ -375,6 +380,9 @@ class Evaluator:
             ran, in order, before the next one is scored; ``ran`` is how many
             of the batch's graphs ran. When it returns a name, the candidate
             joins the reference pool under it. Without it no candidate joins.
+        tried : sequence of str, optional
+            A name per graph: every graph that ran joins the tried trials
+            under its name after the batch (``tried``).
         """
         if not graphs:
             return []
@@ -383,13 +391,62 @@ class Evaluator:
         computed = [i for i, v in enumerate(results) if not isinstance(v, CompileFailure)]
         if not computed:
             return results
-        scores = _Scores(frame, [results[i].values for i in computed])
+        values = [results[i].values for i in computed]
+        scores = _Scores(frame, values)
         for k, i in enumerate(computed):
             results[i] = scores.metrics(k, self._label.span_bars(), coverage(results[i].presence, frame.rows))
             name = admit(i, results[i], len(computed)) if admit is not None else None
             if name is not None:
                 scores.admit(k, name)
+        if tried is not None:
+            frame.add_tried([tried[i] for i in computed], values)
         return results
+
+    def remember(self, graphs: list[Graph], names: Sequence[str], batch: int = 20) -> list[str]:
+        """Add the graphs to the tried trials under ``names``, ``batch`` at a time, without scoring them.
+
+        Returns the names of the graphs that did not compute, which do not join.
+        """
+        frame = self._scored_frame()
+        failed = []
+        for first in range(0, len(graphs), batch):
+            results = self._values(graphs[first:first + batch], frame)
+            ran = [(names[first + j], v.values) for j, v in enumerate(results) if not isinstance(v, CompileFailure)]
+            failed += [names[first + j] for j, v in enumerate(results) if isinstance(v, CompileFailure)]
+            if ran:
+                frame.add_tried([name for name, _ in ran], [values for _, values in ran])
+        return failed
+
+    def nearest_tried(self, graphs: list[Graph]) -> list[tuple[str, float] | CompileFailure]:
+        """Each graph's most correlated tried trial and that correlation, ``("", NaN)`` without one; unscored.
+
+        The correlation is the tried trials' (``tried``): of normal scores,
+        on the sampled dates. A graph that does not compute is a ``CompileFailure``.
+        The graphs are computed here, so a graph evaluated afterwards is computed twice.
+        """
+        if not graphs:
+            return []
+        frame = self._scored_frame()
+        found: list[tuple[str, float] | CompileFailure] = []
+        for result in self._values(graphs, frame):
+            if isinstance(result, CompileFailure):
+                found.append(result)
+            else:
+                found.append(_nearest(frame.tried_names, frame.tried_correlation(result.values)))
+        return found
+
+    def tried(self) -> tuple[list[str], np.ndarray]:
+        """The tried trials' names, in the order they joined, and the matrix of their correlations.
+
+        A tried trial is kept as its normal scores on every
+        ``TRIED_SAMPLE_EVERY``-th scored date; the correlation of two is the
+        mean over those dates of the correlation of their normal scores
+        among the day's members, NaN for a pair without a usable date. Each
+        tried trial holds about 2 MB on 3000 members over 15 years (600
+        trials, 1.3 GB), and the matrix is its square.
+        """
+        frame = self._scored_frame()
+        return list(frame.tried_names), frame.tried_matrix.copy()
 
     def contributions(self, names: Sequence[str]) -> dict[str, Contribution]:
         """Each named pool factor's ``Contribution`` within the group of ``names``.
@@ -434,6 +491,10 @@ class Evaluator:
         node of a batch that does not compute (a node KunQuant cannot
         output), so the trace may be empty. Coverage is measured on the
         graph as written, its fills included.
+
+        It computes the graph once per ``_TRACED_PER_BATCH`` traced nodes and
+        holds each node of a batch on the scored dates and symbols in
+        float64: on 3000 members over 15 years, about 1.4 GB at the peak.
         """
         frame = self._scored_frame()
         daily = stages.split(graph, self._vocabulary).daily if self._vocabulary else graph
@@ -549,7 +610,9 @@ class _Frame:
     held per date on the symbols with a label that date (``rows``), as
     each factor's normal scores (float32), one column per factor. The
     known factors are held the same way, but only on the sampled dates
-    (``sampled``, positions among the scored dates).
+    (``sampled``, positions among the scored dates), and so are the tried
+    trials, on dates of their own (``tried_sampled``), with the matrix of
+    their correlations (``tried_matrix``).
     """
 
     def __init__(self, label: xr.DataArray):
@@ -562,6 +625,10 @@ class _Frame:
         self.sampled = np.arange(0, len(self.rows), KNOWN_SAMPLE_EVERY)
         self.known_names: list[str] = []
         self.known = [np.zeros((len(self.rows[d]), 0), dtype=np.float32) for d in self.sampled]
+        self.tried_sampled = np.arange(0, len(self.rows), TRIED_SAMPLE_EVERY)
+        self.tried_names: list[str] = []
+        self.tried = [np.zeros((len(self.rows[d]), 0), dtype=np.float32) for d in self.tried_sampled]
+        self.tried_matrix = np.zeros((0, 0))
 
     def day_basis(self, d: int) -> np.ndarray:
         """Date ``d``'s orthonormal basis of an intercept and the pool's columns, in float64."""
@@ -588,6 +655,43 @@ class _Frame:
         self.known_names[j] = name
         for i, d in enumerate(self.sampled):
             self.known[i][:, j] = sampled[i, self.rows[d]]
+
+    def tried_scores(self, values: np.ndarray) -> list[np.ndarray]:
+        """The normal scores of ``(date, symbol)`` values on the tried trials' sampled dates' rows, one array per date."""
+        sampled = _normal_scores(np.where(self.in_rows[self.tried_sampled], values[self.tried_sampled], np.nan), axis=1)
+        return [sampled[i, self.rows[d]] for i, d in enumerate(self.tried_sampled)]
+
+    def tried_correlation(self, values: np.ndarray) -> np.ndarray:
+        """The correlation of ``(date, symbol)`` values with every tried trial, as ``tried_matrix`` holds them."""
+        return self._tried_correlations([self.tried_scores(values)], self.tried)[0]
+
+    def add_tried(self, names: Sequence[str], values: Sequence[np.ndarray]) -> None:
+        """Add trials to the tried trials, from their ``(date, symbol)`` values, and their correlations to the matrix."""
+        if not names:
+            return
+        scores = [self.tried_scores(v) for v in values]
+        added = [np.column_stack([s[i] for s in scores]).astype(np.float32) for i in range(len(self.tried_sampled))]
+        before = len(self.tried_names)
+        self.tried = [np.column_stack([old, new]) for old, new in zip(self.tried, added)]
+        self.tried_names += list(names)
+        matrix = np.full((len(self.tried_names),) * 2, np.nan)
+        matrix[:before, :before] = self.tried_matrix
+        new_rows = self._tried_correlations(scores, self.tried)
+        matrix[before:, :] = new_rows
+        matrix[:, before:] = new_rows.T
+        self.tried_matrix = matrix
+
+    def _tried_correlations(self, scores: list[list[np.ndarray]], panel: list[np.ndarray]) -> np.ndarray:
+        """The correlation of each of ``scores`` (``tried_scores``) with every column of ``panel``, averaged over the dates."""
+        columns = panel[0].shape[1] if panel else 0
+        if not columns:
+            return np.full((len(scores), columns), np.nan)
+        daily = [
+            _correlations(np.column_stack([s[i] for s in scores]), panel[i]) for i in range(len(self.tried_sampled))
+        ]
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)  # a pair with no usable date stays NaN
+            return np.nanmean(np.stack(daily), axis=0)
 
     def add_to_pool(self, factors: dict[str, np.ndarray | list[np.ndarray]]) -> None:
         """Add factors to the pool: each name maps to its ``(date, symbol)`` values or its ``daily_scores``."""

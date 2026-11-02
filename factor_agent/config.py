@@ -242,12 +242,29 @@ class ContextConfig:
     #: and written from the data and the seed directions alone, every direction new: the control
     #: of a test of whether the search learns from its trials.
     feedback: bool = True
+    #: The correlation, in absolute value, at which an evaluated trial is grouped with an earlier one
+    #: (``_feedback.theme_groups``), the groups the planner reads; None (the default) groups none.
+    theme_correlation: float | None = None
+    #: Whether a new direction's candidate as correlated with an earlier trial is sent back to be
+    #: rewritten once before it is evaluated; it needs ``theme_correlation``.
+    send_back_repeats: bool = False
 
     def __post_init__(self):
         if self.recent_rounds < 1:
             raise ValueError(f"context: recent_rounds is {self.recent_rounds}; at least the last round is listed")
         if not isinstance(self.feedback, bool):
             raise TypeError(f"context: feedback is {self.feedback!r}; it is true or false")
+        if self.theme_correlation is not None:
+            if isinstance(self.theme_correlation, bool) or not isinstance(self.theme_correlation, (int, float)):
+                raise TypeError(f"context: theme_correlation is {self.theme_correlation!r}; it is a number or null")
+            if not 0 < self.theme_correlation < 1:
+                raise ValueError(f"context: theme_correlation is {self.theme_correlation}; it lies in (0, 1)")
+            if not self.feedback:
+                raise ValueError("context: theme_correlation needs feedback, since the groups are made of earlier trials")
+        if not isinstance(self.send_back_repeats, bool):
+            raise TypeError(f"context: send_back_repeats is {self.send_back_repeats!r}; it is true or false")
+        if self.send_back_repeats and self.theme_correlation is None:
+            raise ValueError("context: send_back_repeats needs theme_correlation, the correlation at which a trial repeats one")
 
 
 #: The values of ``acceptance.contribution``.

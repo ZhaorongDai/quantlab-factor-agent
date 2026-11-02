@@ -55,7 +55,14 @@ was written before. Every trial is named by its id (``_feedback.trial_id``);
 a direction may build on any evaluated trial by its id, and the proposer
 is given that trial (``_feedback.parent``). With ``context.feedback`` off
 the planner and the proposer read only the seed directions and the factor
-families, every direction is new and no memory is distilled.
+families, every direction is new and no memory is distilled. With
+``context.theme_correlation`` every evaluated trial joins the Evaluator's
+tried trials and the planner also reads them grouped by what their factors
+measure (``_feedback.themes``); a resume computes the tried trials again
+from the ledger. With ``context.send_back_repeats`` too, before a round is
+scored, a new direction's candidate that correlates that much with an
+earlier trial is rewritten once (``_renew``); a slot is rewritten once in
+all, so a candidate the reviewer sent back is not checked again.
 
 Before each round the stop conditions are checked: the round limit, the
 trial limit and ``patience`` rounds in a row without an acceptance; the
@@ -291,6 +298,8 @@ class Campaign:
         _write_zoo(run_dir / "zoo.json", zoo)
         gate = Gate(config.gate, vocabulary, seen=[Graph.from_json(r.graph, vocabulary.classes) for r in records if r.graph])
         _restore(records, zoo, evaluator, vocabulary)
+        if config.context.theme_correlation is not None:
+            _restore_tried(records, evaluator, vocabulary)
         if confirming is not None:
             _join(confirming, [r for r in records if r.status == "accepted"], vocabulary)
         while (stop := self._stop(state, records)) is None:
@@ -391,6 +400,10 @@ class Campaign:
             context = asdict(self.config.context)
             if context["feedback"]:
                 del context["feedback"]  # as runs started before the setting recorded their context
+            if context["theme_correlation"] is None:
+                del context["theme_correlation"]  # likewise
+            if not context["send_back_repeats"]:
+                del context["send_back_repeats"]  # likewise
             files, settings = self.config.search_files(), {"context": context}
             if self.config.data.intraday is not None:
                 settings["intraday"] = {"dataset": json.loads(json.dumps(self.config.data.intraday))}
@@ -456,6 +469,9 @@ class Campaign:
             ),
             "last_round": _feedback.last_round([(t, r) for t, r in trials if r.round == state.rounds], trials),
             "best": _feedback.best(trials, evaluator.contributions(labels) if labels else {}),
+            **({"themes": _feedback.themes(
+                trials, *evaluator.tried(), self.config.context.theme_correlation, self.config.context.send_back_repeats,
+            )} if self.config.context.theme_correlation is not None else {}),
         }
 
     def _round(
@@ -485,22 +501,19 @@ class Campaign:
         verdicts = researcher.review(number, [proposals[i] for i in gated])
         passed = [i for i, verdict in zip(gated, verdicts) if verdict.consistent]
         sent_back = [(i, verdict) for i, verdict in zip(gated, verdicts) if not verdict.consistent]
-        proposals = list(proposals)
-        rewrites = researcher.revise(number, [(proposals[i], verdict) for i, verdict in sent_back], gate, zoo)
-        for (i, _), rewrite in zip(sent_back, rewrites):
-            proposals[i] = rewrite
-            if rewrite.checked is None:
-                records[i] = self._failed(number, rewrite)
-        rewritten = [i for i, _ in sent_back if proposals[i].checked is not None]
-        for i, verdict in zip(rewritten, researcher.review(number, [proposals[i] for i in rewritten])):
-            if verdict.consistent:
-                passed.append(i)
-            else:
-                records[i] = TrialRecord(
-                    status="rejected", stage="review", reasons=[verdict.refusal],
-                    **self._common(number, proposals[i]),
-                )
-        passed.sort()
+        rewrites = dict(zip(
+            [i for i, _ in sent_back],
+            researcher.revise(number, [(proposals[i], verdict) for i, verdict in sent_back], gate, zoo),
+        ))
+        if self.config.context.send_back_repeats:
+            repeats = self._renew(number, proposals, passed, researcher, gate, zoo, evaluator, earlier)
+            passed = [i for i in passed if i not in repeats]
+            rewrites |= repeats
+        proposals = [rewrites.get(i, proposal) for i, proposal in enumerate(proposals)]
+        judged, refused = self._judge_rewrites(number, rewrites, researcher)
+        passed = sorted(passed + judged)
+        for i, record in refused.items():
+            records[i] = record
 
         daily = {}
 
@@ -524,7 +537,8 @@ class Campaign:
         events.write(EvaluationStart(round=number, slots=list(passed)))
         graphs = [proposals[i].checked.graph for i in passed]
         confirmations = confirming.evaluate(graphs) if confirming is not None and graphs else None
-        results = evaluator.evaluate(graphs, admit)
+        tried = [_feedback.trial_id(number, i) for i in passed] if self.config.context.theme_correlation is not None else None
+        results = evaluator.evaluate(graphs, admit, tried)
         if confirming is not None:
             _join(confirming, [r for r in records if r is not None and r.status == "accepted"], vocabulary)
         _keep_daily_ic(Path(self.config.run_dir), number, daily)
@@ -538,6 +552,55 @@ class Campaign:
                     metrics=None,
                 ))
         return records
+
+    def _renew(
+        self, number: int, proposals: list[Proposal], passed: list[int], researcher: Researcher, gate: Gate, zoo: Zoo,
+        evaluator: Evaluator, earlier: list[TrialRecord],
+    ) -> dict[int, Proposal]:
+        """The rewrites, by slot, of the new directions' candidates in ``passed`` that measure what an earlier trial measured.
+
+        Before anything is scored, a new direction's candidate whose factor
+        is correlated with an earlier evaluated trial's at
+        ``context.theme_correlation`` or more in absolute value
+        (``Evaluator.nearest_tried``, which computes each new direction's
+        candidate once more) is rewritten once (``Researcher.renew``), with
+        that trial named and no statistic but the correlation; the rewrites
+        are judged as the reviewer's are (``_judge_rewrites``).
+        """
+        threshold = self.config.context.theme_correlation
+        new = [i for i in passed if proposals[i].direction.action == "new"]
+        nearest = evaluator.nearest_tried([proposals[i].checked.graph for i in new])
+        by_id = dict(_feedback.named(earlier))
+        repeated = [
+            (i, name, correlation) for i, found in zip(new, nearest) if not isinstance(found, CompileFailure)
+            for name, correlation in [found] if name and abs(correlation) >= threshold
+        ]
+        rewrites = researcher.renew(
+            number, [(proposals[i], _repeats(name, correlation, by_id[name], threshold)) for i, name, correlation in repeated],
+            gate, zoo,
+        )
+        return {i: rewrite for (i, _, _), rewrite in zip(repeated, rewrites)}
+
+    def _judge_rewrites(
+        self, number: int, rewrites: dict[int, Proposal], researcher: Researcher,
+    ) -> tuple[list[int], dict[int, TrialRecord]]:
+        """Of the rewrites, by slot, the slots to evaluate and the records of the others.
+
+        A rewrite the parser or the Gate refused is failed; the reviewer
+        judges the others in one more call, and an inconsistent one is
+        rejected at review; a consistent one is evaluated with the rest.
+        """
+        refused = {i: self._failed(number, p) for i, p in rewrites.items() if p.checked is None}
+        checked = [i for i, p in rewrites.items() if p.checked is not None]
+        judged = []
+        for i, verdict in zip(checked, researcher.review(number, [rewrites[i] for i in checked])):
+            if verdict.consistent:
+                judged.append(i)
+            else:
+                refused[i] = TrialRecord(
+                    status="rejected", stage="review", reasons=[verdict.refusal], **self._common(number, rewrites[i]),
+                )
+        return judged, refused
 
     @staticmethod
     def _failed(number: int, proposal: Proposal) -> TrialRecord:
@@ -651,6 +714,34 @@ def _restore(records: list[TrialRecord], zoo: Zoo, evaluator: Evaluator, vocabul
     broken = [label for label, result in zip(labels, results) if isinstance(result, CompileFailure)]
     if broken:
         raise RuntimeError(f"Campaign: cannot resume, accepted factor(s) no longer compile: {broken}")
+
+
+def _repeats(trial: str, correlation: float, earlier: TrialRecord, threshold: float) -> str:
+    """Why a new direction's candidate is sent back: it measures what the earlier ``trial`` measured."""
+    return (
+        f"the research direction is new, but the factor measures what earlier trial {trial} measured: its "
+        f"correlation with {trial}'s factor is {correlation:+.2f}, at least {threshold:g} in absolute value "
+        f"({trial} computed: {earlier.candidate.get('description', '')}; {_feedback.outcome(earlier)}); write the "
+        f"candidate for a mechanism no earlier trial measured, as the research direction asks"
+    )
+
+
+def _restore_tried(records: list[TrialRecord], evaluator: Evaluator, vocabulary: Vocabulary) -> None:
+    """Put the evaluated trials of the rounds already written back into ``evaluator``'s tried trials, in order.
+
+    Raises
+    ------
+    RuntimeError
+        If an evaluated trial's graph no longer computes.
+    """
+    evaluated = [(trial, r) for trial, r in _feedback.named(records) if r.evaluated]
+    if not evaluated:
+        return
+    broken = evaluator.remember(
+        [Graph.from_json(r.graph, vocabulary.classes) for _, r in evaluated], [trial for trial, _ in evaluated],
+    )
+    if broken:
+        raise RuntimeError(f"Campaign: cannot resume, evaluated trial(s) no longer compute: {broken}")
 
 
 def _join(evaluator: Evaluator, accepted: list[TrialRecord], vocabulary: Vocabulary) -> None:

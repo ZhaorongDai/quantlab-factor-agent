@@ -57,3 +57,15 @@ def test_the_local_arm_is_arm_a2_on_a_model_served_on_the_same_computer():
     assert LOCAL.run_dir == "/data/quantlab/runs/factor_agent_learn_daily_local"
     assert {(r.backend, r.model) for r in LOCAL.roles.values()} == {("openai_compatible", "qwen3.6-35b-a3b-ud-q4_k_xl")}
     assert dataclasses.replace(LOCAL, run_dir=A2.run_dir, source=A2.source, roles=A2.roles) == A2
+
+
+LOCAL_THEMES = CampaignConfig.from_file(CONFIGS / "learn_daily_local_themes.yaml")
+
+
+def test_the_themes_arm_is_the_local_arm_grouping_its_trials_by_what_they_measure():
+    assert LOCAL_THEMES.run_dir == "/data/quantlab/runs/factor_agent_learn_daily_local_themes"
+    assert (LOCAL_THEMES.context.theme_correlation, LOCAL_THEMES.context.send_back_repeats) == (0.5, True)
+    assert dataclasses.replace(
+        LOCAL_THEMES, run_dir=LOCAL.run_dir, source=LOCAL.source,
+        context=dataclasses.replace(LOCAL_THEMES.context, theme_correlation=None, send_back_repeats=False),
+    ) == LOCAL

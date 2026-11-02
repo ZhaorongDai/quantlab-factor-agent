@@ -401,6 +401,7 @@ SECTIONS = (
     ("families", "Existing factor families (candidates must add to them, not rewrite them)"),
     ("memory", "Memory distilled from earlier rounds"),
     ("earlier_summary", "Earlier summary (the older trials, counted by mechanism type and outcome)"),
+    ("themes", "What the evaluated trials measure (the trials grouped by the correlation of their factors)"),
     ("recent_history", "Recent history (the trials of the last rounds, one line each)"),
     ("last_round", "Last round's feedback (training period only)"),
     ("best", "Current best mechanisms (the accepted factors)"),

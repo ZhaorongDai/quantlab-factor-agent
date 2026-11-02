@@ -115,6 +115,8 @@ known factor at a time.
 | `round.seed` | 0 | seed of the Thompson sampling |
 | `context.recent_rounds` | 5 | rounds whose trials the planner reads one line each |
 | `context.feedback` | true | whether the planner and the proposer read the earlier trials and a memory is distilled; off, every direction is new (a control run) |
+| `context.theme_correlation` | null | the absolute correlation at which an evaluated trial is grouped with an earlier one; set, the planner reads the groups (see below) |
+| `context.send_back_repeats` | false | whether a new direction's candidate in a group is rewritten once before it is evaluated; needs `context.theme_correlation` |
 
 ## Stopping and resuming
 
@@ -133,7 +135,7 @@ The first start copies the field, operator and replaced template files into
 `snapshot/` with their hashes, and the run searches with those copies. A resume whose
 files differ fails: a new search space needs a new run directory. A resume on other
 commits of factor_agent or quantlab only warns, and `state.json` lists the commits of every
-start and resume. `round.groups` may change on a resume; `context.recent_rounds` and `context.feedback` may not.
+start and resume. `round.groups` may change on a resume; `context.recent_rounds`, `context.feedback`, `context.theme_correlation` and `context.send_back_repeats` may not.
 The reference set and the known factors are read from the config on every start. Every
 start and resume also keeps the config it was given as `config/open-<k>.yaml` (the first
 start is `open-1.yaml`), so a run says which settings it ran with even after the config
@@ -213,6 +215,23 @@ to strengthen an accepted factor; a **mutation** follows another channel the par
 result points to. The direction names the parent by its id, and the proposer is given the
 parent's code, statistics and reasons. A direction whose parent is not an evaluated trial
 is kept as a new one, and the plan event records the issue.
+
+With `context.theme_correlation` set (0.5, say), the Evaluator keeps every evaluated trial,
+as the normal scores of its factor on every 20th scored date, and the trials are grouped
+by what their factors measure: each joins the group of the earlier trial it is most
+correlated with, when that correlation reaches the setting in absolute value, and opens a
+group of its own otherwise. The planner reads the groups, the largest first, each with the
+trial that opened it, its trials, how many were accepted, its largest residual t, the last
+round it was tried in and its refusals by kind. On a resume the evaluated trials are
+computed again from the ledger.
+
+With `context.send_back_repeats: true` as well, before a round is scored, a new direction's
+candidate correlated that much with an earlier trial is sent back to the proposer once,
+with that trial named and no statistic but the correlation; the version sent back is not
+evaluated and is not a trial, and its rewrite is checked by the Gate and the reviewer
+again and evaluated with the rest, whatever it measures. A refinement or a mutation is not
+checked, and a slot is rewritten once in all: a candidate the reviewer sent back is not
+checked again.
 
 A candidate refused for its coverage is told where its graph loses its values: the first
 step whose coverage falls below `admission.min_coverage` while its inputs' does not, with

@@ -42,7 +42,7 @@ _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 ACTIONS = ("new", "mutation", "refinement")
 
 #: The context sections each role reads (see ``factor_agent.prompts.SECTIONS``); ``render_context`` shows them.
-PLANNER_SECTIONS = ("seed", "families", "memory", "earlier_summary", "recent_history", "last_round", "best")
+PLANNER_SECTIONS = ("seed", "families", "memory", "earlier_summary", "themes", "recent_history", "last_round", "best")
 PROPOSER_SECTIONS = ("families", "memory", "last_round", "best")
 
 
@@ -81,8 +81,9 @@ class Verdict:
 class Attempt:
     """One refused version of a candidate: what the proposer wrote, where it failed and why.
 
-    ``stage`` is ``"parse"`` (not a valid candidate for its direction), ``"gate"``
-    or ``"review"`` (the reviewer found it inconsistent).
+    ``stage`` is ``"parse"`` (not a valid candidate for its direction), ``"gate"``,
+    ``"review"`` (the reviewer found it inconsistent) or ``"novelty"`` (a new
+    direction's candidate that measures what an earlier trial measured).
     """
 
     item: object
@@ -309,13 +310,30 @@ class Researcher:
         refused versions' graphs are withdrawn from ``gate`` first, so a
         rewrite that keeps its graph is not its own duplicate.
         """
-        if not inconsistent:
+        return self._rewrite(
+            number, [(proposal, Attempt(proposal.item, "review", (verdict.refusal,))) for proposal, verdict in inconsistent],
+            gate, zoo,
+        )
+
+    def renew(self, number: int, repeated: list[tuple[Proposal, str]], gate: Gate, zoo: Zoo) -> list[Proposal]:
+        """Send each new direction's candidate that measures what an earlier trial measured back to be rewritten once.
+
+        Each goes with its reason, as an attempt of stage ``"novelty"``, in
+        the rewrite request ``revise`` sends, and its rewrite is checked as
+        ``revise`` checks one; return the rewrites, in order.
+        """
+        return self._rewrite(
+            number, [(proposal, Attempt(proposal.item, "novelty", (reason,))) for proposal, reason in repeated], gate, zoo,
+        )
+
+    def _rewrite(self, number: int, refused: list[tuple[Proposal, Attempt]], gate: Gate, zoo: Zoo) -> list[Proposal]:
+        """Send gated proposals back with the attempt that refused them, in one rewrite request per proposal group."""
+        if not refused:
             return []
         sent_back = []
-        for proposal, verdict in inconsistent:
+        for proposal, attempt in refused:
             gate.withdraw(proposal.checked.graph)
-            review = Attempt(proposal.item, "review", (verdict.refusal,))
-            sent_back.append(dataclasses.replace(proposal, attempts=(*proposal.attempts, review)))
+            sent_back.append(dataclasses.replace(proposal, attempts=(*proposal.attempts, attempt)))
         return [
             self._check(
                 number, proposal.slot, "rewritten", proposal.direction, item, gate, zoo, list(proposal.attempts),

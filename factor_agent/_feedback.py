@@ -24,6 +24,7 @@ from factor_agent.ledger import TrialRecord
 from factor_agent.zoo import owner
 
 _DECIMAL = re.compile(r"[-+]?\d+\.\d+")
+_TRIAL_ID = re.compile(r"T(\d+)-(\d+)")
 
 
 def first_recent_round(rounds: int, recent_rounds: int) -> int:
@@ -95,7 +96,7 @@ def history(
     for trial, r in trials:
         line = (
             f"- {trial}, round {r.round}, {_direction(r, by_id if statistics else {})}: "
-            f"{r.candidate.get('description', '(unparsed)')} -> {_outcome(r)}"
+            f"{r.candidate.get('description', '(unparsed)')} -> {outcome(r)}"
         )
         if r.evaluated:
             line += f"; {direction_text(r.metrics['ic_mean'])}"
@@ -147,6 +148,100 @@ def earlier_summary(records: list[TrialRecord], mechanism_types: tuple[str, ...]
     return "\n".join(lines)
 
 
+#: Groups ``themes`` lists, the largest first; the rest are counted.
+THEMES_LISTED = 30
+
+
+def theme_groups(names: list[str], matrix, threshold: float) -> list[list[str]]:
+    """The tried trials ``names`` in groups, by the matrix of their correlations (rows and columns in ``names``' order).
+
+    The trials are taken in the order they were tried, by their ids
+    (``trial_id``: by round, then by slot), whatever the order of ``names``.
+    Each joins the group of the earlier trial it is most correlated with,
+    when that correlation is at least ``threshold`` in absolute value, and
+    opens a group of its own otherwise. The groups are in the order they
+    were opened, each in the order its trials were tried.
+    """
+    order = sorted(range(len(names)), key=lambda k: _trial_order(names[k]))
+    group_of: dict[int, int] = {}
+    groups: list[list[str]] = []
+    for position, j in enumerate(order):
+        earlier = [(abs(float(matrix[i][j])), i) for i in order[:position]]
+        best = max(((c, i) for c, i in earlier if math.isfinite(c)), default=(0.0, -1))
+        if best[0] >= threshold:
+            group_of[j] = group_of[best[1]]
+            groups[group_of[j]].append(names[j])
+        else:
+            group_of[j] = len(groups)
+            groups.append([names[j]])
+    return groups
+
+
+def _trial_order(trial: str) -> tuple[int, int]:
+    """The round and the slot of a trial id (``trial_id``)."""
+    number, slot = _TRIAL_ID.fullmatch(trial).groups()
+    return int(number), int(slot)
+
+
+
+def themes(
+    trials: list[tuple[str, TrialRecord]], names: list[str], matrix, threshold: float, sent_back: bool = False,
+) -> str:
+    """The evaluated trials (of ``named`` ``trials``) grouped by what their factors measure (``theme_groups``).
+
+    ``names`` and ``matrix`` are the tried trials and their correlations
+    (``Evaluator.tried``). Every group of two trials or more and every group
+    holding an accepted factor is listed, the largest first and at most
+    ``THEMES_LISTED``: the trial that opened it, its trials, how many were
+    accepted, its largest residual t in its trial's direction, the last
+    round it was tried in and its refusals by kind; the other groups are
+    counted. With ``sent_back`` the planner is told that a new direction's
+    candidate falling in a group is sent back to be rewritten.
+    """
+    if not names:
+        return ""
+    by_id = dict(trials)
+    groups = [[t for t in group if t in by_id] for group in theme_groups(names, matrix, threshold)]
+    groups = [g for g in groups if g]
+    shown = [g for g in groups if len(g) > 1 or any(by_id[t].status == "accepted" for t in g)]
+    shown.sort(key=lambda g: -len(g))
+    lines = [
+        f"Each evaluated trial is grouped with the earlier trial its factor is most correlated with (the mean "
+        f"daily correlation on a sample of the training dates), when that correlation is at least {threshold:g} "
+        f"in absolute value; a trial without one opens a group. A trial of a group measures what the trial that "
+        f"opened it measures, whatever its hypothesis says. A new research direction is a mechanism no group "
+        f"measures" + (": a new direction's candidate that falls in a group is sent back to be rewritten." if sent_back else ".")
+    ]
+    for group in shown[:THEMES_LISTED]:
+        records = [by_id[t] for t in group]
+        first = records[0]
+        accepted = [t for t in group if by_id[t].status == "accepted"]
+        best_t, best_id = max(
+            ((direction(r.metrics["ic_mean"]) * r.metrics["partial_ic_t"], t) for t, r in zip(group, records)
+             if math.isfinite(r.metrics["partial_ic_t"])),
+            default=(float("nan"), ""),
+        )
+        refused: dict[str, int] = {}
+        for r in records:
+            if r.status != "accepted":
+                refused[_refusal(r)] = refused.get(_refusal(r), 0) + 1
+        line = (
+            f"- opened by {group[0]} ({first.candidate.get('description', '')}): {len(group)} trial(s) "
+            f"({', '.join(group)}), {len(accepted)} accepted{' (' + ', '.join(accepted) + ')' if accepted else ''}"
+        )
+        if best_id:
+            line += f"; largest residual t in its direction {_num(best_t, 2)} ({best_id})"
+        line += f"; last tried in round {max(r.round for r in records)}"
+        if refused:
+            line += "; refused: " + ", ".join(f"{label} {count}" for label, count in refused.items())
+        lines.append(line)
+    if len(shown) > THEMES_LISTED:
+        lines.append(f"- {len(shown) - THEMES_LISTED} smaller group(s) of several trials, not listed")
+    if len(groups) > len(shown):
+        lines.append(f"- {len(groups) - len(shown)} group(s) of a single refused trial, not listed")
+    return "\n".join(lines)
+
+
 def _refusal(r: TrialRecord) -> str:
     """The kind of refusal of a trial that was not accepted."""
     if r.stage == "admission":
@@ -166,7 +261,7 @@ def last_round(trials: list[tuple[str, TrialRecord]], earlier: list[tuple[str, T
         lines = [
             f"{i}. {trial} [{_direction(r, by_id)}] {r.candidate.get('description', '(unparsed)')}",
             f"   hypothesis: {r.candidate.get('hypothesis', '')}",
-            f"   outcome: {_outcome(r)}",
+            f"   outcome: {outcome(r)}",
         ]
         blocks.append("\n".join(lines + _statistics(r, earlier)))
     return "\n".join(blocks)
@@ -178,7 +273,7 @@ def parent(trial: str, r: TrialRecord, earlier: list[tuple[str, TrialRecord]] = 
     lines = [
         f"{trial}, round {r.round}, {r.candidate.get('mechanism_type', '?')}: {r.candidate.get('description', '')}",
         f"   hypothesis: {r.candidate.get('hypothesis', '')}",
-        f"   outcome: {_outcome(r)}",
+        f"   outcome: {outcome(r)}",
         "   code:", code,
     ]
     return "\n".join(lines + _statistics(r, earlier))
@@ -294,8 +389,10 @@ def _direction(r: TrialRecord, by_id: dict[str, TrialRecord] | None = None) -> s
     return f"{text} of {d['parent']} (whose residual t was {_num(earlier.metrics['partial_ic_t'], 2)})"
 
 
-def _outcome(r: TrialRecord) -> str:
+def outcome(r: TrialRecord) -> str:
+    """A trial's outcome in words: accepted, or its status at the stage that decided it."""
     return "accepted" if r.status == "accepted" else f"{r.status} at {r.stage}"
+
 
 
 def _num(value: float, digits: int) -> str:
