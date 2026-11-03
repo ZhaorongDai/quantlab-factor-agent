@@ -154,8 +154,11 @@ def _judged(source: Path, root: Path) -> TestClient:
     run_dir = root / "example" / "run"
     shutil.copytree(source, run_dir)
     (run_dir / "acceptance").mkdir()
-    for report in (validation, holdout):
-        (run_dir / "acceptance" / f"{report.segment}.json").write_text(json.dumps(report.to_dict()))
+    for minute, report in enumerate((validation, holdout)):
+        path = run_dir / "acceptance" / f"{report.segment}.json"
+        path.write_text(json.dumps(report.to_dict()))
+        # The reports are listed in the order written; a coarse file clock gives two quick writes one mtime.
+        os.utime(path, (1_800_000_000 + 60 * minute,) * 2)
     (run_dir / "holdout.lock").write_text(json.dumps({"segment": {}, "opens": opens}))
     return TestClient(create_app(root))
 
