@@ -2,6 +2,8 @@
 
 import dataclasses
 
+import pytest
+
 from factor_agent.config import CampaignConfig
 from tests.vocabulary_files import CONFIGS
 
@@ -85,3 +87,15 @@ def test_the_map_arm_is_the_themes_arm_sending_nothing_back():
         LOCAL_MAP, run_dir=LOCAL_THEMES.run_dir, source=LOCAL_THEMES.source,
         context=dataclasses.replace(LOCAL_MAP.context, send_back_repeats=True),
     ) == LOCAL_THEMES
+
+
+LOCAL_R2, LOCAL_THEMES2_R2 = (CampaignConfig.from_file(CONFIGS / f"learn_daily_{arm}_r2.yaml") for arm in ("local", "local_themes2"))
+
+
+@pytest.mark.parametrize(("second", "first"), [(LOCAL_R2, LOCAL), (LOCAL_THEMES2_R2, LOCAL_THEMES2)], ids=["local", "themes2"])
+def test_the_second_run_of_an_arm_differs_from_the_first_only_in_its_run_directory_and_seed(second, first):
+    assert second.run_dir == first.run_dir + "_r2"
+    assert (first.round.seed, second.round.seed) == (0, 1)
+    assert dataclasses.replace(
+        second, run_dir=first.run_dir, source=first.source, round=dataclasses.replace(second.round, seed=0),
+    ) == first

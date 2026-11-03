@@ -1,0 +1,162 @@
+# The second themes arm (learn_daily_local_themes2.yaml) run a second time, in a run directory of its
+# own and with the Thompson sampling seeded anew, beside the second run of the local arm.
+run_dir: /data/quantlab/runs/factor_agent_learn_daily_local_themes2_r2
+
+# The data as the prompts describe it.
+market: adjusted daily bars of every US common stock
+
+segments:
+  training:   {start: 2000-02-02, end: 2014-12-31}
+  validation: {start: 2015-01-02, end: 2019-12-31}
+  holdout:    {start: 2020-01-02, end: 2026-10-15}
+  purge_bars: 5
+
+data:
+  prices:
+    datasets:
+    - zarr_file_path: /data/quantlab/market/sharadar/sharadar_sep_1d/sharadar_sep_1d.zarr
+      start_date: '1900-01-01'
+      end_date: '2100-01-01'
+      symbols: null
+      kwargs: null
+      name: quantlab.dataset.sharadar.stock.SharadarStockDataset
+      raw_data_dir_path: /data/quantlab/downloads/sharadar
+      market: us_equity
+      frequency: 1d
+      vendor: sharadar
+      table: sep
+      permatickers: null
+      roster_universe: null
+      category_filter: [Domestic Common Stock, Domestic Common Stock Primary Class, Domestic Common Stock Secondary
+          Class]
+    name: quantlab.dataset.bad_prints.BadPrintMaskedDataset
+    jump: 5.0
+    volume_ratio: 20.0
+    lookback: 20
+    price_variable: adjClose
+    volume_variable: adjVolume
+    masked_variables: [open, high, low, close, adjOpen, adjHigh, adjLow, adjClose, marketcap]
+    intrabar_variables: [adjOpen]
+  label:
+    label:
+      warmup_bars: 15
+      dataset:
+        datasets:
+        - zarr_file_path: /data/quantlab/market/sharadar/sharadar_sep_1d/sharadar_sep_1d.zarr
+          start_date: '1900-01-01'
+          end_date: '2100-01-01'
+          symbols: null
+          kwargs: null
+          name: quantlab.dataset.sharadar.stock.SharadarStockDataset
+          raw_data_dir_path: /data/quantlab/downloads/sharadar
+          market: us_equity
+          frequency: 1d
+          vendor: sharadar
+          table: sep
+          permatickers: null
+          roster_universe: null
+          category_filter: [Domestic Common Stock, Domestic Common Stock Primary Class, Domestic Common Stock Secondary
+              Class]
+        name: quantlab.dataset.bad_prints.BadPrintMaskedDataset
+        jump: 5.0
+        volume_ratio: 20.0
+        lookback: 20
+        price_variable: adjClose
+        volume_variable: adjVolume
+        masked_variables: [open, high, low, close, adjOpen, adjHigh, adjLow, adjClose, marketcap]
+        intrabar_variables: [adjOpen]
+      file_path: /data/quantlab/labels/market/ret_5/ret_5.zarr
+      factor_names: [ret_5]
+      kwargs: {n_forward_periods: 5}
+      resample_freq: null
+      resample_how: null
+      name: quantlab.label.predefined.fret.Return
+      mode: batch
+      data_columns: [adjOpen]
+      njobs: 48
+    membership:
+      zarr_file_path: /data/quantlab/universe/us3000/membership_estu/membership_estu.zarr
+      start_date: '2000-02-02'
+      end_date: '2100-01-01'
+      symbols: null
+      kwargs: {barra_store: /data/quantlab/factors/market/barra_style/barra_style.zarr}
+      name: quantlab.dataset.estu.EstuConstituentDataset
+      as_of: null
+    name: quantlab.label.predefined.membership_mask.MembershipMaskedLabel
+  membership: /data/quantlab/universe/us3000/membership_estu
+# Ranked across the market, neutralised against industry and log market cap, as the shared
+# *_neutral stores are; masked to the members of day t (data.membership).
+scoring:
+  neutralize:
+    exposures:
+    - /data/quantlab/market/sharadar/sharadar_daily_1d
+    - /data/quantlab/market/sharadar/sharadar_industry_1d
+    size_column: marketcap
+    industry_column: industry
+
+# What candidates may write with (paths relative to this file).
+fields: [fields/sharadar_price_volume.yaml]
+operators: operators/kunquant_example.yaml
+
+# Seed directions: two per mechanism type, on daily price and volume only, none written against an
+# existing factor library, since the run searches without one. Papers are cited without their year, so
+# no prompt names a date after the training segment.
+directions:
+  - "behavioural_bias: lottery demand. Investors overpay for stocks with extreme recent daily up-moves, so a high maximum daily return over the past month predicts lower returns. Bali, Cakici and Whitelaw, Maxing out: stocks as lotteries, Journal of Financial Economics."
+  - "behavioural_bias: disposition effect and capital gains overhang. Holders sell winners too early and keep losers, so the gap between the price and a volume-weighted reference price of past purchases predicts continuation. Grinblatt and Han, Prospect theory, mental accounting, and momentum, Journal of Financial Economics."
+  - "risk_compensation: skewness preference. Investors pay for positive skewness, so stocks whose recent daily returns are right-skewed earn less. Boyer, Mitton and Vorkink, Expected idiosyncratic skewness, Review of Financial Studies."
+  - "risk_compensation: downside versus upside risk. Investors demand compensation for losses more than they value gains, so the share of a stock's variance that comes from down days is priced. Ang, Chen and Xing, Downside risk, Review of Financial Studies."
+  - "liquidity: volume-conditioned reversal. Price moves on heavy volume driven by liquidity demand reverse, those driven by information continue; the interaction of the past return with abnormal volume on the same days. Campbell, Grossman and Wang, Trading volume and serial correlation in stock returns, Quarterly Journal of Economics."
+  - "liquidity: illiquidity and its variability. Stocks that cost more to trade, and whose cost of trading varies more, earn a premium or a discount; the daily price impact per dollar traded and its variability over time. Amihud, Illiquidity and stock returns, Journal of Financial Markets."
+  - "microstructure: effective spread estimated from daily highs, lows and closes. A wider implied bid-ask spread marks costlier, less liquid stocks; the spread the daily range implies across two days or around the close. Corwin and Schultz, A simple way to estimate bid-ask spreads from daily high and low prices, Journal of Finance."
+  - "microstructure: transient pricing errors. Negative serial covariance of daily price changes (bid-ask bounce, temporary price pressure) marks prices that overshoot and correct. Roll, A simple implicit measure of the effective bid-ask spread in an efficient market, Journal of Finance."
+  - "information_diffusion: frog in the pan. Information that arrives in many small moves is under-reacted to more than the same news in a few large jumps, so past returns earned continuously persist longer. Da, Gurun and Warachka, Frog in the pan: continuous information and momentum, Review of Financial Studies."
+  - "information_diffusion: overnight versus intraday returns. Different clienteles trade at the open and during the day, so the overnight and the intraday parts of past returns persist separately. Lou, Polk and Skouras, A tug of war: overnight versus intraday expected returns, Journal of Financial Economics."
+
+evaluator:
+  warmup_bars: 260
+  njobs: 51            # KunQuant threads
+
+admission:
+  t_threshold: 3.0
+  max_correlation: 0.7
+  min_monotonicity: 0.6
+
+round:
+  candidates: 20
+  min_per_type: 3
+  retries: 2
+  max_rounds: 8
+  max_trials: 600
+  patience: 8        # every arm runs its 8 rounds
+  memory_every: 1    # the ledger is distilled into the memory after every round
+  seed: 1          # the second run of the arm draws its mechanism types anew
+  groups: 4          # proposal groups whose calls run side by side
+
+context:
+  recent_rounds: 5    # the planner lists the last 5 rounds' trials; older ones are counted
+  theme_correlation: 0.5   # a trial joins the group of the earlier trial it correlates with this much
+  send_back_repeats: true  # a new direction's candidate in a group is rewritten once before it is evaluated
+  feedback: true
+
+acceptance:
+  # Not run by the experiment; required by the config. Its factors are the baseline: empty, the
+  # reference set, here none.
+  model:
+    name: quantlab.model.predefined.xgb.XGBoostRegressor
+    factors: []
+    hyperparameters: {training_target: cs_rank, early_stopping: true, early_stopping_patience: 100,
+                      objective: "reg:squarederror", num_boost_round: 2000, eta: 0.03, max_depth: 6,
+                      min_child_weight: 1000, subsample: 0.8, colsample_bytree: 0.5}
+  seeds: [0, 1, 2]
+  top_k: 100
+  factor_root: /data/quantlab/factors/market   # exported stores, beside the other whole-market factors
+
+# All four roles: the local model. One session answers one request at a time, so a call waits for the
+# others; the timeout covers the wait.
+llm:
+  planner:   &local {backend: openai_compatible, model: qwen3.6-35b-a3b-ud-q4_k_xl,
+                     base_url: "http://127.0.0.1:8091/v1", max_tokens: 32000, timeout_seconds: 7200}
+  proposer:  *local
+  reviewer:  *local
+  distiller: *local
