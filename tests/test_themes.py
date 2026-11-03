@@ -208,3 +208,35 @@ def test_the_groups_follow_the_trials_order_whatever_the_order_they_are_given_in
     assert theme_groups([names[k] for k in shuffled], matrix[np.ix_(shuffled, shuffled)], 0.5) == (
         theme_groups(names, matrix, 0.5)
     )
+
+
+#: A rewrite the Gate refuses: it reads no field.
+UNREAD = candidate("constant", "alpha = ConstantOp(1.0)")
+
+
+def _fix_badly_then_to(item: dict):
+    """The proposer's rewrite of a repeat: one the Gate refuses, then, asked to fix it, ``item``."""
+    def fix(number, failures):
+        fixed = []
+        for f in failures:
+            if any("measures what earlier trial" in r for r in f["refused_because"]):
+                fixed.append(UNREAD)
+            elif f["refused_version"].get("description") == "constant":
+                fixed.append(item)
+            else:
+                fixed.append(f["refused_version"])
+        return fixed
+    return fix
+
+
+@pytest.mark.parametrize(("retries", "evaluated"), [(1, True), (0, False)])
+def test_a_rewrite_the_gate_refuses_is_fixed_as_often_as_a_proposed_candidate(tmp_path, market, retries, evaluated):
+    fake = FakeLLM(_first_slot(INTRADAY, AGAIN), fix=_fix_badly_then_to(VOLUME))
+    result = run(_config(tmp_path, market, retries=retries), fake, market["cache"])
+    record = _slot(result.records, 2, 0)
+    stages = [a["stage"] for a in record.attempts]
+    assert stages[:2] == ["novelty", "gate"]
+    if evaluated:
+        assert record.evaluated and record.candidate["description"] == "volume shock"
+    else:
+        assert record.status == "failed" and record.stage == "gate"

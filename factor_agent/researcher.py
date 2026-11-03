@@ -315,32 +315,52 @@ class Researcher:
             gate, zoo,
         )
 
-    def renew(self, number: int, repeated: list[tuple[Proposal, str]], gate: Gate, zoo: Zoo) -> list[Proposal]:
+    def renew(
+        self, number: int, repeated: list[tuple[Proposal, str]], gate: Gate, zoo: Zoo, retries: int = 0,
+    ) -> list[Proposal]:
         """Send each new direction's candidate that measures what an earlier trial measured back to be rewritten once.
 
         Each goes with its reason, as an attempt of stage ``"novelty"``, in
-        the rewrite request ``revise`` sends, and its rewrite is checked as
-        ``revise`` checks one; return the rewrites, in order.
+        the rewrite request ``revise`` sends; a rewrite the parser or ``gate``
+        refuses is sent back with its reasons up to ``retries`` times, as a
+        proposed candidate is. Return the rewrites, in order.
         """
         return self._rewrite(
             number, [(proposal, Attempt(proposal.item, "novelty", (reason,))) for proposal, reason in repeated], gate, zoo,
+            retries,
         )
 
-    def _rewrite(self, number: int, refused: list[tuple[Proposal, Attempt]], gate: Gate, zoo: Zoo) -> list[Proposal]:
-        """Send gated proposals back with the attempt that refused them, in one rewrite request per proposal group."""
+    def _rewrite(
+        self, number: int, refused: list[tuple[Proposal, Attempt]], gate: Gate, zoo: Zoo, retries: int = 0,
+    ) -> list[Proposal]:
+        """Send gated proposals back with the attempt that refused them, in one rewrite request per proposal group.
+
+        A rewrite the parser or ``gate`` refuses is sent back to be fixed up to ``retries`` times.
+        """
         if not refused:
             return []
         sent_back = []
         for proposal, attempt in refused:
             gate.withdraw(proposal.checked.graph)
             sent_back.append(dataclasses.replace(proposal, attempts=(*proposal.attempts, attempt)))
-        return [
+        rewrites = [
             self._check(
                 number, proposal.slot, "rewritten", proposal.direction, item, gate, zoo, list(proposal.attempts),
                 proposal.group,
             )
             for proposal, item in zip(sent_back, self._ask_to_fix(number, sent_back))
         ]
+        for _ in range(retries):
+            pending = [k for k, rewrite in enumerate(rewrites) if rewrite.checked is None]
+            if not pending:
+                break
+            for k, item in zip(pending, self._ask_to_fix(number, [rewrites[k] for k in pending])):
+                rewrite = rewrites[k]
+                rewrites[k] = self._check(
+                    number, rewrite.slot, "fixed", rewrite.direction, item, gate, zoo, list(rewrite.attempts),
+                    rewrite.group,
+                )
+        return rewrites
 
     def distill(self, number: int, memory: str, history: str, accepted: str) -> str | None:
         """The memory the distiller folds from the previous ``memory``, ``history`` (the trials since it) and

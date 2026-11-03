@@ -69,3 +69,19 @@ def test_the_themes_arm_is_the_local_arm_grouping_its_trials_by_what_they_measur
         LOCAL_THEMES, run_dir=LOCAL.run_dir, source=LOCAL.source,
         context=dataclasses.replace(LOCAL_THEMES.context, theme_correlation=None, send_back_repeats=False),
     ) == LOCAL
+
+LOCAL_THEMES2, LOCAL_MAP = (CampaignConfig.from_file(CONFIGS / f"learn_daily_local_{arm}.yaml") for arm in ("themes2", "map"))
+
+
+def test_the_second_themes_arm_repeats_the_first_in_a_run_directory_of_its_own():
+    assert LOCAL_THEMES2.run_dir == "/data/quantlab/runs/factor_agent_learn_daily_local_themes2"
+    assert dataclasses.replace(LOCAL_THEMES2, run_dir=LOCAL_THEMES.run_dir, source=LOCAL_THEMES.source) == LOCAL_THEMES
+
+
+def test_the_map_arm_is_the_themes_arm_sending_nothing_back():
+    assert LOCAL_MAP.run_dir == "/data/quantlab/runs/factor_agent_learn_daily_local_map"
+    assert (LOCAL_MAP.context.theme_correlation, LOCAL_MAP.context.send_back_repeats) == (0.5, False)
+    assert dataclasses.replace(
+        LOCAL_MAP, run_dir=LOCAL_THEMES.run_dir, source=LOCAL_THEMES.source,
+        context=dataclasses.replace(LOCAL_MAP.context, send_back_repeats=True),
+    ) == LOCAL_THEMES

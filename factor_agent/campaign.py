@@ -564,8 +564,9 @@ class Campaign:
         ``context.theme_correlation`` or more in absolute value
         (``Evaluator.nearest_tried``, which computes each new direction's
         candidate once more) is rewritten once (``Researcher.renew``), with
-        that trial named and no statistic but the correlation; the rewrites
-        are judged as the reviewer's are (``_judge_rewrites``).
+        that trial named and no statistic but the correlation, and a rewrite
+        the parser or the Gate refuses is fixed up to ``round.retries`` times;
+        the rewrites are judged as the reviewer's are (``_judge_rewrites``).
         """
         threshold = self.config.context.theme_correlation
         new = [i for i in passed if proposals[i].direction.action == "new"]
@@ -577,7 +578,7 @@ class Campaign:
         ]
         rewrites = researcher.renew(
             number, [(proposals[i], _repeats(name, correlation, by_id[name], threshold)) for i, name, correlation in repeated],
-            gate, zoo,
+            gate, zoo, self.config.round.retries,
         )
         return {i: rewrite for (i, _, _), rewrite in zip(repeated, rewrites)}
 

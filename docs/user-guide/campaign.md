@@ -228,8 +228,9 @@ computed again from the ledger.
 With `context.send_back_repeats: true` as well, before a round is scored, a new direction's
 candidate correlated that much with an earlier trial is sent back to the proposer once,
 with that trial named and no statistic but the correlation; the version sent back is not
-evaluated and is not a trial, and its rewrite is checked by the Gate and the reviewer
-again and evaluated with the rest, whatever it measures. A refinement or a mutation is not
+evaluated and is not a trial. Its rewrite is checked by the Gate again, and fixed up to
+`round.retries` times as a proposed candidate is, then by the reviewer, and evaluated with
+the rest, whatever it measures. A refinement or a mutation is not
 checked, and a slot is rewritten once in all: a candidate the reviewer sent back is not
 checked again.
 
