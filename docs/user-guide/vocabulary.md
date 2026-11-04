@@ -177,6 +177,10 @@ fixes:
     hint: "write a number as ConstantOp(1), as in Sub(x, ConstantOp(1)), or use x - 1"
 ```
 
+KunQuant's "Bad inputs" names only the type of the value; the Gate adds the line of the
+code and the operator given the number (`on line 3 (alpha = Sub(x, 1)), input 2 of Sub is
+the number 1, not an operator`), so the fix of the code can tell which number to change.
+
 ## What code may write
 
 Candidate code is plain Python that must assign the factor to `alpha`: assignments,

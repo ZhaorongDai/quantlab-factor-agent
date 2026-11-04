@@ -47,7 +47,7 @@ parameters:
 
 fixes:
   - match: 'Bad inputs, given'
-    hint: "an operator's inputs must be operators: write a number as ConstantOp(1), as in Sub(x, ConstantOp(1)), or use x - 1 or SubConst(x, 1)"
+    hint: "an operator's inputs must be operators: where a number is an operator's input, as in that call, write the number as ConstantOp(1), as in Sub(x, ConstantOp(1)), or use x - 1 or SubConst(x, 1); leave the numbers an operator takes as numbers as they are, the c of AddConst(x, c) and a window"
   - match: 'unsupported operand type'
     hint: "operators combine with + - * / ** and unary minus only; there is no remainder or floor division"
 

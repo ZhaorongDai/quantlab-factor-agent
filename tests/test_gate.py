@@ -276,6 +276,18 @@ def test_a_number_where_an_operator_goes_or_the_reverse_is_refused_with_how_to_w
     assert not any("Traceback" in r or "/" + "Users" in r or "/home" in r for r in result.reasons), result.reasons
 
 
+def test_a_number_given_as_an_operators_input_is_refused_with_the_line_and_the_operator_that_got_it():
+    # On the local model the fix of a bare number often wrapped every number in ConstantOp, AddConst's
+    # value too, and the fix of that unwrapped them all: the refusal now names the call given the number.
+    result = _check("ratio = close / open\nshifted = AddConst(ratio, 1)\nalpha = Clip(Sub(shifted, 1), 1)")
+    assert isinstance(result, Rejected)
+    [reason] = result.reasons
+    assert reason.startswith("graph build failed: RuntimeError: Bad inputs, given <class 'int'>"), reason
+    assert "on line 3 (alpha = Clip(Sub(shifted, 1), 1)), input 2 of Sub is the number 1" in reason, reason
+    [hint] = [h for h in result.hints if "ConstantOp(1)" in h]
+    assert "as in that call" in hint and "the c of AddConst(x, c)" in hint, hint
+
+
 @pytest.mark.parametrize(
     ("code", "same_as"),
     [

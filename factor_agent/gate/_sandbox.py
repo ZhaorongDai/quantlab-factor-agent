@@ -32,7 +32,7 @@ def build(code: str, memory_mb: int, vocabulary: Vocabulary) -> dict:
     except PeriodLagError as exc:
         return {"reasons": [str(exc)]}
     except Exception as exc:  # the candidate's own error, reported back to it
-        return {"reasons": [f"graph build failed: {type(exc).__name__}: {exc}"]}
+        return {"reasons": [f"graph build failed: {type(exc).__name__}: {exc}{_bad_input(exc, code, vocabulary)}"]}
     if "alpha" not in scope:
         return {"reasons": ["the code never assigns alpha"]}
     alpha = scope["alpha"]
@@ -50,6 +50,31 @@ def build(code: str, memory_mb: int, vocabulary: Vocabulary) -> dict:
     except Exception as exc:
         return {"reasons": [f"graph build failed: {type(exc).__name__}: {exc}"]}
     return {"graph": graph.to_json()}
+
+
+def _bad_input(exc: Exception, code: str, vocabulary: Vocabulary) -> str:
+    """Where KunQuant's "Bad inputs" came from: the candidate's line and the operator given a number, or "" for any other error.
+
+    KunQuant names only the type of the value, so the fix of a candidate
+    with many numbers had no way to tell which one to change.
+    """
+    line = op = inputs = None
+    tb = exc.__traceback__
+    while tb is not None:
+        frame = tb.tb_frame
+        if frame.f_code.co_filename == "<candidate>":
+            line = tb.tb_lineno
+        elif frame.f_code is OpBase.__init__.__code__:
+            op, inputs = frame.f_locals.get("self"), frame.f_locals.get("inputs")
+        tb = tb.tb_next
+    if line is None or op is None or not inputs:
+        return ""
+    position, value = next(((k, v) for k, v in enumerate(inputs, 1) if not isinstance(v, OpBase)), (None, None))
+    if position is None:
+        return ""
+    name = vocabulary.recorded_name(type(op)) or type(op).__name__
+    source = code.splitlines()[line - 1].strip() if line <= len(code.splitlines()) else ""
+    return f": on line {line} ({source}), input {position} of {name} is the number {value!r}, not an operator"
 
 
 def _cap_address_space(memory_mb: int) -> None:

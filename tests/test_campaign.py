@@ -432,7 +432,7 @@ def test_a_fix_hint_goes_to_the_fix_request_but_not_into_the_recorded_reasons(tm
     item = _candidate("integer input", "alpha = Sub(close / open, 1)")
     outcome = _run(tmp_path, [[item]], round={"candidates": 1, "retries": 1})
     fix_request = outcome["fake"].of_role("proposer")[1].prompt
-    assert "write a number as ConstantOp(1)" in fix_request
+    assert "write the number as ConstantOp(1)" in fix_request
     [record] = outcome["result"].failed
     assert any("Bad inputs, given" in r for r in record.reasons), record.reasons
     assert not any("ConstantOp(1)" in r for r in record.reasons), record.reasons
