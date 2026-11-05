@@ -13,13 +13,19 @@ projects/
 ## Install
 
 ```bash
+git clone https://github.com/ZhaorongDai/quantlab.git
 git clone https://github.com/ZhaorongDai/quantlab-factor-agent.git
 cd quantlab-factor-agent
 uv sync                       # installs quantlab from ../quantlab in editable mode
 uv run pytest -n auto         # the offline test suite: no LLM call, a synthetic market
 ```
 
-`uv sync --group docs` adds what building this site needs.
+`uv sync --extra web` adds the [web frontend](../user-guide/web.md), and
+`uv sync --group docs` what building this site needs. On macOS, xgboost needs Homebrew's
+`libomp` (`brew install libomp`).
+
+quantlab-factor-agent follows quantlab's `main`, which is newer than the quantlab release on
+PyPI, so it is installed from a checkout rather than with `pip install`.
 
 ## Credentials
 

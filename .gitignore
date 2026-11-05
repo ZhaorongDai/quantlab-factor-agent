@@ -7,6 +7,3 @@ __pycache__/
 runs/
 docs/_build/
 docs/reference/generated/
-# Local working notes, not part of the project
-GLOSSARY.md
-docs/design.md

@@ -1,0 +1,91 @@
+name: Release
+
+# Waits for the tagged commit's CI run to succeed, then builds the distributions from the
+# pushed tag's own checkout, checks them, imports every module from the installed wheel
+# outside the repository, with its dependencies from PyPI, and publishes to PyPI through
+# trusted publishing (no API token is stored anywhere).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: The tagged commit passed CI
+        # A release ships only a commit whose CI run succeeded. The tag push starts its
+        # own CI run on the same commit, so this waits (up to 90 minutes) for one of the
+        # commit's CI runs to succeed, and fails once every run has finished without one.
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for _ in $(seq 90); do
+            runs=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow CI --commit "$GITHUB_SHA" --json status,conclusion)
+            if echo "$runs" | jq -e 'any(.[]; .conclusion == "success")' > /dev/null; then
+              echo "CI passed on $GITHUB_SHA"; exit 0
+            fi
+            if echo "$runs" | jq -e 'length > 0 and all(.[]; .status == "completed")' > /dev/null; then
+              echo "no CI run on $GITHUB_SHA succeeded: $runs"; exit 1
+            fi
+            sleep 60
+          done
+          echo "CI on $GITHUB_SHA did not finish within 90 minutes"; exit 1
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.13"
+
+      - name: The tag names the package version
+        if: github.ref_type == 'tag'
+        run: |
+          version=$(uv run --no-project python -c "import tomllib; print(tomllib.load(open('pyproject.toml','rb'))['project']['version'])")
+          test "v${version}" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != version ${version}"; exit 1; }
+
+      - name: Build
+        # --no-sources: the package's metadata names quantlab-py on PyPI, not ../quantlab.
+        run: uv build --no-sources --out-dir dist
+
+      - name: Check metadata
+        run: uvx twine check --strict dist/*
+
+      - name: Import every module from the installed wheel
+        # quantlab-py comes from PyPI here, so a release that needs an unreleased quantlab
+        # fails at this step.
+        run: |
+          uv venv --python 3.13 /tmp/wheel-env
+          uv pip install --python /tmp/wheel-env/bin/python "$(ls dist/*.whl)[web]"
+          cd /tmp
+          /tmp/wheel-env/bin/python -c "
+          import importlib, pkgutil, factor_agent
+          names = [m.name for m in pkgutil.walk_packages(factor_agent.__path__, 'factor_agent.')]
+          for name in names:
+              importlib.import_module(name)
+          print(len(names), 'modules imported from', factor_agent.__file__)
+          "
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  publish:
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+      - uses: pypa/gh-action-pypi-publish@release/v1

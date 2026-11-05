@@ -1,80 +1,76 @@
-# quantlab-factor-agent
+<p align="center">
+  <img src="docs/_static/logo.svg" alt="quantlab-factor-agent logo" width="112">
+</p>
 
-<p>
+<h1 align="center">quantlab-factor-agent</h1>
+
+<p align="center">
+  <a href="https://github.com/ZhaorongDai/quantlab-factor-agent/actions/workflows/ci.yml"><img alt="CI" src="https://github.com/ZhaorongDai/quantlab-factor-agent/actions/workflows/ci.yml/badge.svg"></a>
+  <a href="https://zhaorongdai.github.io/quantlab-factor-agent/"><img alt="Docs" src="https://github.com/ZhaorongDai/quantlab-factor-agent/actions/workflows/docs.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
   <a href="https://www.python.org/downloads/"><img alt="Python 3.13+" src="https://img.shields.io/badge/python-3.13%2B-3776ab?logo=python&logoColor=white"></a>
   <a href="https://github.com/ZhaorongDai/quantlab"><img alt="Built on quantlab" src="https://img.shields.io/badge/built%20on-quantlab-3776ab"></a>
   <a href="https://github.com/Menooker/KunQuant"><img alt="Factors: KunQuant" src="https://img.shields.io/badge/factors-KunQuant-0ea5e9"></a>
 </p>
 
 quantlab-factor-agent mines daily stock factors with language models, mechanism first. A
-model states an economic mechanism and writes the factor it implies as KunQuant code; a
-fixed pipeline decides whether the factor is new and adds to the factors you already have.
-The language model only proposes and reviews. Every decision to accept is made by
-deterministic checks and by statistics that [quantlab](https://github.com/ZhaorongDai/quantlab)
-computes on the training segment, which is all the model is ever shown.
+model states an economic mechanism and writes the factor it implies as KunQuant code. Fixed
+checks and statistics from [quantlab](https://github.com/ZhaorongDai/quantlab) then decide
+whether the factor is new and adds to the factors you already have. The model only proposes
+and reviews, and it sees nothing but the training segment.
 
-- **Documentation:** built locally from `docs/` (see [docs/README.md](docs/README.md)):
-  `uv sync --group docs && uv run sphinx-build -b html docs docs/_build/html`
-- **Example configs:** [configs/](configs/)
+[Documentation](https://zhaorongdai.github.io/quantlab-factor-agent/) ·
+[Example configs](configs/) · [Changelog](CHANGELOG.md)
 
-## The research loop
+> **Status: alpha (0.x).** The API, the config format and the run directory's layout may
+> change between minor versions.
 
-```text
-            +-----------+   directions   +-----------+   candidates   +--------+
- ledger --> |  planner  | -------------> |  proposer | -------------> |  Gate  | -- refused: fix and retry
- memory     +-----------+                +-----------+                +--------+
-                                                                          |
-                    accepted <-- admission <-- Evaluator <-- reviewer <---+
-                       |                       (training     (hypothesis,
-                       +--> zoo, pool, ledger    segment)     code agree?)
-```
+## How it works
 
-A campaign runs in rounds. Each round:
+<p align="center">
+  <img src="docs/_static/research-loop.svg" alt="Each round: the planner picks directions, the proposer writes candidates, the Gate checks them in a sandbox, the reviewer checks that hypothesis and code agree, the Evaluator scores them on the training segment and admission decides; trials go to the ledger for the next round. After the campaign, acceptance validates, opens the hold-out once and exports." width="100%">
+</p>
 
-| Step | Who | What it decides | Main classes |
-|------|-----|-----------------|--------------|
-| 1. Plan | planner (LLM) | one research direction per slot: a new mechanism, a mutation or a refinement of an accepted factor | `Campaign`, `Researcher` |
-| 2. Propose | proposer (LLM) | a hypothesis, a description and KunQuant code per direction, in parallel proposal groups | `Researcher`, `Candidate` |
-| 3. Gate | code | the code builds in a sandbox, reads only the vocabulary, and is not a rewrite of an existing factor | `Gate`, `Vocabulary`, `Zoo` |
-| 4. Review | reviewer (LLM) | the hypothesis, the description and the code describe the same factor | `Researcher` |
-| 5. Evaluate | code | IC, partial IC, correlations, deciles and coverage on the training segment | `Evaluator`, `Scoring` |
-| 6. Admit | code | correlation, partial-IC t (Bonferroni over the trials), monotonicity and coverage thresholds | `Campaign` |
+A campaign runs in rounds. The planner picks one research direction per slot, and the
+proposer writes a hypothesis, a description and KunQuant code for each. The Gate builds the
+code in a sandbox and refuses rewrites of existing factors; the reviewer checks that
+hypothesis and code describe the same factor. The Evaluator then scores what is left on the
+training segment, and admission accepts or rejects it. After the campaign, `Acceptance`
+trains a quantlab return model with and without the accepted factors, opens the hold-out
+once and exports the chosen factors.
 
-After the campaign, `Acceptance` trains a quantlab return model with and without the
-accepted factors on the validation segment, opens the hold-out once, and exports the chosen
-factors as quantlab factors and whole-market stores.
-
-## Why quantlab-factor-agent
-
-- **Mechanisms, not formula search.** The agent is asked for economic mechanisms by
-  mechanism type, and the Gate refuses rewrites, parameter-only variants and large shared
-  subtrees of every reference, known and accepted factor, compared by their KunQuant graphs.
-- **The model never sees the future.** Prompts carry training-segment statistics only: no
-  return, no date, no validation or hold-out metric. The hold-out opens once, behind a lock.
-- **Deterministic judges.** The reviewer can send a candidate back, but only code accepts:
-  the Evaluator scores every candidate on quantlab's whole-market panels, masked to the
-  day's members, against the reference pool, and admission's thresholds tighten with every
-  evaluated trial.
-- **Nothing hard-coded about the market.** Fields, operators, parameter sets, prompt
-  templates, mechanism types and the scoring all come from the config's files, so a new
-  input family is a new field file.
-- **Any model, any provider.** Each role picks its backend: OpenAI-compatible endpoints
-  (DeepSeek, OpenAI, vLLM, ...), Anthropic, or Claude Code. Every call is logged in full, and
-  the `replay` backend reproduces a run byte for byte without a provider.
-- **Resumable runs.** A run directory holds the ledger, the state, the LLM log and a
-  snapshot of the search files; `run()` resumes after a crash or an exhausted balance.
+- **Mechanism first.** The Gate compares KunQuant graphs and refuses
+  rewrites, parameter-only variants and large shared subtrees of every reference, known and
+  accepted factor.
+- **No look-ahead.** Prompts carry training-segment statistics only: no return, no date, no
+  validation or hold-out metric. The hold-out opens once, behind a lock.
+- **Only code accepts.** The Evaluator scores candidates on quantlab's
+  whole-market panels, masked to each day's members, and the partial-IC t threshold
+  tightens with every evaluated trial.
+- **Nothing hard-coded about the market.** Fields, operators, prompts, mechanism types and
+  scoring come from the config's files, so a new input family is a new field file.
+- **Any provider, replayable.** Each role picks its backend: OpenAI-compatible endpoints
+  (DeepSeek, OpenAI, vLLM, ...), Anthropic or Claude Code. Every call is logged, and the
+  `replay` backend reproduces a run byte for byte without a provider.
+- **Resumable.** `run()` picks up from the run directory after a crash or an exhausted
+  balance.
 
 ## Install
 
+You need Python 3.13+, [uv](https://docs.astral.sh/uv/), a C++ compiler on the `PATH`
+(KunQuant compiles factor graphs to native code) and a checkout of quantlab beside this one:
+
 ```bash
-# next to a quantlab checkout: projects/quantlab and projects/quantlab-factor-agent
-uv sync              # quantlab is an editable dependency at ../quantlab
-uv run pytest -n auto
+git clone https://github.com/ZhaorongDai/quantlab.git
+git clone https://github.com/ZhaorongDai/quantlab-factor-agent.git
+cd quantlab-factor-agent
+uv sync --extra web      # --extra web adds the factor-agent-web frontend
+uv run pytest -n auto    # offline: no LLM call, a synthetic market
 ```
 
-Credentials come from environment variables only: `ANTHROPIC_API_KEY`, or the variable a
-role's `api_key_env` names for an OpenAI-compatible provider; the `claude_code` backend uses
-the local Claude Code login. A config that holds a key is refused.
+On macOS, xgboost also needs `brew install libomp`. Keys come from environment variables
+only (`ANTHROPIC_API_KEY`, or the variable a role's `api_key_env` names), and a config that
+holds a key is refused. See [installation](docs/getting-started/installation.md).
 
 ## Run a campaign
 
@@ -91,20 +87,26 @@ report = Acceptance(config).validate()   # baseline vs baseline + accepted, on v
 print(report.markdown())
 ```
 
-A campaign runs for hours, most of it waiting for the language model, and uses no GPU;
-`Acceptance` trains quantlab models, which use CUDA when it is available. The configs in
-`configs/` are complete examples; point their data paths at your own quantlab stores.
+Point the config's data paths at your own quantlab stores first. A campaign runs for hours,
+mostly waiting on the model, and needs no GPU; `Acceptance` uses CUDA when it is available.
+Watch a run in the browser with `factor-agent-web` ([web frontend](docs/user-guide/web.md)).
 
 ## Documentation
 
-| Page | Covers |
-|------|--------|
-| [Installation](docs/getting-started/installation.md), [first campaign](docs/getting-started/quickstart.md) | setup, credentials, running and reading a campaign |
-| [Concepts](docs/user-guide/concepts.md) | roles, factor sets, segments, direction, what "accepted" means |
-| [The campaign config](docs/user-guide/campaign.md) | every section and default, stopping, resuming, the run directory |
-| [The vocabulary](docs/user-guide/vocabulary.md) | field files, the operator file, fixes, what code may write |
-| [Prompts](docs/user-guide/prompts.md) | mechanism types, templates and their placeholders |
-| [LLM backends](docs/user-guide/llm-backends.md) | backends, the LLM log, replay, cost and quota |
-| [Gate, review and evaluation](docs/user-guide/evaluation.md) | the Gate's checks, the review, the statistics, admission |
-| [Acceptance](docs/user-guide/acceptance.md) | validation, contribution, the hold-out, export |
-| [The web frontend](docs/user-guide/web.md) | `factor-agent-web`: your runs in a browser on localhost, also over SSH |
+- [First campaign](docs/getting-started/quickstart.md): run one and read its outcome
+- [Concepts](docs/user-guide/concepts.md): roles, factor sets, segments, what "accepted" means
+- [The campaign config](docs/user-guide/campaign.md): every section, stopping and resuming
+- [The vocabulary](docs/user-guide/vocabulary.md) and [prompts](docs/user-guide/prompts.md): what candidates may read and write, and what the models are told
+- [LLM backends](docs/user-guide/llm-backends.md): providers, the LLM log, replay, cost
+- [Gate, review and evaluation](docs/user-guide/evaluation.md) and [acceptance](docs/user-guide/acceptance.md): how a factor is judged
+
+## Contributing
+
+Bug reports, questions and pull requests are welcome; see [CONTRIBUTING.md](CONTRIBUTING.md).
+Report security problems privately, as [SECURITY.md](SECURITY.md) describes.
+
+## License
+
+[MIT](LICENSE). `factor_agent/_max_drawdown.py` adapts code from
+[KunQuant](https://github.com/Menooker/KunQuant) under the
+[Apache License 2.0](factor_agent/KUNQUANT_LICENSE).

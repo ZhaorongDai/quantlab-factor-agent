@@ -7,14 +7,38 @@ name = "quantlab-factor-agent"
 version = "0.1.0"
 description = "LLM-driven, mechanism-first formulaic factor research on quantlab, evaluated with KunQuant."
 readme = "README.md"
+license = "MIT AND Apache-2.0"
+license-files = ["LICENSE", "factor_agent/KUNQUANT_LICENSE"]
 requires-python = ">=3.13"
+authors = [{ name = "Zhaorong Dai" }]
+keywords = ["quant", "factor", "alpha", "llm", "agent", "kunquant", "quantlab"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Financial and Insurance Industry",
+    "Intended Audience :: Science/Research",
+    "Operating System :: MacOS",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Office/Business :: Financial :: Investment",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "anthropic>=2.3.0",
     "openai>=3.37.0",
     "psutil>=7.2.2",
     "pyyaml>=6.0.3",
+    # Needs quantlab's main, newer than the 0.2.0 on PyPI: pin the release that follows
+    # 0.2.0 here before releasing this package (see CONTRIBUTING.md).
     "quantlab-py",
 ]
+
+[project.urls]
+Homepage = "https://github.com/ZhaorongDai/quantlab-factor-agent"
+Repository = "https://github.com/ZhaorongDai/quantlab-factor-agent"
+Documentation = "https://zhaorongdai.github.io/quantlab-factor-agent/"
+Issues = "https://github.com/ZhaorongDai/quantlab-factor-agent/issues"
+Changelog = "https://github.com/ZhaorongDai/quantlab-factor-agent/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 web = [
@@ -49,6 +73,7 @@ include = ["factor_agent*"]
 namespaces = false
 
 [tool.setuptools.package-data]
+"factor_agent" = ["KUNQUANT_LICENSE"]
 # The frontend's built page, committed so that an install needs no Node.
 "factor_agent.web" = ["static/**/*"]
 

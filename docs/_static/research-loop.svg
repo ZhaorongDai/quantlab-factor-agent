@@ -1,0 +1,136 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 600" width="1200" height="600" role="img" aria-label="The factor mining loop: each round plans, proposes, gates, reviews, evaluates and admits candidates; after the campaign, acceptance validates, opens the hold-out once and exports">
+  <style>
+    .bg { fill: #ffffff; }
+    .panel { fill: #f8fafc; stroke: #e2e8f0; }
+    .ink { fill: #0f172a; }
+    .muted { fill: #475569; }
+    .line { stroke: #64748b; }
+    .head { fill: #64748b; }
+    .llm { fill: #f3e8ff; stroke: #9333ea; }
+    .llm-tag { fill: #7e22ce; }
+    .code { fill: #ccfbf1; stroke: #0d9488; }
+    .code-tag { fill: #0f766e; }
+    .store { fill: #fef3c7; stroke: #d97706; }
+    .store-tag { fill: #b45309; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .panel { fill: #161b22; stroke: #30363d; }
+      .ink { fill: #e6edf3; }
+      .muted { fill: #9da7b3; }
+      .line { stroke: #8b949e; }
+      .head { fill: #8b949e; }
+      .llm { fill: #2e1a47; stroke: #c084fc; }
+      .llm-tag { fill: #d8b4fe; }
+      .code { fill: #0f2f2c; stroke: #2dd4bf; }
+      .code-tag { fill: #5eead4; }
+      .store { fill: #3a2a0c; stroke: #f59e0b; }
+      .store-tag { fill: #fcd34d; }
+    }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .title { font-size: 19px; font-weight: 600; }
+    .sub { font-size: 13.5px; }
+    .tag { font-size: 11.5px; font-weight: 600; letter-spacing: 0.06em; }
+    .label { font-size: 13px; }
+    .section { font-size: 14px; font-weight: 600; letter-spacing: 0.04em; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" class="head"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1200" height="600" rx="16"/>
+
+  <!-- Campaign panel -->
+  <rect class="panel" x="16" y="16" width="1168" height="384" rx="14" stroke-width="1.5"/>
+  <text class="section muted" x="40" y="48">CAMPAIGN · EVERY ROUND</text>
+
+  <!-- legend -->
+  <rect class="llm" x="836" y="35" width="16" height="16" rx="4" stroke-width="1.5"/>
+  <text class="label muted" x="860" y="48">language model</text>
+  <rect class="code" x="980" y="35" width="16" height="16" rx="4" stroke-width="1.5"/>
+  <text class="label muted" x="1004" y="48">deterministic code</text>
+
+  <!-- feedback arcs above the row -->
+  <path class="line" d="M504 150 C504 118 336 118 336 146" fill="none" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+  <text class="label muted" x="420" y="112" text-anchor="middle">refused: fix and retry</text>
+  <path class="line" d="M696 150 C696 56 288 56 288 146" fill="none" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+  <text class="label muted" x="492" y="70" text-anchor="middle">inconsistent: rewrite once</text>
+
+  <!-- the six steps -->
+  <g>
+    <rect class="llm" x="40" y="150" width="160" height="96" rx="12" stroke-width="2"/>
+    <text class="tag llm-tag" x="56" y="174">PLANNER</text>
+    <text class="title ink" x="56" y="202">1 Plan</text>
+    <text class="sub muted" x="56" y="226">a direction per slot</text>
+
+    <rect class="llm" x="232" y="150" width="160" height="96" rx="12" stroke-width="2"/>
+    <text class="tag llm-tag" x="248" y="174">PROPOSER</text>
+    <text class="title ink" x="248" y="202">2 Propose</text>
+    <text class="sub muted" x="248" y="226">mechanism + code</text>
+
+    <rect class="code" x="424" y="150" width="160" height="96" rx="12" stroke-width="2"/>
+    <text class="tag code-tag" x="440" y="174">GATE</text>
+    <text class="title ink" x="440" y="202">3 Gate</text>
+    <text class="sub muted" x="440" y="226">sandbox, novelty</text>
+
+    <rect class="llm" x="616" y="150" width="160" height="96" rx="12" stroke-width="2"/>
+    <text class="tag llm-tag" x="632" y="174">REVIEWER</text>
+    <text class="title ink" x="632" y="202">4 Review</text>
+    <text class="sub muted" x="632" y="226">does code match?</text>
+
+    <rect class="code" x="808" y="150" width="160" height="96" rx="12" stroke-width="2"/>
+    <text class="tag code-tag" x="824" y="174">EVALUATOR</text>
+    <text class="title ink" x="824" y="202">5 Evaluate</text>
+    <text class="sub muted" x="824" y="226">IC, partial IC</text>
+
+    <rect class="code" x="1000" y="150" width="160" height="96" rx="12" stroke-width="2"/>
+    <text class="tag code-tag" x="1016" y="174">ADMISSION</text>
+    <text class="title ink" x="1016" y="202">6 Admit</text>
+    <text class="sub muted" x="1016" y="226">t rises with trials</text>
+  </g>
+
+  <!-- forward arrows -->
+  <g class="line" stroke-width="2" marker-end="url(#arrow)">
+    <line x1="200" y1="198" x2="230" y2="198"/>
+    <line x1="392" y1="198" x2="422" y2="198"/>
+    <line x1="584" y1="198" x2="614" y2="198"/>
+    <line x1="776" y1="198" x2="806" y2="198"/>
+    <line x1="968" y1="198" x2="998" y2="198"/>
+  </g>
+
+  <!-- ledger and memory, back to the planner -->
+  <rect class="store" x="424" y="292" width="352" height="76" rx="12" stroke-width="2"/>
+  <text class="tag store-tag" x="440" y="316">LEDGER · MEMORY · ZOO</text>
+  <text class="sub ink" x="440" y="340">every trial and its training statistics;</text>
+  <text class="sub ink" x="440" y="358">accepted factors join the zoo</text>
+  <path class="line" d="M1080 246 L1080 330 L778 330" fill="none" stroke-width="2" marker-end="url(#arrow)"/>
+  <path class="line" d="M424 330 L120 330 L120 248" fill="none" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="label muted" x="136" y="320">next round</text>
+  <text class="label muted" x="1064" y="320" text-anchor="end">accepted or rejected</text>
+
+  <text class="label muted" x="600" y="390" text-anchor="middle">The models see training-segment statistics only. Code makes every decision to accept.</text>
+
+  <!-- Acceptance panel -->
+  <rect class="panel" x="16" y="416" width="1168" height="168" rx="14" stroke-width="1.5"/>
+  <text class="section muted" x="40" y="448">ACCEPTANCE · ONCE, AFTER THE CAMPAIGN</text>
+
+  <rect class="code" x="40" y="468" width="352" height="92" rx="12" stroke-width="2"/>
+  <text class="title ink" x="56" y="500">Validate</text>
+  <text class="sub muted" x="56" y="524">a quantlab return model with and</text>
+  <text class="sub muted" x="56" y="543">without the accepted factors</text>
+
+  <rect class="code" x="424" y="468" width="352" height="92" rx="12" stroke-width="2"/>
+  <text class="title ink" x="440" y="500">Hold-out</text>
+  <text class="sub muted" x="440" y="524">opened once, behind a lock</text>
+
+  <rect class="code" x="808" y="468" width="352" height="92" rx="12" stroke-width="2"/>
+  <text class="title ink" x="824" y="500">Export</text>
+  <text class="sub muted" x="824" y="524">quantlab factors and</text>
+  <text class="sub muted" x="824" y="543">whole-market stores</text>
+
+  <g class="line" stroke-width="2" marker-end="url(#arrow)">
+    <line x1="392" y1="514" x2="422" y2="514"/>
+    <line x1="776" y1="514" x2="806" y2="514"/>
+  </g>
+</svg>

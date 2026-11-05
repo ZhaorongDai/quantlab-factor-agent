@@ -2,7 +2,8 @@
 
 The site uses Sphinx, MyST Markdown, numpydoc and the PyData Sphinx Theme, as
 [quantlab's](https://zhaorongdai.github.io/quantlab/) does. CI builds it on every push and
-pull request (`.github/workflows/ci.yml`).
+pull request and publishes it from `main` to
+<https://zhaorongdai.github.io/quantlab-factor-agent/> (`.github/workflows/docs.yml`).
 
 ## Build and preview
 

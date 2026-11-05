@@ -50,7 +50,9 @@ intersphinx_mapping = {
 
 html_theme = "pydata_sphinx_theme"
 html_title = f"quantlab-factor-agent {release}"
-html_static_path = []
+html_static_path = ["_static"]
+html_logo = "_static/logo.svg"
+html_favicon = "_static/logo.svg"
 html_theme_options = {
     "github_url": "https://github.com/ZhaorongDai/quantlab-factor-agent",
     "navbar_align": "left",

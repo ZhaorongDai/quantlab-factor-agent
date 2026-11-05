@@ -4,12 +4,16 @@ KunQuant's ``WindowedMaxDrawdown`` loops over the values of its input without
 putting them in a windowed buffer first: the ``decompose`` pass buffers the
 loop's input, but the loop's ``IterValue`` still reads the input, and
 compiling fails with "Bad buffer" on any input that is not a data column. The
-price-volume fields vwap and amount are computed, so in the daily learning
-test on the local model two candidates of ``WindowedMaxDrawdown(amount, ...)``
-failed to evaluate. ``patch`` makes the operator loop over a buffer of its
+price-volume fields vwap and amount are computed, so a candidate of
+``WindowedMaxDrawdown(amount, ...)`` would fail to evaluate. ``patch`` makes the operator loop over a buffer of its
 input, as KunQuant's other windowed operators do; it is the fix proposed to
 KunQuant (https://github.com/Menooker/KunQuant/pull/85), and a KunQuant that
 has it is left as it is.
+
+``_decompose`` is adapted from ``WindowedMaxDrawdown.decompose`` in
+``KunQuant/ops/CompOp.py`` of KunQuant 0.1.12 (https://github.com/Menooker/KunQuant),
+licensed under the Apache License 2.0; see ``KUNQUANT_LICENSE`` beside this file. The
+one change is that the loop runs over ``WindowedTempOutput(v, window)`` instead of ``v``.
 """
 
 from KunQuant.Op import Builder, ConstantOp, ForeachBackWindow, Input, IterValue, WindowedDataSourceOp, WindowedTempOutput, WindowLoopIndex
