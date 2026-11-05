@@ -7,10 +7,7 @@ check. Everything that decides whether a factor is kept is deterministic code wo
 statistics the models cannot influence. This page explains the mechanism without the
 config keys; [concepts](concepts.md) and the pages it links give the details.
 
-```{image} ../_static/mining-mechanism.svg
-:alt: The four parts of the mechanism: the search by language models, the judges, learning from every trial, and the data the models may see
-:width: 100%
-```
+![The four parts of the mechanism: the search by language models, the judges, learning from every trial, and the data the models may see](../_static/mining-mechanism.svg)
 
 ## 1. The search: mechanisms, not formulas
 
@@ -99,10 +96,7 @@ cannot both pass. The bar rises as the set grows.
 
 With themes turned on, the themes and the choice of directions form a map of what the search has tried:
 
-```{image} ../_static/direction-map.svg
-:alt: The direction map: slots by mechanism type, directions written from the theme groups, repeats sent back once, and every evaluated trial joining a theme
-:width: 100%
-```
+![The direction map: slots by mechanism type, directions written from the theme groups, repeats sent back once, and every evaluated trial joining a theme](../_static/direction-map.svg)
 
 ## 4. Information: the models never see the future
 

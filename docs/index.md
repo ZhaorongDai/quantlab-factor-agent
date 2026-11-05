@@ -9,10 +9,7 @@ model only proposes and reviews; every decision to accept is made by determinist
 and statistics computed by [quantlab](https://zhaorongdai.github.io/quantlab/) on the
 training segment, which is all the model is ever shown.
 
-```{image} _static/research-loop.svg
-:alt: The research loop of a campaign and the acceptance after it
-:width: 100%
-```
+![The research loop of a campaign and the acceptance after it](_static/research-loop.svg)
 
 ::::{grid} 1 2 2 2
 :gutter: 3
