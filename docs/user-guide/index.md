@@ -3,8 +3,8 @@
 Learn how a campaign works and how to configure it here; use the
 [API reference](../reference/index.rst) for signatures and parameters.
 
-- **New to the project?** Run the [first campaign](../getting-started/quickstart.md), then
-  read [concepts](concepts.md).
+- **New to the project?** Read [how the agent mines factors](mechanism.md), run the
+  [first campaign](../getting-started/quickstart.md), then read [concepts](concepts.md).
 - **Writing a config?** Start with [the campaign config](campaign.md).
 - **Opening new data to the agent?** See [the vocabulary](vocabulary.md), and
   [intraday families](intraday.md) for intraday bars candidates compute on.
@@ -13,6 +13,7 @@ Learn how a campaign works and how to configure it here; use the
 :caption: Fundamentals
 :maxdepth: 1
 
+mechanism
 concepts
 campaign
 ```

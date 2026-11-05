@@ -13,6 +13,8 @@
   <a href="https://github.com/Menooker/KunQuant"><img alt="Factors: KunQuant" src="https://img.shields.io/badge/factors-KunQuant-0ea5e9"></a>
 </p>
 
+<p align="center">English | <a href="https://github.com/ZhaorongDai/quantlab-factor-agent/blob/main/README.zh-CN.md">简体中文</a></p>
+
 quantlab-factor-agent mines daily stock factors with language models, mechanism first. A
 model states an economic mechanism and writes the factor it implies as KunQuant code. Fixed
 checks and statistics from [quantlab](https://github.com/ZhaorongDai/quantlab) then decide
@@ -55,6 +57,17 @@ once and exports the chosen factors.
 - **Resumable.** `run()` picks up from the run directory after a crash or an exhausted
   balance.
 
+The diagram below shows how the parts fit together: what the models search, what each
+judge refuses, how every trial feeds the next round, and where the data the models see
+ends. [How the agent mines factors](docs/user-guide/mechanism.md) explains it in full.
+
+<p align="center">
+  <img src="docs/_static/mining-mechanism.svg" alt="The four parts of the mechanism: language models search over mechanism types and directions; the Gate, the reviewer, the Evaluator and admission each refuse what is not valid, consistent, new or significant; accepted factors join the zoo and pool and every trial feeds back to the planner; the models see only training-segment statistics, and the hold-out opens once behind a lock." width="100%">
+</p>
+
+With themes turned on, the planner also reads a map of the directions tried so far; see
+[the direction map](docs/user-guide/mechanism.md#3-learning-every-trial-shapes-the-next-round).
+
 ## Install
 
 You need Python 3.13+, [uv](https://docs.astral.sh/uv/), a C++ compiler on the `PATH`
@@ -93,6 +106,7 @@ Watch a run in the browser with `factor-agent-web` ([web frontend](docs/user-gui
 
 ## Documentation
 
+- [How the agent mines factors](docs/user-guide/mechanism.md): the search, the judges, the learning loop and what the models may see, in one diagram
 - [First campaign](docs/getting-started/quickstart.md): run one and read its outcome
 - [Concepts](docs/user-guide/concepts.md): roles, factor sets, segments, what "accepted" means
 - [The campaign config](docs/user-guide/campaign.md): every section, stopping and resuming

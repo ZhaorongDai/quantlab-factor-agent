@@ -1,0 +1,184 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 880" width="1240" height="880" role="img" aria-label="agent 如何挖掘因子：大语言模型按机制搜索，确定性的评判拒绝不新或不显著的候选，每个 trial 反馈到下一轮，被接受的因子抬高门槛，模型能看到的数据止于训练段">
+  <style>
+    .bg { fill: #ffffff; }
+    .band { fill: #f8fafc; stroke: #e2e8f0; }
+    .ink { fill: #0f172a; }
+    .muted { fill: #475569; }
+    .line { stroke: #64748b; }
+    .head { fill: #64748b; }
+    .llm { fill: #f3e8ff; stroke: #9333ea; }
+    .llm-tag { fill: #7e22ce; }
+    .code { fill: #ccfbf1; stroke: #0d9488; }
+    .code-tag { fill: #0f766e; }
+    .store { fill: #fef3c7; stroke: #d97706; }
+    .store-tag { fill: #b45309; }
+    .seen { fill: #99f6e4; }
+    .hidden { fill: #e2e8f0; }
+    .barrier { stroke: #dc2626; }
+    .barrier-ink { fill: #b91c1c; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .band { fill: #161b22; stroke: #30363d; }
+      .ink { fill: #e6edf3; }
+      .muted { fill: #9da7b3; }
+      .line { stroke: #8b949e; }
+      .head { fill: #8b949e; }
+      .llm { fill: #2e1a47; stroke: #c084fc; }
+      .llm-tag { fill: #d8b4fe; }
+      .code { fill: #0f2f2c; stroke: #2dd4bf; }
+      .code-tag { fill: #5eead4; }
+      .store { fill: #3a2a0c; stroke: #f59e0b; }
+      .store-tag { fill: #fcd34d; }
+      .seen { fill: #115e59; }
+      .hidden { fill: #30363d; }
+      .barrier { stroke: #f87171; }
+      .barrier-ink { fill: #fca5a5; }
+    }
+    text { font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Noto Sans CJK SC", "Microsoft YaHei", BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .title { font-size: 18px; font-weight: 600; }
+    .sub { font-size: 13px; }
+    .tag { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; }
+    .label { font-size: 12.5px; }
+    .section { font-size: 13px; font-weight: 600; letter-spacing: 0.05em; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" class="head"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1240" height="880" rx="16"/>
+
+  <!-- ============ 1. SEARCH ============ -->
+  <rect class="band" x="16" y="16" width="1208" height="196" rx="14" stroke-width="1.5"/>
+  <text class="section muted" x="40" y="46">1 · 搜索：大语言模型提出经济机制</text>
+
+  <rect class="llm" x="80" y="80" width="330" height="108" rx="12" stroke-width="2"/>
+  <text class="tag llm-tag" x="96" y="103">PLANNER</text>
+  <text class="title ink" x="96" y="128">按机制类型分配名额</text>
+  <text class="sub muted" x="96" y="150">每类先保底，其余名额按各类的准入率</text>
+  <text class="sub muted" x="96" y="168">用 Thompson sampling 分配</text>
+
+  <rect class="llm" x="454" y="80" width="330" height="108" rx="12" stroke-width="2"/>
+  <text class="tag llm-tag" x="470" y="103">PLANNER</text>
+  <text class="title ink" x="470" y="128">每个名额一个研究方向</text>
+  <text class="sub muted" x="470" y="150">全新的机制，或对已有 trial 的</text>
+  <text class="sub muted" x="470" y="168">refinement（改进）或 mutation（变异）</text>
+
+  <rect class="llm" x="828" y="80" width="330" height="108" rx="12" stroke-width="2"/>
+  <text class="tag llm-tag" x="844" y="103">PROPOSER</text>
+  <text class="title ink" x="844" y="128">每个方向一个候选</text>
+  <text class="sub muted" x="844" y="150">假设、描述和 KunQuant 代码，</text>
+  <text class="sub muted" x="844" y="168">分组并行生成</text>
+
+  <g class="line" stroke-width="2" marker-end="url(#arrow)">
+    <line x1="410" y1="134" x2="452" y2="134"/>
+    <line x1="784" y1="134" x2="826" y2="134"/>
+  </g>
+
+  <!-- ============ 2. JUDGES ============ -->
+  <rect class="band" x="16" y="228" width="1208" height="220" rx="14" stroke-width="1.5"/>
+  <text class="section muted" x="40" y="258">2 · 评判：只有代码能接受</text>
+
+  <!-- proposer to Gate -->
+  <path class="line" d="M993 188 L993 214 L300 214 L300 286" fill="none" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="label muted" x="646" y="208" text-anchor="middle">候选</text>
+
+  <rect class="code" x="80" y="288" width="250" height="134" rx="12" stroke-width="2"/>
+  <text class="tag code-tag" x="96" y="311">GATE</text>
+  <text class="title ink" x="96" y="336">合法且新颖吗？</text>
+  <text class="sub muted" x="96" y="358">拒绝：在沙箱里构建失败的代码，</text>
+  <text class="sub muted" x="96" y="376">以及对任一 zoo 因子的改写、</text>
+  <text class="sub muted" x="96" y="394">只换参数的变体，或与其共享</text>
+  <text class="sub muted" x="96" y="412">过大子树的候选</text>
+
+  <rect class="llm" x="356" y="288" width="250" height="134" rx="12" stroke-width="2"/>
+  <text class="tag llm-tag" x="372" y="311">REVIEWER</text>
+  <text class="title ink" x="372" y="336">说的和做的一致吗？</text>
+  <text class="sub muted" x="372" y="358">拒绝：假设、描述和代码</text>
+  <text class="sub muted" x="372" y="376">描述的不是同一个因子的候选，</text>
+  <text class="sub muted" x="372" y="394">允许重写一次</text>
+
+  <rect class="code" x="632" y="288" width="250" height="134" rx="12" stroke-width="2"/>
+  <text class="tag code-tag" x="648" y="311">EVALUATOR</text>
+  <text class="title ink" x="648" y="336">它衡量了什么？</text>
+  <text class="sub muted" x="648" y="358">训练段、全市场，</text>
+  <text class="sub muted" x="648" y="376">按每天的成分股掩码；</text>
+  <text class="sub muted" x="648" y="394">IC、相对 pool 的 partial IC、</text>
+  <text class="sub muted" x="648" y="412">相关性、十分组收益、覆盖率</text>
+
+  <rect class="code" x="908" y="288" width="250" height="134" rx="12" stroke-width="2"/>
+  <text class="tag code-tag" x="924" y="311">ADMISSION</text>
+  <text class="title ink" x="924" y="336">增量够大吗？</text>
+  <text class="sub muted" x="924" y="358">覆盖率、相关性不超过 0.7、</text>
+  <text class="sub muted" x="924" y="376">partial IC 的 t 超过随 trial 数</text>
+  <text class="sub muted" x="924" y="394">升高的门槛、十分组收益单调，</text>
+  <text class="sub muted" x="924" y="412">以及可选的确认段检验</text>
+
+  <g class="line" stroke-width="2" marker-end="url(#arrow)">
+    <line x1="330" y1="355" x2="354" y2="355"/>
+    <line x1="606" y1="355" x2="630" y2="355"/>
+    <line x1="882" y1="355" x2="906" y2="355"/>
+  </g>
+
+  <!-- ============ 3. MEMORY ============ -->
+  <rect class="band" x="16" y="464" width="1208" height="196" rx="14" stroke-width="1.5"/>
+  <text class="section muted" x="40" y="494">3 · 学习：每个 trial 都影响下一轮</text>
+
+  <rect class="store" x="80" y="540" width="520" height="96" rx="12" stroke-width="2"/>
+  <text class="tag store-tag" x="96" y="563">ZOO · POOL</text>
+  <text class="sub ink" x="96" y="586">被接受的因子与参考因子并列，之后的每个候选</text>
+  <text class="sub ink" x="96" y="605">都必须与它们不同（Gate），并在它们之上有增量</text>
+  <text class="sub ink" x="96" y="624">（partial IC 与相关性）。因子集合越大，门槛越高。</text>
+
+  <rect class="store" x="638" y="540" width="520" height="96" rx="12" stroke-width="2"/>
+  <text class="tag store-tag" x="654" y="563">LEDGER · MEMORY · THEMES</text>
+  <text class="sub ink" x="654" y="586">每个 trial 及其统计量或被拒原因；</text>
+  <text class="sub ink" x="654" y="605">按因子所衡量的内容对 trial 分组；distiller</text>
+  <text class="sub ink" x="654" y="624">每隔几轮重写一次 memory。</text>
+
+  <!-- admission to ledger and to zoo -->
+  <path class="line" d="M1080 422 L1080 538" fill="none" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="label muted" x="1092" y="516">每个 trial</text>
+  <path class="line" d="M960 422 L960 512 L480 512 L480 538" fill="none" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="label muted" x="720" y="530" text-anchor="middle">被接受</text>
+  <!-- zoo back to the judges -->
+  <path class="line" d="M460 540 L460 470 L205 470 L205 424" fill="none" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+  <text class="label muted" x="332" y="462" text-anchor="middle">与之比较</text>
+  <path class="line" d="M560 540 L560 470 L757 470 L757 424" fill="none" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+  <text class="label muted" x="658" y="462" text-anchor="middle">相对它打分</text>
+  <!-- ledger back to the planner -->
+  <path class="line" d="M1158 588 L1200 588 L1200 60 L619 60 L619 78" fill="none" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="label muted" x="1188" y="56" text-anchor="end">反馈：被拒原因、统计量、themes、memory、准入率</text>
+
+  <!-- ============ 4. DATA ============ -->
+  <rect class="band" x="16" y="676" width="1208" height="188" rx="14" stroke-width="1.5"/>
+  <text class="section muted" x="40" y="706">4 · 信息隔离：模型看不到未来</text>
+
+  <rect class="seen" x="80" y="760" width="520" height="40" rx="8"/>
+  <text class="title ink" x="96" y="786">训练段</text>
+  <text class="sub muted" x="80" y="826">模型唯一能看到的数据，且只以统计量形式：</text>
+  <text class="sub muted" x="80" y="844">没有收益、没有日期、没有之后的指标</text>
+
+  <rect class="hidden" x="608" y="760" width="130" height="40" rx="8"/>
+  <text class="sub ink" x="620" y="785">确认段</text>
+  <text class="sub muted" x="608" y="826">可选；</text>
+  <text class="sub muted" x="608" y="844">只告知是否通过</text>
+
+  <rect class="hidden" x="746" y="760" width="200" height="40" rx="8"/>
+  <text class="title ink" x="762" y="786">验证段</text>
+  <text class="sub muted" x="746" y="826">Acceptance：这组因子能否</text>
+  <text class="sub muted" x="746" y="844">改进收益模型？</text>
+
+  <rect class="hidden" x="954" y="760" width="204" height="40" rx="8"/>
+  <text class="title ink" x="970" y="786">Hold-out</text>
+  <g transform="translate(1124 768)" class="barrier-ink">
+    <rect x="0" y="9" width="20" height="15" rx="3"/>
+    <path d="M4 9 V5 A6 6 0 0 1 16 5 V9" fill="none" class="barrier" stroke-width="3"/>
+  </g>
+  <text class="sub muted" x="954" y="826">选定因子之后，</text>
+  <text class="sub muted" x="954" y="844">只打开一次，并且加锁</text>
+
+  <line class="barrier" x1="604" y1="730" x2="604" y2="808" stroke-width="2.5" stroke-dasharray="6 4"/>
+  <text class="label barrier-ink" x="612" y="744">模型能看到的数据到此为止</text>
+</svg>

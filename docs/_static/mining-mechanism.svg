@@ -1,0 +1,184 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 880" width="1240" height="880" role="img" aria-label="How the agent mines factors: language models search over mechanisms, deterministic judges refuse what is not new or not significant, every trial feeds back into the next round, accepted factors raise the bar, and the data the models see ends at the training segment">
+  <style>
+    .bg { fill: #ffffff; }
+    .band { fill: #f8fafc; stroke: #e2e8f0; }
+    .ink { fill: #0f172a; }
+    .muted { fill: #475569; }
+    .line { stroke: #64748b; }
+    .head { fill: #64748b; }
+    .llm { fill: #f3e8ff; stroke: #9333ea; }
+    .llm-tag { fill: #7e22ce; }
+    .code { fill: #ccfbf1; stroke: #0d9488; }
+    .code-tag { fill: #0f766e; }
+    .store { fill: #fef3c7; stroke: #d97706; }
+    .store-tag { fill: #b45309; }
+    .seen { fill: #99f6e4; }
+    .hidden { fill: #e2e8f0; }
+    .barrier { stroke: #dc2626; }
+    .barrier-ink { fill: #b91c1c; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .band { fill: #161b22; stroke: #30363d; }
+      .ink { fill: #e6edf3; }
+      .muted { fill: #9da7b3; }
+      .line { stroke: #8b949e; }
+      .head { fill: #8b949e; }
+      .llm { fill: #2e1a47; stroke: #c084fc; }
+      .llm-tag { fill: #d8b4fe; }
+      .code { fill: #0f2f2c; stroke: #2dd4bf; }
+      .code-tag { fill: #5eead4; }
+      .store { fill: #3a2a0c; stroke: #f59e0b; }
+      .store-tag { fill: #fcd34d; }
+      .seen { fill: #115e59; }
+      .hidden { fill: #30363d; }
+      .barrier { stroke: #f87171; }
+      .barrier-ink { fill: #fca5a5; }
+    }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .title { font-size: 18px; font-weight: 600; }
+    .sub { font-size: 13px; }
+    .tag { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; }
+    .label { font-size: 12.5px; }
+    .section { font-size: 13px; font-weight: 600; letter-spacing: 0.05em; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" class="head"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1240" height="880" rx="16"/>
+
+  <!-- ============ 1. SEARCH ============ -->
+  <rect class="band" x="16" y="16" width="1208" height="196" rx="14" stroke-width="1.5"/>
+  <text class="section muted" x="40" y="46">1 · SEARCH: LANGUAGE MODELS PROPOSE MECHANISMS</text>
+
+  <rect class="llm" x="80" y="80" width="330" height="108" rx="12" stroke-width="2"/>
+  <text class="tag llm-tag" x="96" y="103">PLANNER</text>
+  <text class="title ink" x="96" y="128">Slots by mechanism type</text>
+  <text class="sub muted" x="96" y="150">each type gets a minimum; the rest go by</text>
+  <text class="sub muted" x="96" y="168">Thompson sampling on its admission rate</text>
+
+  <rect class="llm" x="454" y="80" width="330" height="108" rx="12" stroke-width="2"/>
+  <text class="tag llm-tag" x="470" y="103">PLANNER</text>
+  <text class="title ink" x="470" y="128">A research direction per slot</text>
+  <text class="sub muted" x="470" y="150">a new mechanism, or a refinement or</text>
+  <text class="sub muted" x="470" y="168">mutation of an earlier trial</text>
+
+  <rect class="llm" x="828" y="80" width="330" height="108" rx="12" stroke-width="2"/>
+  <text class="tag llm-tag" x="844" y="103">PROPOSER</text>
+  <text class="title ink" x="844" y="128">A candidate per direction</text>
+  <text class="sub muted" x="844" y="150">hypothesis, description and KunQuant</text>
+  <text class="sub muted" x="844" y="168">code, written in parallel groups</text>
+
+  <g class="line" stroke-width="2" marker-end="url(#arrow)">
+    <line x1="410" y1="134" x2="452" y2="134"/>
+    <line x1="784" y1="134" x2="826" y2="134"/>
+  </g>
+
+  <!-- ============ 2. JUDGES ============ -->
+  <rect class="band" x="16" y="228" width="1208" height="220" rx="14" stroke-width="1.5"/>
+  <text class="section muted" x="40" y="258">2 · JUDGES: ONLY CODE ACCEPTS</text>
+
+  <!-- proposer to Gate -->
+  <path class="line" d="M993 188 L993 214 L300 214 L300 286" fill="none" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="label muted" x="646" y="208" text-anchor="middle">candidates</text>
+
+  <rect class="code" x="80" y="288" width="250" height="134" rx="12" stroke-width="2"/>
+  <text class="tag code-tag" x="96" y="311">GATE</text>
+  <text class="title ink" x="96" y="336">Is it valid and new?</text>
+  <text class="sub muted" x="96" y="358">refuses code that fails to build</text>
+  <text class="sub muted" x="96" y="376">in the sandbox, and rewrites,</text>
+  <text class="sub muted" x="96" y="394">parameter variants or large shared</text>
+  <text class="sub muted" x="96" y="412">subtrees of any zoo factor</text>
+
+  <rect class="llm" x="356" y="288" width="250" height="134" rx="12" stroke-width="2"/>
+  <text class="tag llm-tag" x="372" y="311">REVIEWER</text>
+  <text class="title ink" x="372" y="336">Does it say what it does?</text>
+  <text class="sub muted" x="372" y="358">refuses a hypothesis, description</text>
+  <text class="sub muted" x="372" y="376">and code that describe different</text>
+  <text class="sub muted" x="372" y="394">factors, after one rewrite</text>
+
+  <rect class="code" x="632" y="288" width="250" height="134" rx="12" stroke-width="2"/>
+  <text class="tag code-tag" x="648" y="311">EVALUATOR</text>
+  <text class="title ink" x="648" y="336">What does it measure?</text>
+  <text class="sub muted" x="648" y="358">training segment, whole market,</text>
+  <text class="sub muted" x="648" y="376">masked to each day's members;</text>
+  <text class="sub muted" x="648" y="394">IC, partial IC against the pool,</text>
+  <text class="sub muted" x="648" y="412">correlations, deciles, coverage</text>
+
+  <rect class="code" x="908" y="288" width="250" height="134" rx="12" stroke-width="2"/>
+  <text class="tag code-tag" x="924" y="311">ADMISSION</text>
+  <text class="title ink" x="924" y="336">Does it add enough?</text>
+  <text class="sub muted" x="924" y="358">coverage, correlation at most 0.7,</text>
+  <text class="sub muted" x="924" y="376">partial-IC t above a bar that rises</text>
+  <text class="sub muted" x="924" y="394">with every trial, rising deciles,</text>
+  <text class="sub muted" x="924" y="412">and optionally a confirmation</text>
+
+  <g class="line" stroke-width="2" marker-end="url(#arrow)">
+    <line x1="330" y1="355" x2="354" y2="355"/>
+    <line x1="606" y1="355" x2="630" y2="355"/>
+    <line x1="882" y1="355" x2="906" y2="355"/>
+  </g>
+
+  <!-- ============ 3. MEMORY ============ -->
+  <rect class="band" x="16" y="464" width="1208" height="196" rx="14" stroke-width="1.5"/>
+  <text class="section muted" x="40" y="494">3 · LEARNING: EVERY TRIAL SHAPES THE NEXT ROUND</text>
+
+  <rect class="store" x="80" y="540" width="520" height="96" rx="12" stroke-width="2"/>
+  <text class="tag store-tag" x="96" y="563">ZOO AND POOL</text>
+  <text class="sub ink" x="96" y="586">Accepted factors join the reference factors, so every later</text>
+  <text class="sub ink" x="96" y="605">candidate must be new to them (Gate) and add to them</text>
+  <text class="sub ink" x="96" y="624">(partial IC and correlation). The bar rises as the set grows.</text>
+
+  <rect class="store" x="638" y="540" width="520" height="96" rx="12" stroke-width="2"/>
+  <text class="tag store-tag" x="654" y="563">LEDGER, MEMORY AND THEMES</text>
+  <text class="sub ink" x="654" y="586">Every trial with its statistics or the reasons it was refused;</text>
+  <text class="sub ink" x="654" y="605">trials grouped by what their factors measure; a memory the</text>
+  <text class="sub ink" x="654" y="624">distiller rewrites every few rounds.</text>
+
+  <!-- admission to ledger and to zoo -->
+  <path class="line" d="M1080 422 L1080 538" fill="none" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="label muted" x="1092" y="516">every trial</text>
+  <path class="line" d="M960 422 L960 512 L480 512 L480 538" fill="none" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="label muted" x="720" y="530" text-anchor="middle">accepted</text>
+  <!-- zoo back to the judges -->
+  <path class="line" d="M460 540 L460 470 L205 470 L205 424" fill="none" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+  <text class="label muted" x="332" y="462" text-anchor="middle">compared with</text>
+  <path class="line" d="M560 540 L560 470 L757 470 L757 424" fill="none" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+  <text class="label muted" x="658" y="462" text-anchor="middle">scored against</text>
+  <!-- ledger back to the planner -->
+  <path class="line" d="M1158 588 L1200 588 L1200 60 L619 60 L619 78" fill="none" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="label muted" x="1188" y="56" text-anchor="end">feedback: reasons, statistics, themes, memory, admission rates</text>
+
+  <!-- ============ 4. DATA ============ -->
+  <rect class="band" x="16" y="676" width="1208" height="188" rx="14" stroke-width="1.5"/>
+  <text class="section muted" x="40" y="706">4 · INFORMATION: THE MODELS NEVER SEE THE FUTURE</text>
+
+  <rect class="seen" x="80" y="760" width="520" height="40" rx="8"/>
+  <text class="title ink" x="96" y="786">Training</text>
+  <text class="sub muted" x="80" y="826">the only data the models see, as statistics:</text>
+  <text class="sub muted" x="80" y="844">no return, no date, no later metric</text>
+
+  <rect class="hidden" x="608" y="760" width="130" height="40" rx="8"/>
+  <text class="sub ink" x="620" y="785">Confirmation</text>
+  <text class="sub muted" x="608" y="826">optional;</text>
+  <text class="sub muted" x="608" y="844">pass or fail only</text>
+
+  <rect class="hidden" x="746" y="760" width="200" height="40" rx="8"/>
+  <text class="title ink" x="762" y="786">Validation</text>
+  <text class="sub muted" x="746" y="826">Acceptance: does the set</text>
+  <text class="sub muted" x="746" y="844">improve a return model?</text>
+
+  <rect class="hidden" x="954" y="760" width="204" height="40" rx="8"/>
+  <text class="title ink" x="970" y="786">Hold-out</text>
+  <g transform="translate(1124 768)" class="barrier-ink">
+    <rect x="0" y="9" width="20" height="15" rx="3"/>
+    <path d="M4 9 V5 A6 6 0 0 1 16 5 V9" fill="none" class="barrier" stroke-width="3"/>
+  </g>
+  <text class="sub muted" x="954" y="826">opened once, behind a lock,</text>
+  <text class="sub muted" x="954" y="844">after the factors are chosen</text>
+
+  <line class="barrier" x1="604" y1="730" x2="604" y2="808" stroke-width="2.5" stroke-dasharray="6 4"/>
+  <text class="label barrier-ink" x="612" y="744">what the models see ends here</text>
+</svg>

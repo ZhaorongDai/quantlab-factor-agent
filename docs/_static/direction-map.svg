@@ -1,0 +1,189 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1240 740" width="1240" height="740" role="img" aria-label="The direction map: slots are allocated by mechanism type, the planner reads the map and writes a new direction, a refinement or a mutation per slot, a new direction's candidate that repeats an earlier trial is sent back once, and every evaluated trial joins the group of the earlier trial it is most correlated with, which the planner reads next round">
+  <style>
+    .bg { fill: #ffffff; }
+    .band { fill: #f8fafc; stroke: #e2e8f0; }
+    .ink { fill: #0f172a; }
+    .muted { fill: #475569; }
+    .line { stroke: #64748b; }
+    .head { fill: #64748b; }
+    .llm { fill: #f3e8ff; stroke: #9333ea; }
+    .llm-tag { fill: #7e22ce; }
+    .code { fill: #ccfbf1; stroke: #0d9488; }
+    .code-tag { fill: #0f766e; }
+    .chip { fill: #ffffff; stroke: #c4b5fd; }
+    .card { fill: #fef3c7; stroke: #d97706; }
+    .card-tag { fill: #b45309; }
+    .acc { fill: #16a34a; }
+    .rej { fill: #94a3b8; }
+    @media (prefers-color-scheme: dark) {
+      .bg { fill: #0d1117; }
+      .band { fill: #161b22; stroke: #30363d; }
+      .ink { fill: #e6edf3; }
+      .muted { fill: #9da7b3; }
+      .line { stroke: #8b949e; }
+      .head { fill: #8b949e; }
+      .llm { fill: #2e1a47; stroke: #c084fc; }
+      .llm-tag { fill: #d8b4fe; }
+      .code { fill: #0f2f2c; stroke: #2dd4bf; }
+      .code-tag { fill: #5eead4; }
+      .chip { fill: #1f1530; stroke: #7c3aed; }
+      .card { fill: #3a2a0c; stroke: #f59e0b; }
+      .card-tag { fill: #fcd34d; }
+      .acc { fill: #4ade80; }
+      .rej { fill: #6e7681; }
+    }
+    text { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; }
+    .title { font-size: 17px; font-weight: 600; }
+    .sub { font-size: 13px; }
+    .small { font-size: 12px; }
+    .tag { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; }
+    .label { font-size: 12.5px; }
+    .section { font-size: 13px; font-weight: 600; letter-spacing: 0.05em; }
+  </style>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 Z" class="head"/>
+    </marker>
+  </defs>
+
+  <rect class="bg" width="1240" height="740" rx="16"/>
+
+  <!-- ============ 1. PLANNING ============ -->
+  <rect class="band" x="16" y="16" width="1208" height="228" rx="14" stroke-width="1.5"/>
+  <text class="section muted" x="40" y="44">1 · PLANNING A ROUND</text>
+
+  <rect class="code" x="40" y="64" width="300" height="160" rx="12" stroke-width="2"/>
+  <text class="tag code-tag" x="56" y="87">SCHEDULER</text>
+  <text class="title ink" x="56" y="111">Slots by mechanism type</text>
+  <text class="sub muted" x="56" y="135">20 slots a round, 3 for every type;</text>
+  <text class="sub muted" x="56" y="154">each other slot goes to the type with</text>
+  <text class="sub muted" x="56" y="173">the largest draw from the Beta</text>
+  <text class="sub muted" x="56" y="192">posterior of its admission rate, so</text>
+  <text class="sub muted" x="56" y="211">types that work get more tries</text>
+
+  <rect class="llm" x="372" y="64" width="300" height="160" rx="12" stroke-width="2"/>
+  <text class="tag llm-tag" x="388" y="87">PLANNER</text>
+  <text class="title ink" x="388" y="111">Reads the map</text>
+  <text class="sub muted" x="388" y="135">the theme groups, largest first;</text>
+  <text class="sub muted" x="388" y="154">recent trials one line each; the</text>
+  <text class="sub muted" x="388" y="173">accepted factors; the memory; seed</text>
+  <text class="sub muted" x="388" y="192">directions and factor families</text>
+
+  <rect class="llm" x="704" y="64" width="496" height="160" rx="12" stroke-width="2"/>
+  <text class="tag llm-tag" x="720" y="87">PLANNER</text>
+  <text class="title ink" x="720" y="111">One direction per slot</text>
+  <rect class="chip" x="720" y="124" width="464" height="28" rx="8" stroke-width="1.5"/>
+  <text class="sub ink" x="732" y="143"><tspan font-weight="600">New</tspan>  a mechanism that no trial has measured</text>
+  <rect class="chip" x="720" y="157" width="464" height="28" rx="8" stroke-width="1.5"/>
+  <text class="sub ink" x="732" y="176"><tspan font-weight="600">Refinement of T3-07</tspan>  its mechanism measured another way</text>
+  <rect class="chip" x="720" y="190" width="464" height="28" rx="8" stroke-width="1.5"/>
+  <text class="sub ink" x="732" y="209"><tspan font-weight="600">Mutation of T3-07</tspan>  another channel its result points to</text>
+
+  <g class="line" stroke-width="2" marker-end="url(#arrow)">
+    <line x1="340" y1="144" x2="370" y2="144"/>
+    <line x1="672" y1="144" x2="702" y2="144"/>
+  </g>
+
+  <!-- ============ 2. DIRECTION TO TRIAL ============ -->
+  <rect class="band" x="16" y="260" width="1208" height="196" rx="14" stroke-width="1.5"/>
+  <text class="section muted" x="40" y="288">2 · FROM DIRECTION TO TRIAL</text>
+
+  <path class="line" d="M952 224 L952 248 L190 248 L190 304" fill="none" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="label muted" x="570" y="242" text-anchor="middle">directions</text>
+
+  <rect class="llm" x="40" y="306" width="300" height="104" rx="12" stroke-width="2"/>
+  <text class="tag llm-tag" x="56" y="329">PROPOSER</text>
+  <text class="title ink" x="56" y="353">A candidate per direction</text>
+  <text class="sub muted" x="56" y="377">a refinement or a mutation also gets</text>
+  <text class="sub muted" x="56" y="396">its parent's code, statistics, reasons</text>
+
+  <rect class="code" x="372" y="306" width="300" height="104" rx="12" stroke-width="2"/>
+  <text class="tag code-tag" x="388" y="329">REPEAT CHECK · OPTIONAL</text>
+  <text class="title ink" x="388" y="353">Is it an old idea again?</text>
+  <text class="sub muted" x="388" y="377">a new direction's candidate that repeats</text>
+  <text class="sub muted" x="388" y="396">an earlier theme is sent back once</text>
+
+  <rect class="code" x="704" y="306" width="496" height="104" rx="12" stroke-width="2"/>
+  <text class="tag code-tag" x="720" y="329">GATE · REVIEW · EVALUATION · ADMISSION</text>
+  <text class="title ink" x="720" y="353">Judged, then written to the ledger as a trial</text>
+  <text class="sub muted" x="720" y="377">an evaluated trial keeps its factor's scores on every</text>
+  <text class="sub muted" x="720" y="396">20th scored date, to compare it with later trials</text>
+
+  <g class="line" stroke-width="2" marker-end="url(#arrow)">
+    <line x1="340" y1="358" x2="370" y2="358"/>
+    <line x1="672" y1="358" x2="702" y2="358"/>
+  </g>
+  <path class="line" d="M470 410 C470 432 250 432 250 412" fill="none" stroke-width="1.8" stroke-dasharray="5 4" marker-end="url(#arrow)"/>
+  <text class="label muted" x="360" y="449" text-anchor="middle">rewrite, naming that trial</text>
+
+  <!-- ============ 3. THE MAP ============ -->
+  <rect class="band" x="16" y="472" width="1208" height="252" rx="14" stroke-width="1.5"/>
+  <text class="section muted" x="40" y="500">3 · THE MAP: TRIALS GROUPED BY WHAT THEIR FACTORS MEASURE</text>
+
+  <path class="line" d="M952 410 L952 516" fill="none" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="label muted" x="964" y="466">every evaluated trial</text>
+
+  <rect class="code" x="40" y="520" width="300" height="180" rx="12" stroke-width="2"/>
+  <text class="tag code-tag" x="56" y="543">GROUPING RULE</text>
+  <text class="title ink" x="56" y="567">Join, or open a theme</text>
+  <text class="sub muted" x="56" y="591">a trial joins the group of the earlier</text>
+  <text class="sub muted" x="56" y="610">trial it is most correlated with, when</text>
+  <text class="sub muted" x="56" y="629">|correlation| is at least 0.5; otherwise</text>
+  <text class="sub muted" x="56" y="648">it opens a group of its own</text>
+  <circle class="acc" cx="62" cy="676" r="6"/><text class="small muted" x="74" y="680">accepted</text>
+  <circle class="rej" cx="150" cy="676" r="6"/><text class="small muted" x="162" y="680">rejected</text>
+
+  <text class="tag muted" x="1196" y="500" text-anchor="end">EXAMPLE</text>
+
+  <!-- theme cards -->
+  <g>
+    <rect class="card" x="372" y="520" width="200" height="180" rx="12" stroke-width="2"/>
+    <text class="tag card-tag" x="388" y="543">OPENED BY T1-04</text>
+    <g transform="translate(388 558)">
+      <circle class="acc" cx="6" cy="6" r="6"/><circle class="rej" cx="22" cy="6" r="6"/><circle class="rej" cx="38" cy="6" r="6"/><circle class="acc" cx="54" cy="6" r="6"/><circle class="rej" cx="70" cy="6" r="6"/>
+      <circle class="rej" cx="86" cy="6" r="6"/><circle class="rej" cx="102" cy="6" r="6"/><circle class="rej" cx="118" cy="6" r="6"/><circle class="rej" cx="134" cy="6" r="6"/>
+    </g>
+    <text class="sub ink" x="388" y="600">9 trials, 2 accepted</text>
+    <text class="small muted" x="388" y="622">best residual t 4.6</text>
+    <text class="small muted" x="388" y="641">last tried in round 7</text>
+    <text class="small muted" x="388" y="660">refused mostly as</text>
+    <text class="small muted" x="388" y="679">too correlated</text>
+
+    <rect class="card" x="582" y="520" width="200" height="180" rx="12" stroke-width="2"/>
+    <text class="tag card-tag" x="598" y="543">OPENED BY T2-11</text>
+    <g transform="translate(598 558)">
+      <circle class="rej" cx="6" cy="6" r="6"/><circle class="acc" cx="22" cy="6" r="6"/><circle class="rej" cx="38" cy="6" r="6"/><circle class="rej" cx="54" cy="6" r="6"/><circle class="rej" cx="70" cy="6" r="6"/><circle class="rej" cx="86" cy="6" r="6"/>
+    </g>
+    <text class="sub ink" x="598" y="600">6 trials, 1 accepted</text>
+    <text class="small muted" x="598" y="622">best residual t 3.9</text>
+    <text class="small muted" x="598" y="641">last tried in round 8</text>
+    <text class="small muted" x="598" y="660">refused mostly below</text>
+    <text class="small muted" x="598" y="679">the t threshold</text>
+
+    <rect class="card" x="792" y="520" width="200" height="180" rx="12" stroke-width="2"/>
+    <text class="tag card-tag" x="808" y="543">OPENED BY T4-02</text>
+    <g transform="translate(808 558)">
+      <circle class="rej" cx="6" cy="6" r="6"/><circle class="rej" cx="22" cy="6" r="6"/><circle class="rej" cx="38" cy="6" r="6"/><circle class="rej" cx="54" cy="6" r="6"/>
+    </g>
+    <text class="sub ink" x="808" y="600">4 trials, none accepted</text>
+    <text class="small muted" x="808" y="622">best residual t 2.1</text>
+    <text class="small muted" x="808" y="641">last tried in round 5</text>
+    <text class="small muted" x="808" y="660">refused mostly for</text>
+    <text class="small muted" x="808" y="679">low coverage</text>
+
+    <rect class="card" x="1002" y="520" width="198" height="180" rx="12" stroke-width="2"/>
+    <text class="tag card-tag" x="1018" y="543">OPENED BY T8-15</text>
+    <g transform="translate(1018 558)">
+      <circle class="rej" cx="6" cy="6" r="6"/>
+    </g>
+    <text class="sub ink" x="1018" y="600">1 trial, none accepted</text>
+    <text class="small muted" x="1018" y="622">best residual t 1.2</text>
+    <text class="small muted" x="1018" y="641">last tried in round 8</text>
+    <text class="small muted" x="1018" y="660">a new theme, barely</text>
+    <text class="small muted" x="1018" y="679">explored</text>
+  </g>
+
+  <!-- the map back to the planner -->
+  <path class="line" d="M1200 610 L1216 610 L1216 30 L522 30 L522 62" fill="none" stroke-width="2" marker-end="url(#arrow)"/>
+  <text class="label muted" x="1206" y="26" text-anchor="end">next round: the planner reads the groups, largest first</text>
+</svg>
