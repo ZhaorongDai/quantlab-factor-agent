@@ -117,6 +117,7 @@ known factor at a time.
 | `round.patience` | 5 | rounds in a row without an acceptance before the run stops |
 | `round.memory_every` | 5 | rounds between two distillations |
 | `round.seed` | 0 | seed of the Thompson sampling |
+| `round.max_children` | null | trials built on one trial at which no direction may build on it any more (see below); needs `context.feedback` |
 | `context.recent_rounds` | 5 | rounds whose trials the planner reads one line each |
 | `context.feedback` | true | whether the planner and the proposer read the earlier trials and a memory is distilled; off, every direction is new (a control run) |
 | `context.theme_correlation` | null | the absolute correlation at which an evaluated trial is grouped with an earlier one; set, the planner reads the groups (see below) |
@@ -146,7 +147,7 @@ The first start copies the field, operator and replaced template files into
 `snapshot/` with their hashes, and the run searches with those copies. A resume whose
 files differ fails: a new search space needs a new run directory. A resume on other
 commits of factor_agent or quantlab only warns, and `state.json` lists the commits of every
-start and resume. `round.groups` may change on a resume; `context.recent_rounds`, `context.feedback`, `context.theme_correlation`, `context.send_back_repeats` and `context.lineage` may not.
+start and resume. `round.groups` may change on a resume; `context.recent_rounds`, `context.feedback`, `context.theme_correlation`, `context.send_back_repeats`, `context.lineage` and `round.max_children` may not.
 The reference set and the known factors are read from the config on every start. Every
 start and resume also keeps the config it was given as `config/open-<k>.yaml` (the first
 start is `open-1.yaml`), so a run says which settings it ran with even after the config
@@ -226,7 +227,7 @@ seventh). A research direction may build on any evaluated trial, accepted or ref
 to strengthen an accepted factor; a **mutation** follows another channel the parent's
 result points to. The direction names the parent by its id, and the proposer is given the
 parent's code, statistics and reasons. A direction whose parent is not an evaluated trial
-is kept as a new one, and the plan event records the issue.
+(or is one `round.max_children` has capped, see below) is kept as a new one, and the plan event records the issue.
 
 With `context.theme_correlation` set (0.5, say), the Evaluator keeps every evaluated trial,
 as the normal scores of its factor on every 20th scored date, and the trials are grouped
@@ -259,6 +260,12 @@ A child that stopped before evaluation (refused by the parser, the Gate or the r
 not compiled) counts, so a parent whose children all failed does not look untried. The
 residual t is the partial IC's Newey-West t in each trial's own direction. The Lineage is
 computed from the ledger before each round; off, no prompt holds it.
+
+With `round.max_children: n`, a trial that n trials have built on (its Lineage's count,
+those that stopped before evaluation included) is no longer one a refinement or a mutation
+may name: a direction naming it is kept as a new one, and the plan event records the issue,
+as for a parent that is not an evaluated trial. The cap needs no `context.lineage`; the
+planner just sees no Lineage line without it. Unset, every evaluated trial stays a parent.
 
 A candidate refused for its coverage is told where its graph loses its values: the first
 step whose coverage falls below `admission.min_coverage` while its inputs' does not, with

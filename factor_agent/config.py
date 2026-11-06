@@ -225,10 +225,18 @@ class RoundConfig:
     #: Proposal groups a round's directions are split into, each written, fixed and reviewed by
     #: calls of its own that run side by side; a resume may change it.
     groups: int = 1
+    #: Trials built on one trial (its Lineage's attempts) at which it is taken off the planner's
+    #: parents, so a direction naming it is planned as a new one; None (the default) caps none.
+    #: It needs ``context.feedback``, and a resume may not change it.
+    max_children: int | None = None
 
     def __post_init__(self):
         if self.groups < 1:
             raise ValueError(f"round: groups is {self.groups}; a round needs at least one proposal group")
+        if self.max_children is not None and (
+            isinstance(self.max_children, bool) or not isinstance(self.max_children, int) or self.max_children < 1
+        ):
+            raise ValueError(f"round: max_children is {self.max_children!r}; it is a count of at least 1")
 
 
 @dataclass(frozen=True)
@@ -471,6 +479,8 @@ class CampaignConfig:
                 f"round: {self.round.candidates} candidates cannot hold {self.round.min_per_type} of each of "
                 f"{len(names)} mechanism types"
             )
+        if self.round.max_children is not None and not self.context.feedback:
+            raise ValueError("round: max_children needs feedback, since without it every direction is new")
 
     def load_factors(self) -> tuple[list, list]:
         """Rebuild the reference factors and the known factors, ``(reference, known)``, each in config order.
