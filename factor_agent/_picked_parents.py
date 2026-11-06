@@ -36,7 +36,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from factor_agent._admission import direction
+from factor_agent._admission import directional_t
 from factor_agent._feedback import trial_order
 from factor_agent._lineage import Lineage
 from factor_agent.gate._canonical import canonical_hashes
@@ -107,11 +107,12 @@ def picked_parents(
 
 def _quality(r: TrialRecord) -> float:
     """The residual t in the trial's direction, 0 when it is not a number."""
-    t = direction(r.metrics["ic_mean"]) * r.metrics["partial_ic_t"]
+    t = directional_t(r.metrics)
     return t if math.isfinite(t) else 0.0
 
 
 def _jaccard(a: frozenset, b: frozenset) -> float:
+    """The Jaccard similarity of two sets of subtree hashes, 0 when both are empty."""
     return len(a & b) / len(a | b) if a | b else 0.0
 
 
@@ -187,6 +188,7 @@ def _flow(raw: np.ndarray, relations: np.ndarray) -> np.ndarray:
 def _fronts(utilities: np.ndarray, nodes: list[int]) -> list[list[int]]:
     """``nodes`` sorted into Pareto fronts on ``utilities``, the non-dominated first."""
     def dominates(a: int, b: int) -> bool:
+        """Whether node ``a`` is at least as good as ``b`` on every utility and better on one."""
         return bool(np.all(utilities[a] >= utilities[b]) and np.any(utilities[a] > utilities[b]))
 
     fronts, left = [], list(nodes)

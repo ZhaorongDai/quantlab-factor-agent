@@ -110,6 +110,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import NamedTuple
 
+from quantlab.core.store_uses import READS, walk_store_uses
+
 from factor_agent import _admission, _feedback, _lineage, _picked_parents, _scheduler
 from factor_agent._lineage import Lineage
 from factor_agent.config import ROLES, AdmissionConfig, CampaignConfig
@@ -132,7 +134,6 @@ from factor_agent.segments import code_version
 from factor_agent.session import SESSION_INPUTS
 from factor_agent.snapshot import RunSnapshot, SearchFiles, SnapshotMismatch
 from factor_agent.zoo import Zoo
-from quantlab.core.store_uses import READS, walk_store_uses
 
 
 @dataclass(frozen=True)
@@ -429,15 +430,18 @@ class Campaign:
             return value
 
         def data(name: str) -> object:
+            """The data component ``name``, checked to read only stores that exist."""
             return _reading(config.data.load(name))
 
         def scored() -> Scoring:
+            """The scoring, its neutralisation's exposures checked to read only stores that exist."""
             scoring = Scoring.from_config(config.scoring, config.data, njobs=config.evaluator.njobs)
             if scoring.neutralization is not None:
                 _reading(scoring.neutralization.exposures)
             return scoring
 
         def with_columns(name: str, columns: Callable) -> tuple:
+            """The data component ``name`` (``data``) and the ``columns`` read from it."""
             component = data(name)
             return component, columns(component)
 
@@ -525,11 +529,10 @@ class Campaign:
         checks.append(Check("run snapshot", problems=problems, warnings=(changed,) if changed else ()))
         return files, settings
 
-    def _load(self, run_dir: Path, state_path: Path) -> tuple:
+    def _load(self, run_dir: Path, state_path: Path) -> "_Loaded":
         """The loading half of a start, which writes nothing.
 
-        ``(prices, intraday, columns, intraday_columns, files, settings)``: the
-        price and intraday datasets, their columns (``_columns``,
+        The price and intraday datasets, their columns (``_columns``,
         ``_intraday_columns``), and the files and settings the run's
         snapshot is opened with (``_search``). The replaced templates and the
         vocabulary (against the price dataset's columns and the intraday
@@ -551,7 +554,7 @@ class Campaign:
         files, settings = self._search(run_dir, state_path)
         self.config.templates(files, _ParentSettings.of(settings).picked_parents)
         self.config.vocabulary(columns, files, intraday_columns)
-        return prices, intraday, columns, intraday_columns, files, settings
+        return _Loaded(prices, intraday, columns, intraday_columns, files, settings)
 
     def _search(self, run_dir: Path, state_path: Path) -> tuple[SearchFiles, dict]:
         """The files and settings to open the run's snapshot with: the config's, or, in a replay, the replayed run's.
@@ -841,6 +844,17 @@ class Campaign:
         )
 
 
+class _Loaded(NamedTuple):
+    """What ``Campaign._load`` read: the datasets, their columns, and the files and settings of the snapshot."""
+
+    prices: object
+    intraday: object
+    columns: object
+    intraday_columns: object
+    files: SearchFiles
+    settings: dict
+
+
 class _ParentSettings(NamedTuple):
     """The Lineage, ``round.max_children`` and Picked-parent settings a run uses.
 
@@ -876,7 +890,7 @@ def _claim(
     on, are taken. Each is the ``PickedParent`` as a dict with the type.
     """
     ranked = _picked_parents.picked_parents(list(trials.items()), names, matrix, lineage, classes, len(trials))
-    claimed, left = [], dict(quota)
+    claimed, left, eligible = [], dict(quota), set(eligible)
     for parent in ranked:
         record = trials[parent.trial]
         kind = (record.direction or record.candidate).get("mechanism_type")

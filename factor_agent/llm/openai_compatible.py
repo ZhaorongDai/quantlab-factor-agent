@@ -58,7 +58,7 @@ class OpenAICompatibleBackend:
     def from_config(cls, spec: dict) -> "OpenAICompatibleBackend":
         """Build from a role's config: ``model``, ``base_url`` and optionally ``api_key_env``,
         ``max_tokens`` or ``max_completion_tokens``, ``reasoning_effort`` and ``timeout_seconds``."""
-        options = {k: spec[k] for k in cls.OPTIONS[1:] if k in spec}
+        options = {k: spec[k] for k in cls.OPTIONS if k in spec and k != "base_url"}
         return cls(spec["model"], spec["base_url"], **options)
 
     @property

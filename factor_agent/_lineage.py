@@ -20,7 +20,8 @@ children that pass, not for many attempts.
 import math
 from dataclasses import dataclass
 
-from factor_agent._admission import direction, t_threshold
+from factor_agent._admission import directional_t, t_threshold
+from factor_agent._feedback import signed
 from factor_agent.config import AdmissionConfig
 from factor_agent.ledger import TrialRecord
 
@@ -58,8 +59,8 @@ class Lineage:
         if not self.best_child:
             return line + "; no child was evaluated"
         return (
-            f"{line}; best evaluated child {self.best_child}, residual t in its direction {_num(self.best_child_t)} "
-            f"against this trial's {_num(self.own_t)}"
+            f"{line}; best evaluated child {self.best_child}, residual t in its direction {signed(self.best_child_t, 2)} "
+            f"against this trial's {signed(self.own_t, 2)}"
         )
 
 
@@ -81,7 +82,7 @@ def lineages(trials: list[tuple[str, TrialRecord]], admission: AdmissionConfig) 
     for trial, r in trials:
         built = children.get(trial, [])
         actions = [(c.direction or {}).get("action") for _, c in built]
-        scored = [(child, _directional_t(c), c) for child, c in built if c.evaluated]
+        scored = [(child, directional_t(c.metrics), c) for child, c in built if c.evaluated]
         best = max(((t, child) for child, t, _ in scored if math.isfinite(t)), default=(float("nan"), ""))
         outcomes = sorted(
             (max(t - t_threshold(admission, evaluated_through[c.round]), 0.0) if math.isfinite(t) else 0.0
@@ -91,20 +92,12 @@ def lineages(trials: list[tuple[str, TrialRecord]], admission: AdmissionConfig) 
         result[trial] = Lineage(
             attempts=len(built), refinements=actions.count("refinement"), mutations=actions.count("mutation"),
             unevaluated=len(built) - len(scored), accepted=tuple(child for child, c in built if c.status == "accepted"),
-            best_child=best[1], best_child_t=best[0], own_t=_directional_t(r) if r.evaluated else float("nan"),
+            best_child=best[1], best_child_t=best[0], own_t=directional_t(r.metrics) if r.evaluated else float("nan"),
             fertility=sum(outcomes[:FERTILE_CHILDREN]) / FERTILE_CHILDREN,
         )
     return result
 
 
-def _directional_t(r: TrialRecord) -> float:
-    """An evaluated trial's residual (partial IC) t in its direction."""
-    return direction(r.metrics["ic_mean"]) * r.metrics["partial_ic_t"]
-
-
 def _count(n: int, noun: str) -> str:
+    """``n`` of ``noun``, the noun in the plural unless ``n`` is 1."""
     return f"{n} {noun}" + ("" if n == 1 else "s")
-
-
-def _num(value: float) -> str:
-    return f"{value:+.2f}" if math.isfinite(value) else "n/a"
