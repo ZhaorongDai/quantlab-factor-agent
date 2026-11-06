@@ -114,7 +114,7 @@ from factor_agent.researcher import Proposal, Researcher
 from factor_agent.scoring import Scoring
 from factor_agent.segments import code_version
 from factor_agent.session import SESSION_INPUTS
-from factor_agent.snapshot import RunSnapshot, SnapshotMismatch
+from factor_agent.snapshot import RunSnapshot, SearchFiles, SnapshotMismatch
 from factor_agent.zoo import Zoo
 
 
@@ -238,10 +238,8 @@ class Campaign:
         """
         config, run_dir = self.config, Path(self.config.run_dir)
         state_path = run_dir / "state.json"
-        prices = config.data.load("prices")
-        intraday = config.data.load("intraday") if config.data.intraday is not None else None
-        columns, intraday_columns = _columns(prices), _intraday_columns(intraday)
-        snapshot = self._snapshot(run_dir, state_path, columns, intraday_columns)
+        prices, intraday, columns, intraday_columns, files, settings = self._load(run_dir, state_path)
+        snapshot = RunSnapshot.open(run_dir, files, code_version(), settings)
         _keep_config(config, run_dir, opening=len(snapshot.versions))
         recent_rounds = snapshot.settings["context"]["recent_rounds"]
         vocabulary = config.vocabulary(columns, snapshot.search_files, intraday_columns)
@@ -359,17 +357,16 @@ class Campaign:
             memory=state.memory, not_covered=zoo.not_covered,
         )
 
-    def _snapshot(
-        self, run_dir: Path, state_path: Path, columns: set[str] | None, intraday_columns: set[str] | None = None,
-    ) -> RunSnapshot:
-        """Open the run's snapshot: of the config's files, or, in a replay, of the replayed run's snapshot.
+    def _load(self, run_dir: Path, state_path: Path) -> tuple:
+        """The loading half of a start, which writes nothing.
 
-        The replaced templates and the vocabulary (against the price
-        dataset's ``columns`` and the intraday dataset's ``intraday_columns``)
-        are checked first, so broken files are never snapshotted and a run
-        refused for them starts cleanly once they are fixed. The settings
-        recorded are the prompt context and, with an intraday dataset, that
-        dataset, which the intraday family's fields mean.
+        ``(prices, intraday, columns, intraday_columns, files, settings)``: the
+        price and intraday datasets, their columns (``_columns``,
+        ``_intraday_columns``), and the files and settings the run's
+        snapshot is opened with (``_search``). The replaced templates and the
+        vocabulary (against the price dataset's columns and the intraday
+        dataset's) are checked here, so broken files are never snapshotted
+        and a run refused for them starts cleanly once they are fixed.
 
         Raises
         ------
@@ -377,6 +374,25 @@ class Campaign:
             If a replaced template lacks a placeholder its role needs or uses one it may not.
         VocabularyError
             With every problem of the field and operator files.
+        SnapshotMismatch, ValueError
+            As ``_search`` does.
+        """
+        prices = self.config.data.load("prices")
+        intraday = self.config.data.load("intraday") if self.config.data.intraday is not None else None
+        columns, intraday_columns = _columns(prices), _intraday_columns(intraday)
+        files, settings = self._search(run_dir, state_path)
+        self.config.templates(files)
+        self.config.vocabulary(columns, files, intraday_columns)
+        return prices, intraday, columns, intraday_columns, files, settings
+
+    def _search(self, run_dir: Path, state_path: Path) -> tuple[SearchFiles, dict]:
+        """The files and settings to open the run's snapshot with: the config's, or, in a replay, the replayed run's.
+
+        The settings recorded are the prompt context and, with an intraday
+        dataset, that dataset, which the intraday family's fields mean.
+
+        Raises
+        ------
         SnapshotMismatch
             If the run directory holds a state but no snapshot (a run started before snapshots).
         ValueError
@@ -396,21 +412,18 @@ class Campaign:
             raise ValueError(f"campaign: the roles replay several runs {sorted(map(str, replayed))}; replay one")
         if replayed:
             recorded = RunSnapshot.read(replayed.pop())
-            files, settings = recorded.search_files, recorded.settings
-        else:
-            context = asdict(self.config.context)
-            if context["feedback"]:
-                del context["feedback"]  # as runs started before the setting recorded their context
-            if context["theme_correlation"] is None:
-                del context["theme_correlation"]  # likewise
-            if not context["send_back_repeats"]:
-                del context["send_back_repeats"]  # likewise
-            files, settings = self.config.search_files(), {"context": context}
-            if self.config.data.intraday is not None:
-                settings["intraday"] = {"dataset": json.loads(json.dumps(self.config.data.intraday))}
-        self.config.templates(files)
-        self.config.vocabulary(columns, files, intraday_columns)
-        return RunSnapshot.open(run_dir, files, code_version(), settings)
+            return recorded.search_files, recorded.settings
+        context = asdict(self.config.context)
+        if context["feedback"]:
+            del context["feedback"]  # as runs started before the setting recorded their context
+        if context["theme_correlation"] is None:
+            del context["theme_correlation"]  # likewise
+        if not context["send_back_repeats"]:
+            del context["send_back_repeats"]  # likewise
+        settings = {"context": context}
+        if self.config.data.intraday is not None:
+            settings["intraday"] = {"dataset": json.loads(json.dumps(self.config.data.intraday))}
+        return self.config.search_files(), settings
 
     def _opened(self, snapshot: RunSnapshot, state: _State, dropped: bool) -> Start:
         """The events file's record of this opening: a start, or a resume naming the round it ``dropped``."""

@@ -5,7 +5,8 @@ files and the operator file and the replaced prompt templates. On a first
 start ``open`` copies each file into ``<run_dir>/snapshot/<name>`` and records
 its hash and the code versions (the commits of this package and of
 quantlab) in ``<run_dir>/snapshot.json``. On a resume a file whose name or
-content differs from the snapshot is an error, since a new search space
+content differs from the snapshot is an error (``differences`` says how,
+writing nothing), since a new search space
 needs a new run directory; a code version that differs only warns, so a
 bug-fix resume is allowed but visible, and every code version a run was
 opened with is kept in order.
@@ -88,6 +89,7 @@ class RunSnapshot:
     def __init__(self, run_dir: Path, manifest: dict):
         self.run_dir = run_dir
         self.files = {name: run_dir / "snapshot" / name for name in manifest["files"]}
+        self._hashes: dict[str, str] = dict(manifest["files"])
         self.versions: list[dict] = manifest["versions"]
         self.settings: dict = manifest.get("settings", {})
 
@@ -119,13 +121,15 @@ class RunSnapshot:
         run_dir = Path(run_dir)
         files = search.names()
         manifest_path = run_dir / "snapshot.json"
-        hashes = {name: _hash(Path(path)) for name, path in files.items()}
         if manifest_path.exists():
+            recorded = cls.read(run_dir)
+            if differences := recorded.differences(search, settings):
+                raise SnapshotMismatch(" ".join(differences))
+            if changed := recorded.version_change(versions):
+                warnings.warn(f"run snapshot: {changed}", CodeVersionChanged, stacklevel=2)
             manifest = json.loads(manifest_path.read_text())
-            _check(run_dir, manifest["files"], hashes)
-            _check_settings(run_dir, manifest.get("settings", {}), dict(settings or {}))
-            _warn(manifest["versions"][-1], versions)
         else:
+            hashes = {name: _hash(Path(path)) for name, path in files.items()}
             manifest = {"files": hashes, "settings": dict(settings or {}), "versions": []}
             for name, path in files.items():
                 copy = run_dir / "snapshot" / name
@@ -157,6 +161,34 @@ class RunSnapshot:
         """Whether ``run_dir`` has a snapshot."""
         return (Path(run_dir) / "snapshot.json").exists()
 
+    def differences(self, search: SearchFiles, settings: Mapping | None = None) -> list[str]:
+        """How the files of ``search`` and the ``settings`` differ from the recorded ones; empty when they do not.
+
+        One message for the files, naming every file added, removed or
+        changed, and one for the settings, naming every setting changed;
+        ``open`` refuses a resume with them, and nothing is written.
+
+        Raises
+        ------
+        ValueError
+            If two field files have the same file name.
+        """
+        hashes = {name: _hash(Path(path)) for name, path in search.names().items()}
+        return [
+            message for message in (
+                _files_differ(self.run_dir, self._hashes, hashes),
+                _settings_differ(self.run_dir, self.settings, dict(settings or {})),
+            ) if message
+        ]
+
+    def version_change(self, versions: Mapping[str, str]) -> str | None:
+        """What differs between ``versions`` and the last recorded code versions, as ``open`` warns of it; None if nothing."""
+        last = self.versions[-1]
+        changed = [f"{key} {last.get(key)} -> {versions.get(key)}" for key in COMPARED_VERSIONS if last.get(key) != versions.get(key)]
+        if not changed:
+            return None
+        return f"the run resumes on other code than it was last opened with: {'; '.join(changed)}"
+
     def path(self, name: str) -> Path:
         """The snapshot's copy of the file ``name``.
 
@@ -179,41 +211,35 @@ def _hash(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _check(run_dir: Path, recorded: dict, given: dict) -> None:
-    """Raise ``SnapshotMismatch`` naming every file of ``given`` that is not the one ``recorded``."""
+def _files_differ(run_dir: Path, recorded: dict, given: dict) -> str | None:
+    """The message naming every file of ``given`` that is not the one ``recorded``, or None."""
     problems = [f"{name} was added" for name in given if name not in recorded]
     problems += [f"{name} was removed" for name in recorded if name not in given]
     problems += [f"{name} changed" for name in given if name in recorded and given[name] != recorded[name]]
-    if problems:
-        raise SnapshotMismatch(
-            f"run snapshot of {run_dir}: the run's files differ from the ones it started with: "
-            f"{'; '.join(problems)}. A changed search space needs a new run directory."
-        )
+    if not problems:
+        return None
+    return (
+        f"run snapshot of {run_dir}: the run's files differ from the ones it started with: "
+        f"{'; '.join(problems)}. A changed search space needs a new run directory."
+    )
 
 
-def _check_settings(run_dir: Path, recorded: dict, given: dict) -> None:
-    """Raise ``SnapshotMismatch`` naming every setting of ``given`` that is not the one ``recorded``."""
+def _settings_differ(run_dir: Path, recorded: dict, given: dict) -> str | None:
+    """The message naming every setting of ``given`` that is not the one ``recorded``, or None."""
     before, now = _flat(recorded), _flat(given)
     changed = [
         f"{name} was {before.get(name, 'not recorded')}, now {now.get(name, 'not given')}"
         for name in sorted(before.keys() | now.keys()) if before.get(name) != now.get(name)
     ]
-    if changed:
-        raise SnapshotMismatch(
-            f"run snapshot of {run_dir}: the run's settings differ from the ones it started with: "
-            f"{'; '.join(changed)}. A changed search space needs a new run directory."
-        )
+    if not changed:
+        return None
+    return (
+        f"run snapshot of {run_dir}: the run's settings differ from the ones it started with: "
+        f"{'; '.join(changed)}. A changed search space needs a new run directory."
+    )
 
 
 def _flat(settings: dict) -> dict:
     """``settings`` by section as one mapping from ``"section.key"`` to the value."""
     return {f"{section}.{key}": value for section, values in settings.items() for key, value in values.items()}
 
-
-def _warn(last: dict, versions: Mapping[str, str]) -> None:
-    changed = [f"{key} {last.get(key)} -> {versions.get(key)}" for key in COMPARED_VERSIONS if last.get(key) != versions.get(key)]
-    if changed:
-        warnings.warn(
-            f"run snapshot: the run resumes on other code than it was last opened with: {'; '.join(changed)}",
-            CodeVersionChanged, stacklevel=3,
-        )
