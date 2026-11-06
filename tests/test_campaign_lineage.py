@@ -15,7 +15,7 @@ import json
 import pytest
 import yaml
 
-from factor_agent.config import ContextConfig
+from factor_agent.config import ContextConfig, RoundConfig
 from factor_agent.snapshot import SnapshotMismatch
 from tests.campaign_runner import candidate, run, write_config
 from tests.fake_llm import FakeLLM, has_tag, new_directions, round_of, tagged
@@ -255,3 +255,69 @@ def test_lineage_needs_the_earlier_trials():
         ContextConfig(feedback=False, lineage=True)
     with pytest.raises(TypeError, match="lineage"):
         ContextConfig(lineage="yes")
+
+
+def _capped_plan(number, quota, prompt):
+    """Every round after the first refines T1-01 in its first slot and, from round 3 on, in its second too."""
+    directions = new_directions(number, quota, prompt)
+    for slot in range(min(number - 1, 2)):
+        directions[slot] = {**directions[slot], "action": "refinement", "parent": "T1-01",
+                            "direction": "the volume shock with the day's move"}
+    return directions
+
+
+def _capped(tmp_path, market, **round_settings):  # noqa: F811
+    fake = FakeLLM(_overlap_propose, plan=_capped_plan)
+    result = _campaign(tmp_path, market, fake, max_rounds=3, **round_settings)
+    events = [json.loads(line) for line in (tmp_path / "run" / "events.jsonl").read_text().splitlines()]
+    return result, {e["round"]: e for e in events if e["type"] == "plan"}
+
+
+def test_with_max_children_a_trial_built_on_that_often_is_no_longer_a_parent(tmp_path, market):  # noqa: F811
+    result, plans = _capped(tmp_path, market, max_children=1)
+    second = [r for r in result.records if r.round == 2][0]
+    assert second.direction["action"] == "refinement" and second.direction["parent"] == "T1-01"
+    third = [r for r in result.records if r.round == 3][:2]
+    assert [r.direction["action"] for r in third] == ["new", "new"]
+    assert [r.direction["direction"] for r in third] == ["the volume shock with the day's move"] * 2
+    assert plans[2]["issues"] == []
+    assert [i for i in plans[3]["issues"] if "T1-01" in i] == [
+        f"planner: direction {i} names 'T1-01', which is not a trial a direction may build on; "
+        f"it is planned as a new direction" for i in (1, 2)
+    ]
+    snapshot = json.loads((tmp_path / "run" / "snapshot.json").read_text())
+    assert snapshot["settings"]["round"] == {"max_children": 1}
+
+
+def test_without_max_children_a_trial_stays_a_parent_and_the_snapshot_does_not_record_it(tmp_path, market):  # noqa: F811
+    result, plans = _capped(tmp_path, market)
+    third = [r for r in result.records if r.round == 3][:2]
+    assert [(r.direction["action"], r.direction["parent"]) for r in third] == [("refinement", "T1-01")] * 2
+    assert plans[3]["issues"] == []
+    snapshot = json.loads((tmp_path / "run" / "snapshot.json").read_text())
+    assert "round" not in snapshot["settings"]
+
+
+def test_a_resume_may_not_change_max_children(tmp_path, market):  # noqa: F811
+    settings = {"candidates": 10, "min_per_type": 1, "retries": 0, "max_rounds": 1, "max_children": 2}
+    path = write_config(tmp_path, market["components"], round=settings)
+    run(path, FakeLLM(_overlap_propose, plan=_capped_plan), market["cache"])
+    config = yaml.safe_load(path.read_text())
+    config["round"]["max_rounds"], config["round"]["max_children"] = 2, 3
+    path.write_text(yaml.safe_dump(config))
+    fake = FakeLLM(_overlap_propose, plan=_capped_plan)
+    with pytest.raises(SnapshotMismatch, match=r"round\.max_children was 2, now 3"):
+        run(path, fake, market["cache"])
+    del config["round"]["max_children"]
+    path.write_text(yaml.safe_dump(config))
+    with pytest.raises(SnapshotMismatch, match=r"round\.max_children was 2, now not given"):
+        run(path, fake, market["cache"])
+    assert fake.requests == []
+
+
+def test_max_children_is_a_positive_count_and_needs_the_earlier_trials(tmp_path, market):  # noqa: F811
+    for value in (0, -1, True, 1.5):
+        with pytest.raises((TypeError, ValueError), match="max_children"):
+            RoundConfig(max_children=value)
+    with pytest.raises(ValueError, match="max_children needs feedback"):
+        _campaign(tmp_path, market, FakeLLM(_overlap_propose), context={"feedback": False}, max_children=2)

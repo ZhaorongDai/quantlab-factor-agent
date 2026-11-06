@@ -65,9 +65,11 @@ tried trials and the planner also reads them grouped by what their factors
 measure (``_feedback.themes``); a resume computes the tried trials again
 from the ledger. With ``context.lineage`` each round computes every trial's
 Lineage (``_lineage``) once, and the planner's accepted factors and the
-proposer's parent block carry it. With ``context.send_back_repeats`` too, before a round is
-scored, a new direction's candidate that correlates that much with an
-earlier trial is rewritten once (``_renew``); a slot is rewritten once in
+proposer's parent block carry it; ``round.max_children`` takes every trial
+built on that often off the trials a direction may build on. With
+``context.send_back_repeats`` too, before a round is scored, a new
+direction's candidate that correlates that much with an earlier trial is
+rewritten once (``_renew``); a slot is rewritten once in
 all, so a candidate the reviewer sent back is not checked again.
 
 Before each round the stop conditions are checked: the round limit, the
@@ -336,15 +338,18 @@ class Campaign:
                 quota = _scheduler.quota(number, records, config.round, prompts.mechanism_types)
                 accepted = [r for r in records if r.status == "accepted"]
                 trials = _feedback.named(records)
-                lineage = _lineage.lineages(trials, config.admission) if config.context.lineage else {}
+                cap = config.round.max_children
+                built = _lineage.lineages(trials, config.admission) if config.context.lineage or cap is not None else {}
+                lineage = built if config.context.lineage else {}
                 context = self._context(
                     records, state, reference, known, evaluator, accepted, recent_rounds, prompts, lineage,
                 )
                 parents = {
                     trial: _feedback.parent(trial, r, trials, lineage.get(trial)) for trial, r in trials if r.evaluated
                 } if config.context.feedback else {}
+                eligible = [trial for trial in parents if cap is None or built[trial].attempts < cap]
                 directions, issues = researcher.plan(
-                    number, quota, context, list(parents) if config.context.feedback else None,
+                    number, quota, context, eligible if config.context.feedback else None,
                 )
                 events.write(Plan(round=number, directions=[d.to_dict() for d in directions], quota=quota, issues=issues))
                 proposals = researcher.propose(number, directions, context, gate, zoo, config.round.retries, parents)
@@ -529,8 +534,9 @@ class Campaign:
     def _search(self, run_dir: Path, state_path: Path) -> tuple[SearchFiles, dict]:
         """The files and settings to open the run's snapshot with: the config's, or, in a replay, the replayed run's.
 
-        The settings recorded are the prompt context and, with an intraday
-        dataset, that dataset, which the intraday family's fields mean.
+        The settings recorded are the prompt context, ``round.max_children``
+        when set and, with an intraday dataset, that dataset, which the
+        intraday family's fields mean.
 
         Raises
         ------
@@ -564,6 +570,8 @@ class Campaign:
         if not context["lineage"]:
             del context["lineage"]  # likewise
         settings = {"context": context}
+        if self.config.round.max_children is not None:
+            settings["round"] = {"max_children": self.config.round.max_children}  # left out unset, likewise
         if self.config.data.intraday is not None:
             settings["intraday"] = {"dataset": json.loads(json.dumps(self.config.data.intraday))}
         return self.config.search_files(), settings

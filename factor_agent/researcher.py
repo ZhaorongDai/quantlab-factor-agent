@@ -192,7 +192,7 @@ class Researcher:
                 item = {**item, "parent": ""}
             elif item["parent"] not in parents:
                 issues.append(
-                    f"planner: direction {i} names {item['parent']!r}, which is not an evaluated trial; "
+                    f"planner: direction {i} names {item['parent']!r}, which is not a trial a direction may build on; "
                     f"it is planned as a new direction"
                 )
                 item = {**item, "action": "new", "parent": ""}
