@@ -49,7 +49,9 @@ layout; there are no compatibility shims or config migrations.
   the role and listing the options the backend takes, and a segment entry key other than
   `start` and `end`, instead of dropping them silently. Each backend declares its options
   (`OPTIONS`), and `factor_agent.llm.base.backends()` is the one table of backends that
-  `make_backend` builds from and `backend_options` looks options up in.
+  `make_backend` builds from and `backend_options` looks options up in. An option that
+  looks like a key (`api_key`, say) is refused there too, saying to name an environment
+  variable with `api_key_env`.
 
 ## 0.1.0 (2026-11-06)
 

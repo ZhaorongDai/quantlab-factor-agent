@@ -353,3 +353,14 @@ def test_a_segment_entry_with_another_key_than_start_and_end_is_refused(tmp_path
     segments[segment]["purge_bars"] = 5
     with pytest.raises(TypeError, match=rf"segments\.{segment}: unknown key\(s\) \['purge_bars'\]; it takes start and end"):
         CampaignConfig.from_file(_minimal(tmp_path, segments=segments))
+
+
+@pytest.mark.parametrize("option", ["api_key", "token", "ANTHROPIC_API_KEY"])
+def test_a_key_in_a_role_is_refused_when_the_config_is_read_saying_to_name_an_environment_variable(tmp_path, option):
+    llm = {name: {"backend": "scripted", "model": "m", "replies": "r.json"} for name in ROLES}
+    llm["planner"] = {"backend": "openai_compatible", "model": "m", "base_url": "http://127.0.0.1:1/v1",
+                      option: "sk-secret-sentinel"}
+    with pytest.raises(ValueError, match=r"llm\.planner: .*environment variable \(name it with api_key_env\)") as raised:
+        CampaignConfig.from_file(_minimal(tmp_path, llm=llm))
+    assert "sk-secret-sentinel" not in str(raised.value)
+

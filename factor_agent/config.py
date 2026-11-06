@@ -37,7 +37,7 @@ from quantlab.core.store_folder import load_component
 
 from factor_agent import _acceptance_model
 from factor_agent.gate.vocabulary import Vocabulary, VocabularyError
-from factor_agent.llm.base import backend_options
+from factor_agent.llm.base import backend_options, refuse_secrets
 from factor_agent.prompts import Templates
 from factor_agent.segments import PURGE_BARS, Segment, Segments
 from factor_agent.snapshot import SearchFiles
@@ -377,7 +377,8 @@ class RoleConfig:
         Raises
         ------
         ValueError
-            If the backend name is unknown.
+            If the backend name is unknown, or the rest holds an option that looks like a key (a key is read
+            only from the environment variable ``api_key_env`` names).
         TypeError
             If the rest holds an option the backend does not take, listing those it does.
         """
@@ -385,6 +386,10 @@ class RoleConfig:
         backend, model = data.pop("backend"), data.pop("model")
         try:
             options = backend_options(backend)
+        except ValueError as error:
+            raise ValueError(f"campaign config: llm.{role}: {error}") from None
+        try:
+            refuse_secrets(backend, data)
         except ValueError as error:
             raise ValueError(f"campaign config: llm.{role}: {error}") from None
         unknown = sorted(set(data) - set(options))

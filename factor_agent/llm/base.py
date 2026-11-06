@@ -128,18 +128,30 @@ def make_backend(spec: dict) -> LLMBackend:
     """
     name = spec.get("backend")
     backend_options(name)
-    secrets = [option for option in spec if _is_secret(option)]
+    refuse_secrets(name, spec)
+    return backends()[name].from_config(spec)
+
+
+def refuse_secrets(name: str, options) -> None:
+    """Refuse a role's config on the backend ``name`` whose ``options`` (their names) hold a key.
+
+    Raises
+    ------
+    ValueError
+        Naming the options that look like keys: a key is read only from an
+        environment variable, which ``api_key_env`` names.
+    """
+    secrets = [option for option in options if _is_secret(option)]
     if secrets:
         raise ValueError(
             f"LLM backend {name!r}: {secrets} look like keys; a key is read only from an environment "
             f"variable (name it with api_key_env), never from the config"
         )
-    return backends()[name].from_config(spec)
 
 
 def _is_secret(option: str) -> bool:
     """Whether a config option's name says it holds a credential."""
     name = option.lower()
-    if name == "api_key_env":
+    if name == "api_key_env" or name.startswith("max_"):  # a variable's name, or a count of tokens
         return False
     return name in {"key", "token", "secret", "password"} or name.endswith(("_key", "_token", "_secret", "_password"))
