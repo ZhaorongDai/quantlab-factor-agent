@@ -157,7 +157,7 @@ The mechanism types:
 
 <quota>
 {quota}
-</quota>
+</quota>{picked}
 
 Now plan this round's research directions: for each mechanism type, as many as <quota> gives it.
 Each research direction is an object with these fields:
@@ -195,6 +195,20 @@ Each research direction takes one of these actions:
 A trial's id is the T<round>-<slot> that <recent_history>, <last_round> and <best> name it by, such as
 T3-07. The proposer is given the parent trial's code, its statistics and why it was refused. A research
 direction whose parent is not the id of an evaluated trial is planned as a new one."""
+
+#: What ``plan``'s ``picked`` says when the code chose some of the round's parents (Picked parents); with
+#: none it is empty, so the plan reads as without them. ``slots`` is a JSON array, braces kept single.
+PICKED = """
+
+The code chose the parent of some of the slots in <quota>: each entry in <picked_slots> is one slot of
+its "mechanism_type", among that type's slots in <quota>, whose research direction builds on the
+evaluated trial in "parent".
+<picked_slots>
+{slots}
+</picked_slots>
+Plan each entry in <picked_slots> as a refinement or a mutation of its parent: its "mechanism_type",
+the action you choose ("refinement" or "mutation"), its "parent" and your idea as its "direction". A
+picked slot left unplanned is planned as a refinement of its parent."""
 
 #: The planner's actions when it reads no earlier trial (``context.feedback`` off).
 ONLY_NEW = """\
@@ -418,7 +432,7 @@ _COMMON = frozenset({"market", "horizon"})
 #: Per template, the placeholders it must use and the ones it may use besides ``_COMMON``.
 PLACEHOLDERS = {
     "data": (frozenset({"market", "inputs", "scoring", "horizon"}), frozenset()),
-    "plan": (frozenset({"data", "context", "quota"}), frozenset({"round", "mechanisms", "actions"})),
+    "plan": (frozenset({"data", "context", "quota"}), frozenset({"round", "mechanisms", "actions", "picked"})),
     "propose": (
         frozenset({"data", "context", "code_rules", "vocabulary", "fields", "n", "directions"}),
         frozenset({"round", "mechanisms"}),
@@ -446,8 +460,11 @@ class Templates:
         self._texts = {**TEMPLATES, **texts}
 
     @classmethod
-    def load(cls, replaced: Mapping[str, str | Path]) -> "Templates":
+    def load(cls, replaced: Mapping[str, str | Path], picked: bool = False) -> "Templates":
         """The built-in templates with those of ``replaced`` (template name to file) read from their files.
+
+        With ``picked`` (the round has Picked parents) a replaced plan template
+        must use ``{picked}``, the picked slots, which it may otherwise leave out.
 
         Raises
         ------
@@ -465,7 +482,9 @@ class Templates:
             except OSError as exc:
                 problems.append(f"{name} ({path}): cannot be read ({exc})")
                 continue
-            problems += [f"{name} ({path}): {problem}" for problem in _placeholder_problems(name, texts[name])]
+            problems += [
+                f"{name} ({path}): {problem}" for problem in _placeholder_problems(name, texts[name], picked=picked)
+            ]
         if problems:
             raise PromptError(problems)
         return cls(texts)
@@ -538,13 +557,15 @@ def inputs(vocabulary: Vocabulary) -> str:
     return "\n".join(lines)
 
 
-def _placeholder_problems(name: str, text: str) -> list[str]:
-    """What is wrong with the placeholders of template ``name``'s ``text``."""
+def _placeholder_problems(name: str, text: str, picked: bool = False) -> list[str]:
+    """What is wrong with the placeholders of template ``name``'s ``text``; with ``picked`` the plan needs ``{picked}``."""
     try:
         used = {field for _, field, _, _ in string.Formatter().parse(text) if field is not None}
     except ValueError as exc:
         return [f"is not a valid template ({exc}); a literal brace is written twice"]
     required, optional = PLACEHOLDERS[name]
+    if picked and name == "plan":
+        required, optional = required | {"picked"}, optional - {"picked"}
     problems = [f"lacks the placeholder {{{p}}}" for p in sorted(required - used)]
     if name == "distill":  # the distiller's reply is parsed by these headings, so it must be asked for them
         problems += [f"lacks the memory part heading {part!r}" for part in MEMORY_PARTS if part not in text]

@@ -118,6 +118,7 @@ known factor at a time.
 | `round.memory_every` | 5 | rounds between two distillations |
 | `round.seed` | 0 | seed of the Thompson sampling |
 | `round.max_children` | null | trials built on one trial at which no direction may build on it any more (see below); needs `context.feedback` |
+| `round.picked_parents` | 0 | slots a round whose parent the code chooses, the Picked parents (see below); needs `context.theme_correlation` |
 | `context.recent_rounds` | 5 | rounds whose trials the planner reads one line each |
 | `context.feedback` | true | whether the planner and the proposer read the earlier trials and a memory is distilled; off, every direction is new (a control run) |
 | `context.theme_correlation` | null | the absolute correlation at which an evaluated trial is grouped with an earlier one; set, the planner reads the groups (see below) |
@@ -183,7 +184,7 @@ The first start copies the field, operator and replaced template files into
 `snapshot/` with their hashes, and the run searches with those copies. A resume whose
 files differ fails: a new search space needs a new run directory. A resume on other
 commits of factor_agent or quantlab only warns, and `state.json` lists the commits of every
-start and resume. `round.groups` may change on a resume; `context.recent_rounds`, `context.feedback`, `context.theme_correlation`, `context.send_back_repeats`, `context.lineage` and `round.max_children` may not.
+start and resume. `round.groups` may change on a resume; `context.recent_rounds`, `context.feedback`, `context.theme_correlation`, `context.send_back_repeats`, `context.lineage`, `round.max_children` and `round.picked_parents` may not.
 The reference set and the known factors are read from the config on every start. Every
 start and resume also keeps the config it was given as `config/open-<k>.yaml` (the first
 start is `open-1.yaml`), so a run says which settings it ran with even after the config
@@ -302,6 +303,32 @@ those that stopped before evaluation included) is no longer one a refinement or 
 may name: a direction naming it is kept as a new one, and the plan event records the issue,
 as for a parent that is not an evaluated trial. The cap needs no `context.lineage`; the
 planner just sees no Lineage line without it. Unset, every evaluated trial stays a parent.
+
+With `round.picked_parents: k`, the code chooses the parent of k slots each round, the
+**Picked parents**, after the quota is drawn. It judges every evaluated trial, accepted or
+not, by three utilities: its **quality**, the residual t in its direction; its
+**fertility**, the mean of its three best children's outcomes in its Lineage (how far each
+child's residual t cleared the threshold it was judged against, 0 for a child that stopped
+before evaluation); and its **novelty**, its mean distance, in structure (the subtrees of
+its graph) and in correlation, from the ten nearest factors accepted so far. Each trial
+then shares its utilities with the trials related to it, by lineage (parent and child), by
+structure and by correlation, so a trial whose relatives did well is judged by that
+evidence too. The trials are ranked by Pareto front on the three, not by a weighted sum,
+within a front by how far each lies from the others, and a trial built on five times is not
+picked. In that order, each takes one slot of its own mechanism type while that type has a
+slot not yet taken, until k are taken; a trial `round.max_children` has capped is passed
+over. The constants are those of CosmosAlpha (arXiv:2611.04555) and are not configured.
+
+The planner is told the picked slots in its prompt, each with its type and its parent, and
+writes each as a refinement or a mutation of that parent, choosing the action and the idea:
+the first direction of the type that names the parent fills the slot. A picked slot the
+planner leaves out is planned as a refinement of its parent, and the plan event records the
+issue. The plan event in `events.jsonl` lists the picked parents with their utilities and
+Pareto fronts (empty with `round.picked_parents: 0`). The correlations come from the
+evaluated trials that `context.theme_correlation` keeps, so picked parents need it. A
+replaced plan template must hold the placeholder `{picked}`, where the picked slots go,
+when picked parents are on; without it the run is refused at its start, and the check
+reports it.
 
 A candidate refused for its coverage is told where its graph loses its values: the first
 step whose coverage falls below `admission.min_coverage` while its inputs' does not, with

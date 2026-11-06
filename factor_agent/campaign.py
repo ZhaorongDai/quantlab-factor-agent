@@ -67,6 +67,11 @@ from the ledger. With ``context.lineage`` each round computes every trial's
 Lineage (``_lineage``) once, and the planner's accepted factors and the
 proposer's parent block carry it; ``round.max_children`` takes every trial
 built on that often off the trials a direction may build on. With
+``round.picked_parents`` (which needs the tried trials) each round, after
+the quota, ranks the Picked parents (``_picked_parents``) and gives each in
+order a slot of its mechanism type while that type has one unclaimed
+(``_claim``); the planner writes those slots as refinements or mutations of
+their parents, and the plan event records them. With
 ``context.send_back_repeats`` too, before a round is scored, a new
 direction's candidate that correlates that much with an earlier trial is
 rewritten once (``_renew``); a slot is rewritten once in
@@ -104,7 +109,7 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from factor_agent import _admission, _feedback, _lineage, _scheduler
+from factor_agent import _admission, _feedback, _lineage, _picked_parents, _scheduler
 from factor_agent._lineage import Lineage
 from factor_agent.config import ROLES, AdmissionConfig, CampaignConfig
 from factor_agent.evaluator import CompileFailure, DailyIC, Evaluator, Metrics
@@ -338,8 +343,10 @@ class Campaign:
                 quota = _scheduler.quota(number, records, config.round, prompts.mechanism_types)
                 accepted = [r for r in records if r.status == "accepted"]
                 trials = _feedback.named(records)
-                cap = config.round.max_children
-                built = _lineage.lineages(trials, config.admission) if config.context.lineage or cap is not None else {}
+                cap, k = config.round.max_children, snapshot.settings.get("round", {}).get("picked_parents", 0)
+                built = (
+                    _lineage.lineages(trials, config.admission) if config.context.lineage or cap is not None or k else {}
+                )
                 lineage = built if config.context.lineage else {}
                 context = self._context(
                     records, state, reference, known, evaluator, accepted, recent_rounds, prompts, lineage,
@@ -348,10 +355,16 @@ class Campaign:
                     trial: _feedback.parent(trial, r, trials, lineage.get(trial)) for trial, r in trials if r.evaluated
                 } if config.context.feedback else {}
                 eligible = [trial for trial in parents if cap is None or built[trial].attempts < cap]
+                picked = _claim(
+                    k, quota, dict(trials), eligible, *evaluator.tried(), built, vocabulary.classes,
+                ) if k else []
                 directions, issues = researcher.plan(
                     number, quota, context, eligible if config.context.feedback else None,
+                    [(p["mechanism_type"], p["trial"]) for p in picked],
                 )
-                events.write(Plan(round=number, directions=[d.to_dict() for d in directions], quota=quota, issues=issues))
+                events.write(Plan(
+                    round=number, directions=[d.to_dict() for d in directions], quota=quota, issues=issues, picked=picked,
+                ))
                 proposals = researcher.propose(number, directions, context, gate, zoo, config.round.retries, parents)
                 round_records = self._round(
                     number, proposals, researcher, gate, zoo, evaluator, records, events, confirming, vocabulary,
@@ -500,7 +513,7 @@ class Campaign:
         intraday = self.config.data.load("intraday") if self.config.data.intraday is not None else None
         columns, intraday_columns = _columns(prices), _intraday_columns(intraday)
         files, settings = self._search(run_dir, state_path)
-        self.config.templates(files)
+        self.config.templates(files, settings.get("round", {}).get("picked_parents", 0))
         self.config.vocabulary(columns, files, intraday_columns)
         return prices, intraday, columns, intraday_columns, files, settings
 
@@ -508,8 +521,8 @@ class Campaign:
         """The files and settings to open the run's snapshot with: the config's, or, in a replay, the replayed run's.
 
         The settings recorded are the prompt context, ``round.max_children``
-        when set and, with an intraday dataset, that dataset, which the
-        intraday family's fields mean.
+        and ``round.picked_parents`` when set and, with an intraday dataset,
+        that dataset, which the intraday family's fields mean.
 
         Raises
         ------
@@ -543,8 +556,10 @@ class Campaign:
         if not context["lineage"]:
             del context["lineage"]  # likewise
         settings = {"context": context}
-        if self.config.round.max_children is not None:
-            settings["round"] = {"max_children": self.config.round.max_children}  # left out unset, likewise
+        cap, k = self.config.round.max_children, self.config.round.picked_parents
+        rounds = ({"max_children": cap} if cap is not None else {}) | ({"picked_parents": k} if k else {})
+        if rounds:
+            settings["round"] = rounds  # each left out unset, likewise
         if self.config.data.intraday is not None:
             settings["intraday"] = {"dataset": json.loads(json.dumps(self.config.data.intraday))}
         return self.config.search_files(), settings
@@ -788,6 +803,32 @@ class Campaign:
             stats=checked.stats, attempts=_attempts(proposal), direction=proposal.direction.to_dict(),
             graph=checked.graph.to_json(),
         )
+
+
+def _claim(
+    k: int, quota: dict[str, int], trials: dict[str, TrialRecord], eligible: list[str], names: list[str], matrix,
+    lineage: dict[str, Lineage], classes,
+) -> list[dict]:
+    """The round's picked slots: the Picked parents in pick order, each given a slot of its mechanism type.
+
+    A parent takes one slot of its type (the type of the slot its trial
+    filled) while ``quota`` leaves that type one unclaimed, until ``k`` are
+    claimed; only the trials in ``eligible``, those a direction may build
+    on, are taken. Each is the ``PickedParent`` as a dict with the type.
+    """
+    ranked = _picked_parents.picked_parents(list(trials.items()), names, matrix, lineage, classes, len(trials))
+    claimed, left = [], dict(quota)
+    for parent in ranked:
+        record = trials[parent.trial]
+        kind = (record.direction or record.candidate).get("mechanism_type")
+        if parent.trial in eligible and left.get(kind, 0) > 0:
+            left[kind] -= 1
+            claimed.append({"trial": parent.trial, "mechanism_type": kind, **{
+                name: getattr(parent, name) for name in ("quality", "fertility", "novelty", "front")
+            }})
+            if len(claimed) == k:
+                break
+    return claimed
 
 
 #: What a part ``Campaign.check`` could not check gives in place of its value.

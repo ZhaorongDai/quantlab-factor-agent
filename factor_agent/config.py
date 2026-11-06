@@ -229,6 +229,11 @@ class RoundConfig:
     #: parents, so a direction naming it is planned as a new one; None (the default) caps none.
     #: It needs ``context.feedback``, and a resume may not change it.
     max_children: int | None = None
+    #: Slots each round whose parent the code chooses (Picked parents, ``_picked_parents``), each a
+    #: slot of its parent's mechanism type that the planner writes as a refinement or a mutation of
+    #: it; 0 (the default) picks none. It needs ``context.theme_correlation``, and a resume may not
+    #: change it.
+    picked_parents: int = 0
 
     def __post_init__(self):
         if self.groups < 1:
@@ -237,6 +242,8 @@ class RoundConfig:
             isinstance(self.max_children, bool) or not isinstance(self.max_children, int) or self.max_children < 1
         ):
             raise ValueError(f"round: max_children is {self.max_children!r}; it is a count of at least 1")
+        if isinstance(self.picked_parents, bool) or not isinstance(self.picked_parents, int) or self.picked_parents < 0:
+            raise ValueError(f"round: picked_parents is {self.picked_parents!r}; it is a count of at least 0")
 
 
 @dataclass(frozen=True)
@@ -481,6 +488,11 @@ class CampaignConfig:
             )
         if self.round.max_children is not None and not self.context.feedback:
             raise ValueError("round: max_children needs feedback, since without it every direction is new")
+        if self.round.picked_parents and self.context.theme_correlation is None:
+            raise ValueError(
+                "round: picked_parents needs context.theme_correlation, since the Picked parents are ranked "
+                "on the evaluated trials' correlations"
+            )
 
     def load_factors(self) -> tuple[list, list]:
         """Rebuild the reference factors and the known factors, ``(reference, known)``, each in config order.
@@ -520,17 +532,20 @@ class CampaignConfig:
         """The files the run searches with: the field files, the operator file and the replaced templates."""
         return SearchFiles(self.fields, self.operators, self.prompts)
 
-    def templates(self, files: SearchFiles | None = None) -> Templates:
+    def templates(self, files: SearchFiles | None = None, picked_parents: int | None = None) -> Templates:
         """The prompt templates: the built-in ones, those ``files`` replace read from their files.
 
         ``files`` are the config's own by default, or a run snapshot's copies.
+        With picked parents (``round.picked_parents`` by default) a replaced
+        plan template must list the picked slots (``{picked}``).
 
         Raises
         ------
         PromptError
             With every problem of the replacing files.
         """
-        return Templates.load((files or self.search_files()).prompts)
+        picked = self.round.picked_parents if picked_parents is None else picked_parents
+        return Templates.load((files or self.search_files()).prompts, picked=picked > 0)
 
     def vocabulary(self, columns=None, files: SearchFiles | None = None, intraday_columns=None) -> Vocabulary:
         """The Vocabulary of the field and operator files; ``columns``, given, are the price dataset's.

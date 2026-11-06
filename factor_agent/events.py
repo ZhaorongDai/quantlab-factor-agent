@@ -16,7 +16,7 @@ The event types, defined here once and read back by ``read``:
   conditions (round and trial limits, patience) and the admission limits;
   a resume also names the round it dropped;
 - ``plan`` (``Plan``): a round's research directions in slot order, its
-  quota and the plan's issues;
+  quota, the plan's issues and its Picked parents;
 - ``call_start`` and ``call_end`` (``CallStart``, ``CallEnd``): every LLM
   call, with its role, the proposal group and the slots it concerns; its
   end names the call file it wrote, how long it took, its tokens as far
@@ -112,13 +112,20 @@ class Resume(Start):
 
 @dataclass(frozen=True, kw_only=True)
 class Plan(Event):
-    """Round ``round``'s research directions, in slot order, the quota by mechanism type and the plan's issues."""
+    """Round ``round``'s research directions, in slot order, the quota by mechanism type and the plan's issues.
+
+    ``picked`` are the round's Picked parents in pick order, each with the
+    ``trial``, the ``mechanism_type`` of the slot it was given, its
+    ``quality``, ``fertility`` and ``novelty`` after the flow and its Pareto
+    ``front`` (``_picked_parents``); empty without ``round.picked_parents``.
+    """
 
     type = "plan"
     round: int
     directions: list[dict]
     quota: dict[str, int]
     issues: list[str]
+    picked: list[dict] = field(default_factory=list)
 
 
 @dataclass(frozen=True, kw_only=True)
