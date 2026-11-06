@@ -5,7 +5,8 @@ Newey-West t, its residual (partial) IC, what the pool explains of it and the
 pool factors most correlated with it, the order of its deciles' returns (as
 ranks), the nearest existing factor and the correlation with it, the nearest
 known factor and its sampled correlation, the rejection reasons, and each
-accepted factor's marginal weight and residual IC in the accepted pool. It
+accepted factor's marginal weight and residual IC in the accepted pool, and,
+when given, each accepted factor's and each parent's Lineage (``_lineage``). It
 never shows a return, a date, or advice to change windows or parameters. The first round
 has no history; it sees the data, the seed directions and the existing
 factor families (the reference set's, then the known factors', marked as
@@ -19,6 +20,7 @@ import math
 import re
 
 from factor_agent._admission import direction, reason_kind
+from factor_agent._lineage import Lineage
 from factor_agent.evaluator import Contribution
 from factor_agent.ledger import TrialRecord
 from factor_agent.zoo import owner
@@ -267,8 +269,11 @@ def last_round(trials: list[tuple[str, TrialRecord]], earlier: list[tuple[str, T
     return "\n".join(blocks)
 
 
-def parent(trial: str, r: TrialRecord, earlier: list[tuple[str, TrialRecord]] = ()) -> str:
-    """The trial a research direction builds on, as its proposer reads it: what it computed, its code, statistics and reasons."""
+def parent(trial: str, r: TrialRecord, earlier: list[tuple[str, TrialRecord]] = (), lineage: Lineage | None = None) -> str:
+    """The trial a research direction builds on, as its proposer reads it: what it computed, its code, statistics and reasons.
+
+    With its ``lineage`` the block ends with how the trials built on it did.
+    """
     code = "\n".join("     " + line for line in r.candidate.get("code", "").splitlines())
     lines = [
         f"{trial}, round {r.round}, {r.candidate.get('mechanism_type', '?')}: {r.candidate.get('description', '')}",
@@ -276,7 +281,7 @@ def parent(trial: str, r: TrialRecord, earlier: list[tuple[str, TrialRecord]] = 
         f"   outcome: {outcome(r)}",
         "   code:", code,
     ]
-    return "\n".join(lines + _statistics(r, earlier))
+    return "\n".join(lines + _statistics(r, earlier) + ([f"   {lineage.text()}"] if lineage is not None else []))
 
 
 def _statistics(r: TrialRecord, earlier: list[tuple[str, TrialRecord]] = ()) -> list[str]:
@@ -324,8 +329,13 @@ def accepted(records: list[TrialRecord]) -> str:
     )
 
 
-def best(trials: list[tuple[str, TrialRecord]], contributions: dict[str, Contribution]) -> str:
-    """The accepted factors (of ``named`` trials): id, name, mechanism, code, and marginal weight and residual IC in the accepted pool."""
+def best(
+    trials: list[tuple[str, TrialRecord]], contributions: dict[str, Contribution], lineage: dict[str, Lineage] | None = None,
+) -> str:
+    """The accepted factors (of ``named`` trials): id, name, mechanism, code, and marginal weight and residual IC in the accepted pool.
+
+    With ``lineage`` (by trial id, ``_lineage.lineages``) each also carries its Lineage.
+    """
     blocks = []
     for trial, r in trials:
         if r.status != "accepted":
@@ -341,6 +351,8 @@ def best(trials: list[tuple[str, TrialRecord]], contributions: dict[str, Contrib
             lines.append(
                 f"  in the accepted pool: marginal weight {_num(part.weight, 3)}, residual IC {_num(part.residual_ic, 4)}"
             )
+        if lineage and trial in lineage:
+            lines.append(f"  {lineage[trial].text()}")
         blocks.append("\n".join(lines))
     return "\n".join(blocks)
 

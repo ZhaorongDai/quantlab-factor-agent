@@ -248,6 +248,9 @@ class ContextConfig:
     #: Whether a new direction's candidate as correlated with an earlier trial is sent back to be
     #: rewritten once before it is evaluated; it needs ``theme_correlation``.
     send_back_repeats: bool = False
+    #: Whether the planner's accepted factors and the proposer's parent block carry each trial's
+    #: Lineage (``_lineage``): how the trials built on it did; it needs ``feedback``.
+    lineage: bool = False
 
     def __post_init__(self):
         if self.recent_rounds < 1:
@@ -265,6 +268,10 @@ class ContextConfig:
             raise TypeError(f"context: send_back_repeats is {self.send_back_repeats!r}; it is true or false")
         if self.send_back_repeats and self.theme_correlation is None:
             raise ValueError("context: send_back_repeats needs theme_correlation, the correlation at which a trial repeats one")
+        if not isinstance(self.lineage, bool):
+            raise TypeError(f"context: lineage is {self.lineage!r}; it is true or false")
+        if self.lineage and not self.feedback:
+            raise ValueError("context: lineage needs feedback, since a Lineage is made of earlier trials")
 
 
 #: The values of ``acceptance.contribution``.

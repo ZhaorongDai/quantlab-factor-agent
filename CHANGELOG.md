@@ -6,6 +6,14 @@ layout; there are no compatibility shims or config migrations.
 
 ## Unreleased
 
+### Added
+
+- `context.lineage`: the planner's accepted factors and the proposer's parent trial carry
+  each trial's Lineage, one line on the trials built on it: how many, refinements and
+  mutations, how many stopped before evaluation, which were accepted, and the best child's
+  residual t against the parent's. Off by default and fixed by the run's snapshot; it needs
+  `context.feedback`.
+
 ## 0.1.0 (2026-11-06)
 
 The first public version.
