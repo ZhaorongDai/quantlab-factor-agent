@@ -6,15 +6,17 @@ accepted only if its partial IC holds there in the factor's direction (``admissi
 refusal says so without a number, and no prompt holds a statistic of the confirmation segment.
 """
 
+import json
 import re
+from dataclasses import asdict
 
 import pytest
 
 from factor_agent.config import AdmissionConfig
 from factor_agent.segments import Segment, Segments
 from tests import synthetic_market
-from tests.campaign_runner import candidate, run, write_config
-from tests.fake_llm import FakeLLM
+from tests.campaign_runner import candidate, computed_graphs, run, write_config
+from tests.fake_llm import FakeLLM, Interrupted, round_of
 from tests.test_campaign_loop import market, noise  # noqa: F401  (the module's synthetic store)
 
 DISCOVERY = (synthetic_market.TRAINING[0], "2010-12-31")
@@ -26,7 +28,8 @@ def _propose(number, directions):
     return [SIGNAL if number == 1 and slot == 0 else noise(number, slot) for slot in range(len(directions))]
 
 
-def _campaign(tmp_path, market, confirm_t):  # noqa: F811
+def _campaign(tmp_path, market, confirm_t, crash=None):  # noqa: F811
+    """Run the campaign; with ``crash``, first interrupted at the request it is true for, then resumed."""
     path = write_config(
         tmp_path, market["components"],
         segments={"training": {"start": DISCOVERY[0], "end": DISCOVERY[1]},
@@ -34,6 +37,9 @@ def _campaign(tmp_path, market, confirm_t):  # noqa: F811
         admission={"confirm_t": confirm_t},
         round={"candidates": 10, "min_per_type": 1, "retries": 0, "max_rounds": 2},
     )
+    if crash is not None:
+        with pytest.raises(Interrupted):
+            run(path, FakeLLM(_propose, interrupt=crash), market["cache"])
     fake = FakeLLM(_propose)
     return run(path, fake, market["cache"]), fake
 
@@ -96,3 +102,11 @@ def test_the_confirmation_segment_lies_between_the_training_and_the_validation_s
 def test_a_confirmation_threshold_needs_a_number():
     with pytest.raises(TypeError, match="confirm_t"):
         AdmissionConfig(confirm_t="high")
+
+
+def test_an_accepted_factor_is_computed_once_on_each_segment_through_a_resume(tmp_path, market, held):  # noqa: F811
+    with computed_graphs() as batches:
+        result, _ = _campaign(tmp_path, market, confirm_t=2.0, crash=lambda r: round_of(r.prompt) == 2)
+    [accepted] = result.accepted
+    assert sum(json.dumps(accepted.graph) in map(json.dumps, batch) for batch in batches) == 2
+    assert [json.dumps(asdict(r)) for r in result.records] == [json.dumps(asdict(r)) for r in held[0].records]

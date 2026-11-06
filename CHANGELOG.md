@@ -13,7 +13,9 @@ The first public version, 0.1.0.
 - `Campaign`: the research loop in rounds of plan, propose, Gate, review, evaluate and
   admit, with a planner, a proposer, a reviewer and a distiller on any LLM backend, and a run
   directory that holds the ledger, the state, the LLM log and a snapshot of the search
-  files, so that `run()` resumes after a crash or an exhausted balance.
+  files, so that `run()` resumes after a crash or an exhausted balance. A resume reads the
+  accepted factors' and the evaluated trials' scored values from the run directory's
+  `columns/` instead of computing them again.
 - `Gate`: candidate code builds its KunQuant graph in a sandboxed subprocess, reads only the
   vocabulary, and is refused when it rewrites, varies only the parameters of, or shares a
   large subtree with a reference, known or accepted factor.

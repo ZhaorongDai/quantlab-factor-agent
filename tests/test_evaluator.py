@@ -1,4 +1,4 @@
-"""Evaluator.evaluate(): neutralisation, compile-failure bisection, the reference pool and admission order.
+"""Evaluator.evaluate() and join(): neutralisation, compile-failure bisection, the pool, admission order, the store.
 
 Graphs come from the real Gate and are evaluated on the synthetic store of
 ``tests/synthetic_market.py``; the reference set is Alpha158's KMID, which
@@ -532,7 +532,7 @@ def test_the_tried_matrix_holds_every_pair_once_whichever_way_the_trials_joined(
     one.evaluate(graphs[:2], tried=["a", "b"])
     one.evaluate(graphs[2:], tried=["c"])
     other = _evaluator(market)
-    assert other.remember([graphs[0], UNCOMPILABLE, *graphs[1:]], ["a", "x", "b", "c"], batch=2) == ["x"]
+    assert other.join(tried=list(zip(["a", "x", "b", "c"], [graphs[0], UNCOMPILABLE, *graphs[1:]]))) == ["x"]
     names, matrix = one.tried()
     assert names == other.tried()[0] == ["a", "b", "c"]
     assert matrix == pytest.approx(other.tried()[1], abs=1e-6)
@@ -549,3 +549,98 @@ def test_a_graph_that_did_not_compute_does_not_join_the_tried_trials(market):
 def test_without_tried_trials_there_is_no_nearest_one(market):
     [(name, correlation)] = _evaluator(market).nearest_tried([_graph("alpha = close / open")])
     assert name == "" and np.isnan(correlation)
+
+
+def _stored(market, store, reference=(), prices=None, store_key=None) -> Evaluator:
+    """An evaluator keeping its columns in ``store``; with ``prices``, reading those."""
+    return Evaluator.for_segment(
+        Segment("training", *synthetic_market.TRAINING),
+        prices=prices or market["prices"], label=market["label"], scoring=_scoring(market),
+        reference=reference, warmup_bars=WARMUP, njobs=4, store=store, store_key=store_key or {"data": "synthetic"},
+    )
+
+
+class _Unreadable:
+    """A price dataset that raises on every read while ``readable`` is false, as one would if the store were gone."""
+
+    def __init__(self, prices, readable=False):
+        self._prices = prices
+        self.readable = readable
+
+    def __getattr__(self, name):
+        if not self.readable and name in ("panel", "to_kunquant", "head", "own_names", "to_shared_names"):
+            raise AssertionError(f"the prices were read ({name})")
+        return getattr(self._prices, name)
+
+
+def test_a_factor_joined_from_the_store_reads_no_prices(market, tmp_path):
+    graph = _graph("alpha = volume / WindowedAvg(volume, 20)")
+    first = _stored(market, tmp_path / "columns")
+    first.evaluate([graph], lambda position, metrics, ran: "volume")
+
+    again = _stored(market, tmp_path / "columns", prices=_Unreadable(market["prices"]))
+    assert again.join(pool=[("volume", graph)]) == []
+    assert again.contributions(["volume"]) == first.contributions(["volume"])
+
+
+def test_factors_joined_from_the_store_score_the_next_batch_as_computed_ones(market, tmp_path):
+    accepted = [_graph("alpha = volume / WindowedAvg(volume, 20)"), _graph("alpha = (high - low) / close")]
+    trials = [*accepted, _graph("alpha = close / open")]
+    later = [_graph("alpha = volume / WindowedAvg(volume, 10)"), _graph("alpha = WindowedAvg((high - low) / close, 5)")]
+    names = ["volume", "range"]
+    first = _stored(market, tmp_path / "columns", [_kmid(market)])
+    first.evaluate(trials, lambda position, metrics, ran: names[position] if position < 2 else None, ["a", "b", "c"])
+
+    prices = _Unreadable(market["prices"])
+    resumed = _stored(market, tmp_path / "columns", [_kmid(market)], prices=prices)
+    assert resumed.join(pool=list(zip(names, accepted)), tried=list(zip("abc", trials))) == []
+    computed = _evaluator(market, [_kmid(market)])
+    assert computed.join(pool=list(zip(names, accepted)), tried=list(zip("abc", trials))) == []
+
+    assert resumed.tried()[0] == computed.tried()[0] == ["a", "b", "c"]
+    np.testing.assert_array_equal(resumed.tried()[1], computed.tried()[1])
+    np.testing.assert_array_equal(resumed.tried()[1], first.tried()[1])
+    prices.readable = True  # the later batch is computed
+    again = resumed.evaluate(later)
+    for metrics in (first.evaluate(later), computed.evaluate(later)):
+        assert all(_same(a, b) for a, b in zip(metrics, again, strict=True))
+
+
+def test_a_store_written_under_other_settings_is_emptied_and_written_again(market, tmp_path):
+    graph = _graph("alpha = volume / WindowedAvg(volume, 20)")
+    unreadable = _Unreadable(market["prices"])
+    _stored(market, tmp_path / "columns", store_key={"data": "one"}).evaluate([graph], lambda *_: "volume")
+
+    assert _stored(market, tmp_path / "columns", store_key={"data": "two"}, prices=unreadable).join(
+        pool=[("volume", graph)],
+    ) == ["volume"]
+    assert _stored(market, tmp_path / "columns", store_key={"data": "two"}).join(pool=[("volume", graph)]) == []
+    assert _stored(market, tmp_path / "columns", store_key={"data": "two"}, prices=unreadable).join(
+        pool=[("volume", graph)],
+    ) == []
+    assert _stored(market, tmp_path / "columns", store_key={"data": "one"}, prices=unreadable).join(
+        pool=[("volume", graph)],
+    ) == ["volume"]
+
+
+def test_a_graph_of_the_last_batch_joins_without_being_computed_again_and_is_stored(market, tmp_path):
+    graphs = [_graph("alpha = close / open"), _graph("alpha = volume / WindowedAvg(volume, 20)")]
+    prices = _Unreadable(market["prices"], readable=True)
+    evaluator = _stored(market, tmp_path / "columns", prices=prices)
+    evaluator.evaluate(graphs)
+    prices.readable = False
+    assert evaluator.join(pool=[("volume", graphs[1])]) == []
+    assert evaluator.contributions(["volume"])["volume"] is not None
+
+    unreadable = _stored(market, tmp_path / "columns", prices=_Unreadable(market["prices"]))
+    assert unreadable.join(pool=[("volume", graphs[1])]) == []
+    assert unreadable.join(pool=[("never admitted", graphs[0])]) == ["never admitted"]
+
+
+def test_a_tried_trial_joining_the_pool_later_is_stored_as_a_pool_factor_once_computed(market, tmp_path):
+    graph = _graph("alpha = volume / WindowedAvg(volume, 20)")
+    _stored(market, tmp_path / "columns").evaluate([graph], tried=["T1-01"])
+
+    assert _stored(market, tmp_path / "columns").join(pool=[("volume", graph)], tried=[("T1-01", graph)]) == []
+    unreadable = _stored(market, tmp_path / "columns", prices=_Unreadable(market["prices"]))
+    assert unreadable.join(pool=[("volume", graph)], tried=[("T1-01", graph)]) == []

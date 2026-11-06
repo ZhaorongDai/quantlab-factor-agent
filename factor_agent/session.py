@@ -468,13 +468,16 @@ class SessionColumns(Provider):
         self._granularity = granularity
         self.columns = tuple(self._graphs)
 
+    def compile(self) -> None:
+        """Compile the session columns' graphs as ``fill`` does, without reading the dataset.
+
+        Raises what KunQuant raises for a graph it cannot compile.
+        """
+        self._factor()._make()
+
     def fill(self, dataset, panel, arrays, symbols, timestamps) -> dict[str, np.ndarray]:
         days = pd.DatetimeIndex(timestamps).normalize()
-        factor = SessionFactor(FactorConfig(
-            warmup_bars=0, dataset=self._dataset, mode="batch", njobs=self._njobs,
-            data_columns=SessionFactor.data_columns(self._graphs),
-            kwargs={"graphs": self._graphs, "classes": self._classes},
-        ))
+        factor = self._factor()
         builder = ChunkedBuilder(factor.resample("1d", "last"), granularity=self._granularity)
         daily = builder.compute(days[0].strftime("%Y-%m-%d"), days[-1].strftime("%Y-%m-%d"))
         rows = pd.DatetimeIndex(daily["timestamp"].values).normalize().get_indexer(days)
@@ -487,3 +490,11 @@ class SessionColumns(Provider):
             values[found] = daily[name].transpose("timestamp", "symbol").values[read]
             filled[name] = values
         return filled
+
+    def _factor(self) -> SessionFactor:
+        """The session factor of the graphs on the dataset."""
+        return SessionFactor(FactorConfig(
+            warmup_bars=0, dataset=self._dataset, mode="batch", njobs=self._njobs,
+            data_columns=SessionFactor.data_columns(self._graphs),
+            kwargs={"graphs": self._graphs, "classes": self._classes},
+        ))

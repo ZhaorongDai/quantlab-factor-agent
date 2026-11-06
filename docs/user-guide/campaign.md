@@ -130,6 +130,12 @@ returns normally; the library counts no money, so spending limits belong to the 
 round a crash left half written is dropped and run again, and the zoo, the pool and the
 graphs the Gate compares with are rebuilt from the ledger. The calls of a dropped round
 move to `llm_log/dropped/`, so the log holds exactly the calls the ledger was written from.
+The accepted factors' values, and with themes the evaluated trials', are read back from
+`columns/` rather than computed again; a resume only checks that their graphs still
+compile. The stored values are kept across a change of code, so a resume after a fix
+judges its new trials against the values the earlier ones were judged against; a change
+of the data, the scoring, the warm-up or a segment empties a segment's store, and its
+factors are computed once more. Deleting `columns/` costs one such computation.
 
 The first start copies the field, operator and replaced template files into
 `snapshot/` with their hashes, and the run searches with those copies. A resume whose
@@ -152,6 +158,7 @@ file has changed.
 | `memory.md`, `memory/round_NN.md` | the distilled memory and every version of it |
 | `snapshot/`, `snapshot.json` | the search files of the first start and their hashes |
 | `config/open-<k>.yaml` | the config of the k-th start or resume, as it was given |
+| `columns/<segment>/` | the scored values of every factor in a segment's pool and, with themes, of every evaluated trial, one file per graph, for a resume to read instead of computing them; about 45 MB per accepted factor and 2.3 MB per evaluated trial on 3000 members over 15 years |
 | `ic/round_NN.json` | each evaluated trial's daily rank IC and partial IC in round NN, by slot, for the frontend's cumulative IC |
 | `zoo.json` | the reference and known factors the Gate covers, and those without a graph it cannot |
 | `acceptance/` | validation and hold-out reports and the model cache |

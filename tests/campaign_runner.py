@@ -86,3 +86,26 @@ def crash_at(target, name: str, when: Callable[..., bool] = lambda *args: True) 
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(target, name, crashing)
         yield
+
+
+@contextmanager
+def computed_graphs() -> Iterator[list[list]]:
+    """Within it, the list it gives holds one item per batch the Evaluator computes: the JSON of its graphs.
+
+    A batch's daily graphs, as ``Graph.to_json`` gives them; a batch that
+    is only compiled (a resume's check of a stored factor) is not in it.
+    """
+    from factor_agent import evaluator
+
+    original = evaluator._RoundGraph.compute
+    found: list[list] = []
+
+    def computing(self, start, end):
+        if not getattr(self, "_counted", False):  # a batch computes once and reads its result again
+            self._counted = True
+            found.append([graph.to_json() for graph in self._graphs])
+        return original(self, start, end)
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(evaluator._RoundGraph, "compute", computing)
+        yield found

@@ -24,7 +24,7 @@ from quantlab.factor.predefined.alpha158 import Alpha158Stock
 from quantlab.factor.predefined.neutralized import NeutralizedFactor
 from tests import synthetic_market
 from tests.campaign_runner import candidate as _candidate
-from tests.campaign_runner import run, write_config
+from tests.campaign_runner import computed_graphs, run, write_config
 from tests.fake_llm import FakeLLM, Interrupted, round_of
 from tests.vocabulary_files import PRICE_VOLUME
 
@@ -349,6 +349,14 @@ def test_a_resumed_campaign_with_known_factors_writes_the_same_ledger(against_km
     assert (resumed["run_dir"] / "ledger.jsonl").read_text() == (
         against_kmid_known["run_dir"] / "ledger.jsonl"
     ).read_text()
+
+
+def test_a_resumed_campaign_does_not_compute_the_factor_it_accepted_before_the_crash_again(tmp_path):
+    with computed_graphs() as batches:
+        resumed = _against_kmid_known(tmp_path, crash=lambda r: r.role == "reviewer" and round_of(r.prompt) == 2)
+    [accepted] = resumed["result"].accepted
+    assert [json.dumps(accepted.graph) in map(json.dumps, batch) for batch in batches] == [True, False]
+    assert sorted(p.name for p in (resumed["run_dir"] / "columns").iterdir()) == ["training"]
 
 
 # One round against KMID neutralised, as the shared ``*_neutral`` stores hold

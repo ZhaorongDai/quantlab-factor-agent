@@ -269,6 +269,7 @@ class Campaign:
             groups=config.round.groups,
             events=events,
         )
+        store_key = _store_key(config)
         evaluator = Evaluator.for_segment(
             config.training,
             prices=prices,
@@ -281,6 +282,8 @@ class Campaign:
             purge_bars=config.segments.purge_bars,
             vocabulary=vocabulary,
             intraday=intraday,
+            store=run_dir / "columns" / config.training.name,
+            store_key=store_key,
         )
         confirming = None if config.segments.confirmation is None else Evaluator.for_segment(
             config.segments.confirmation,
@@ -293,15 +296,13 @@ class Campaign:
             purge_bars=config.segments.purge_bars,
             vocabulary=vocabulary,
             intraday=intraday,
+            store=run_dir / "columns" / config.segments.confirmation.name,
+            store_key=store_key,
         )
         zoo = Zoo.from_existing(reference, vocabulary, known=known)
         _write_zoo(run_dir / "zoo.json", zoo)
         gate = Gate(config.gate, vocabulary, seen=[Graph.from_json(r.graph, vocabulary.classes) for r in records if r.graph])
-        _restore(records, zoo, evaluator, vocabulary)
-        if config.context.theme_correlation is not None:
-            _restore_tried(records, evaluator, vocabulary)
-        if confirming is not None:
-            _join(confirming, [r for r in records if r.status == "accepted"], vocabulary)
+        _restore(records, zoo, evaluator, confirming, vocabulary, themes=config.context.theme_correlation is not None)
         while (stop := self._stop(state, records)) is None:
             number = state.rounds + 1
             try:
@@ -697,24 +698,37 @@ def _seed(directions) -> str:
     return "\n".join(f"- {direction}" for direction in directions)
 
 
-def _restore(records: list[TrialRecord], zoo: Zoo, evaluator: Evaluator, vocabulary: Vocabulary) -> None:
-    """Put the factors accepted in the rounds already written back into ``zoo`` and the reference pool.
+def _restore(
+    records: list[TrialRecord], zoo: Zoo, evaluator: Evaluator, confirming: Evaluator | None, vocabulary: Vocabulary,
+    themes: bool,
+) -> None:
+    """Put the accepted factors of the rounds already written back into ``zoo`` and each segment's pool, in order.
+
+    With ``themes`` the evaluated trials go back into the tried trials too.
+    The Evaluators read the columns from the run's store (``Evaluator.join``),
+    so a factor is computed only when the store lacks it: a run directory
+    written before the store, say, whose columns are stored now.
 
     Raises
     ------
     RuntimeError
-        If an accepted factor's graph no longer compiles (the code or the
-        quantlab version changed under the run directory).
+        If an accepted factor's graph no longer compiles or an evaluated
+        trial's no longer computes (the code or the quantlab version changed
+        under the run directory).
     """
     accepted = [r for r in records if r.status == "accepted"]
-    if not accepted:
-        return
     graphs = [Graph.from_json(r.graph, vocabulary.classes) for r in accepted]
     labels = [zoo.add(r.candidate["description"], _feedback.accepted_source(r.round), g).label for r, g in zip(accepted, graphs)]
-    results = evaluator.evaluate(graphs, lambda position, metrics, ran: labels[position])
-    broken = [label for label, result in zip(labels, results) if isinstance(result, CompileFailure)]
+    tried = [
+        (trial, Graph.from_json(r.graph, vocabulary.classes)) for trial, r in _feedback.named(records) if r.evaluated
+    ] if themes else []
+    broken = evaluator.join(pool=list(zip(labels, graphs)), tried=tried)
+    if lost := [name for name in broken if name in labels]:
+        raise RuntimeError(f"Campaign: cannot resume, accepted factor(s) no longer compile: {lost}")
     if broken:
-        raise RuntimeError(f"Campaign: cannot resume, accepted factor(s) no longer compile: {broken}")
+        raise RuntimeError(f"Campaign: cannot resume, evaluated trial(s) no longer compute: {broken}")
+    if confirming is not None:
+        _join(confirming, accepted, vocabulary)
 
 
 def _repeats(trial: str, correlation: float, earlier: TrialRecord, threshold: float) -> str:
@@ -727,40 +741,30 @@ def _repeats(trial: str, correlation: float, earlier: TrialRecord, threshold: fl
     )
 
 
-def _restore_tried(records: list[TrialRecord], evaluator: Evaluator, vocabulary: Vocabulary) -> None:
-    """Put the evaluated trials of the rounds already written back into ``evaluator``'s tried trials, in order.
-
-    Raises
-    ------
-    RuntimeError
-        If an evaluated trial's graph no longer computes.
-    """
-    evaluated = [(trial, r) for trial, r in _feedback.named(records) if r.evaluated]
-    if not evaluated:
-        return
-    broken = evaluator.remember(
-        [Graph.from_json(r.graph, vocabulary.classes) for _, r in evaluated], [trial for trial, _ in evaluated],
-    )
-    if broken:
-        raise RuntimeError(f"Campaign: cannot resume, evaluated trial(s) no longer compute: {broken}")
-
-
 def _join(evaluator: Evaluator, accepted: list[TrialRecord], vocabulary: Vocabulary) -> None:
     """Add the ``accepted`` factors to ``evaluator``'s pool, in order: the confirmation segment's pool.
+
+    A factor of the batch the evaluator computed last (the round's
+    candidates) or of its store is not computed again (``Evaluator.join``).
 
     Raises
     ------
     RuntimeError
         If an accepted factor's graph does not compile there.
     """
-    if not accepted:
-        return
     labels = [_feedback.accepted_label(r) for r in accepted]
     graphs = [Graph.from_json(r.graph, vocabulary.classes) for r in accepted]
-    results = evaluator.evaluate(graphs, lambda position, metrics, ran: labels[position])
-    broken = [label for label, result in zip(labels, results) if isinstance(result, CompileFailure)]
+    broken = evaluator.join(pool=list(zip(labels, graphs)))
     if broken:
         raise RuntimeError(f"Campaign: accepted factor(s) do not compile on the confirmation segment: {broken}")
+
+
+def _store_key(config: CampaignConfig) -> dict:
+    """What an Evaluator's stored columns depend on besides its segment: the data, the scoring and the warm-up."""
+    return json.loads(json.dumps(
+        {"data": asdict(config.data), "scoring": asdict(config.scoring), "warmup_bars": config.evaluator.warmup_bars},
+        default=str,
+    ))
 
 
 def _columns(prices) -> set[str] | None:

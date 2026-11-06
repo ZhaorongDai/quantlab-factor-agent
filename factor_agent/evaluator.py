@@ -65,11 +65,30 @@ The reference pool grows as candidates are admitted: ``evaluate`` hands each
 candidate's metrics to an ``admit`` callback in order, and a candidate it
 admits joins the pool before the next one is scored, so two candidates of
 one round are never both accepted when the second says nothing new.
+
+``join`` puts factors in the pool or the tried trials without scoring them,
+as a resume puts back the factors of the rounds already written. With a
+store, every column that joins the pool or the tried trials is written to
+it as the frame holds it (one file per graph and kind, named by the hash of
+the graph), and ``join`` takes a column from the last batch ``evaluate``
+computed, then from the store, and computes only the rest; a column read
+from the store is the one a computation gives, bit for bit. The store is
+fingerprinted by what scored its columns (the caller's ``store_key``, the
+segment, the purge and the scored dates, symbols and rows); one that does
+not match is emptied. It is not fingerprinted by the code: a resume after a
+fix keeps the values its trials were judged against.
 """
 
+import hashlib
+import json
+import os
+import shutil
+import tempfile
 import warnings
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import pandas as pd
@@ -102,6 +121,12 @@ KNOWN_SAMPLE_EVERY = 5
 
 #: The evaluated trials are kept on every this many of the scored dates, counting from the first (``Evaluator.tried``).
 TRIED_SAMPLE_EVERY = 20
+
+#: What a stored column is: a pool factor's, on every scored date, or a tried trial's, on its sampled dates.
+ColumnKind = Literal["pool", "tried"]
+
+#: The graphs ``join`` computes at a time.
+_JOINED_PER_BATCH = 20
 
 #: A pool factor (or an admitted candidate) whose residual norm on a day is
 #: below this adds no direction to that day's basis (it is already spanned),
@@ -300,7 +325,8 @@ class Evaluator:
     def __init__(
         self, segment: Segment, prices, label, scoring: Scoring, reference: Sequence,
         warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS, known: Sequence = (),
-        vocabulary: Vocabulary | None = None, intraday=None,
+        vocabulary: Vocabulary | None = None, intraday=None, store: Path | None = None,
+        store_key: Mapping | None = None,
     ):
         self._segment = segment
         self._vocabulary = vocabulary
@@ -315,12 +341,16 @@ class Evaluator:
         self._warmup_bars = warmup_bars
         self._njobs = njobs
         self._frame: _Frame | None = None
+        self._store_path = None if store is None else Path(store)
+        self._store_key = dict(store_key or {})
+        self._store: _ColumnStore | None = None
+        self._batch: dict[str, list[np.ndarray]] = {}
 
     @classmethod
     def for_segment(
         cls, segment: Segment, *, prices, label, scoring: Scoring, reference: Sequence = (), known: Sequence = (),
         warmup_bars: int, njobs: int, purge_bars: int = PURGE_BARS, vocabulary: Vocabulary | None = None,
-        intraday=None,
+        intraday=None, store: Path | None = None, store_key: Mapping | None = None,
     ) -> "Evaluator":
         """Return an evaluator of ``segment``.
 
@@ -356,9 +386,17 @@ class Evaluator:
             graph is a daily graph reading no lag column.
         intraday : quantlab dataset, optional
             The whole-market intraday bars the intraday graphs run on.
+        store : Path, optional
+            The directory the columns joining the pool or the tried trials
+            are kept in, and ``join`` reads; created when missing.
+        store_key : mapping, optional
+            JSON-ready settings the stored columns depend on besides the
+            segment and the scored frame (the data, the label, the scoring
+            and the warm-up, say); a store written under others is emptied.
         """
         return cls(
             segment, prices, label, scoring, reference, warmup_bars, njobs, purge_bars, known, vocabulary, intraday,
+            store, store_key,
         )
 
     @property
@@ -383,39 +421,92 @@ class Evaluator:
         tried : sequence of str, optional
             A name per graph: every graph that ran joins the tried trials
             under its name after the batch (``tried``).
+
+        The columns of the graphs that ran are kept until the next
+        ``evaluate``, for ``join``: as float32 normal scores on each scored
+        date's rows, about 45 MB a graph on 3000 members over 15 years.
         """
         if not graphs:
             return []
         frame = self._scored_frame()
+        self._batch = {}
         results: list[Metrics | CompileFailure | _Values] = list(self._values(graphs, frame))
         computed = [i for i, v in enumerate(results) if not isinstance(v, CompileFailure)]
         if not computed:
             return results
         values = [results[i].values for i in computed]
-        scores = _Scores(frame, values)
+        columns = [frame.daily_scores(v) for v in values]
+        self._batch = {_graph_key(graphs[i]): _as_pool(column) for i, column in zip(computed, columns)}
+        scores = _Scores(frame, values, columns)
         for k, i in enumerate(computed):
             results[i] = scores.metrics(k, self._label.span_bars(), coverage(results[i].presence, frame.rows))
             name = admit(i, results[i], len(computed)) if admit is not None else None
             if name is not None:
                 scores.admit(k, name)
+                self._keep("pool", graphs[i], self._batch[_graph_key(graphs[i])])
         if tried is not None:
-            frame.add_tried([tried[i] for i in computed], values)
+            added = [frame.as_kind("tried", self._batch[_graph_key(graphs[i])]) for i in computed]
+            frame.add_tried([tried[i] for i in computed], added)
+            for i, column in zip(computed, added):
+                self._keep("tried", graphs[i], column)
         return results
 
-    def remember(self, graphs: list[Graph], names: Sequence[str], batch: int = 20) -> list[str]:
-        """Add the graphs to the tried trials under ``names``, ``batch`` at a time, without scoring them.
+    def join(
+        self, pool: Sequence[tuple[str, Graph]] = (), tried: Sequence[tuple[str, Graph]] = (),
+    ) -> list[str]:
+        """Add ``(name, graph)`` pairs to the reference pool and to the tried trials, in order, without scoring them.
 
-        Returns the names of the graphs that did not compute, which do not join.
+        A graph's column comes from the last batch ``evaluate`` computed,
+        then from the store, and is computed (``_JOINED_PER_BATCH`` graphs at
+        a time) otherwise; a column read from the store is the graph's as
+        long as the graph still compiles, which is checked, all such graphs
+        in one library. Every column joining is written to the store.
+
+        Returns the names of the graphs that did not compile or compute, which do not join.
         """
+        pool, tried = list(pool), list(tried)
+        if not pool and not tried:
+            return []
         frame = self._scored_frame()
-        failed = []
-        for first in range(0, len(graphs), batch):
-            results = self._values(graphs[first:first + batch], frame)
-            ran = [(names[first + j], v.values) for j, v in enumerate(results) if not isinstance(v, CompileFailure)]
-            failed += [names[first + j] for j, v in enumerate(results) if isinstance(v, CompileFailure)]
-            if ran:
-                frame.add_tried([name for name, _ in ran], [values for _, values in ran])
-        return failed
+        wanted = [("pool", graph) for _, graph in pool] + [("tried", graph) for _, graph in tried]
+        found: dict[tuple[ColumnKind, str], list[np.ndarray]] = {}
+        unstored: set[tuple[ColumnKind, str]] = set()
+        stored: dict[str, Graph] = {}
+        missing: dict[str, Graph] = {}
+        for kind, graph in wanted:
+            key = _graph_key(graph)
+            if key in self._batch:
+                found[kind, key] = frame.as_kind(kind, self._batch[key])
+                unstored.add((kind, key))
+            elif (column := self._stored(kind, key, frame)) is not None:
+                found[kind, key] = column
+                stored[key] = graph
+            else:
+                missing[key] = graph
+                unstored.add((kind, key))
+        failed = set()
+        checked = [graph for key, graph in stored.items() if key not in missing]  # one computed is compiled there
+        failed |= {_graph_key(g) for g, broken in zip(checked, self._compile_failures(checked)) if broken}
+        graphs = list(missing.values())
+        for first in range(0, len(graphs), _JOINED_PER_BATCH):
+            batch = graphs[first:first + _JOINED_PER_BATCH]
+            for graph, result in zip(batch, self._values(batch, frame)):
+                key = _graph_key(graph)
+                if isinstance(result, CompileFailure):
+                    failed.add(key)
+                    continue
+                column = _as_pool(frame.daily_scores(result.values))
+                for kind in ("pool", "tried"):
+                    if (kind, key) in unstored:
+                        found[kind, key] = frame.as_kind(kind, column)
+        for kind, graph in wanted:
+            key = _graph_key(graph)
+            if (kind, key) in unstored and key not in failed:
+                self._keep(kind, graph, found[kind, key])
+        frame.add_to_pool({name: found["pool", _graph_key(g)] for name, g in pool if _graph_key(g) not in failed})
+        joined = [(name, found["tried", _graph_key(g)]) for name, g in tried if _graph_key(g) not in failed]
+        frame.add_tried([name for name, _ in joined], [column for _, column in joined])
+        return [name for name, graph in pool + tried if _graph_key(graph) in failed]
 
     def nearest_tried(self, graphs: list[Graph]) -> list[tuple[str, float] | CompileFailure]:
         """Each graph's most correlated tried trial and that correlation, ``("", NaN)`` without one; unscored.
@@ -547,7 +638,46 @@ class Evaluator:
             known = (item for factor in self._known for item in self._read(factor, "known"))
             for j, (name, values) in enumerate(known):
                 self._frame.set_known(j, name, values)
+            if self._store_path is not None:
+                self._store = _ColumnStore(self._store_path, {
+                    **self._store_key, "segment": [self._segment.name, self._segment.start, self._segment.end],
+                    "purge_bars": self._purge_bars, "frame": self._frame.fingerprint(),
+                })
         return self._frame
+
+    def _stored(self, kind: ColumnKind, key: str, frame: "_Frame") -> list[np.ndarray] | None:
+        """The stored column of ``kind`` of graph ``key``, a tried one cut from a pool one; None without either."""
+        if self._store is None:
+            return None
+        lengths = [len(rows) for rows in frame.rows]
+        if kind == "tried":
+            column = self._store.read(key, kind, [lengths[d] for d in frame.tried_sampled])
+            if column is not None:
+                return column
+        column = self._store.read(key, "pool", lengths)
+        return None if column is None else frame.as_kind(kind, column)
+
+    def _keep(self, kind: ColumnKind, graph: Graph, column: list[np.ndarray]) -> None:
+        """Write ``graph``'s column of ``kind`` to the store, if there is one."""
+        if self._store is not None:
+            self._store.write(_graph_key(graph), kind, column)
+
+    def _compile_failures(self, graphs: list[Graph]) -> list[CompileFailure | None]:
+        """Compile the graphs as ``_values`` does, without computing them: a ``CompileFailure`` per graph that fails."""
+        if not graphs:
+            return []
+        factor = self._round_graph(graphs)
+        try:
+            factor._make()
+            for provider in factor._providers():
+                if isinstance(provider, SessionColumns):
+                    provider.compile()
+        except Exception as exc:  # KunQuant reports a bad graph as a plain exception
+            if len(graphs) == 1:
+                return [CompileFailure(f"{type(exc).__name__}: {exc}")]
+            half = len(graphs) // 2
+            return self._compile_failures(graphs[:half]) + self._compile_failures(graphs[half:])
+        return [None] * len(graphs)
 
     def _read(self, factor, kind: Kind) -> Iterator[tuple[str, np.ndarray]]:
         """Yield ``(label, values on the frame's axes)`` of every output of a reference or known factor.
@@ -560,18 +690,7 @@ class Evaluator:
 
     def _values(self, graphs: list[Graph], frame: "_Frame") -> list["_Values | CompileFailure"]:
         """Each graph's scored values and its own (unranked) presence, bisecting a batch that fails."""
-        staged = [stages.split(graph, self._vocabulary) for graph in graphs] if self._vocabulary else []
-        daily = [s.daily for s in staged] if staged else graphs
-        inputs = {name for graph in daily for name in graph.input_names}
-        providers = period_lag.providers(period_lag.read(inputs, self._period_lags)) + self._session_columns(staged)
-        factor = _RoundGraph(
-            FactorConfig(
-                warmup_bars=self._warmup_bars, dataset=self._prices, mode="batch",
-                data_columns=derived.data_columns(inputs, providers), njobs=self._njobs,
-            ),
-            daily,
-            providers,
-        )
+        factor = self._round_graph(graphs)
         start, end = self._segment.start, self._segment.end
         try:
             raw = factor.compute(start, end)
@@ -586,6 +705,21 @@ class Evaluator:
             _Values(frame.on_axes(panel[_output_name(i)]), frame.on_axes(raw[_presence_name(i)]))
             for i in range(len(graphs))
         ]
+
+    def _round_graph(self, graphs: list[Graph]) -> _RoundGraph:
+        """The graphs as one factor on the prices: their daily stages, reading their lag and session columns."""
+        staged = [stages.split(graph, self._vocabulary) for graph in graphs] if self._vocabulary else []
+        daily = [s.daily for s in staged] if staged else graphs
+        inputs = {name for graph in daily for name in graph.input_names}
+        providers = period_lag.providers(period_lag.read(inputs, self._period_lags)) + self._session_columns(staged)
+        return _RoundGraph(
+            FactorConfig(
+                warmup_bars=self._warmup_bars, dataset=self._prices, mode="batch",
+                data_columns=derived.data_columns(inputs, providers), njobs=self._njobs,
+            ),
+            daily,
+            providers,
+        )
 
     def _session_columns(self, staged: list[stages.Staged]) -> list[derived.Provider]:
         """The provider of the session columns the split graphs read, in a list; none without any."""
@@ -656,6 +790,18 @@ class _Frame:
         for i, d in enumerate(self.sampled):
             self.known[i][:, j] = sampled[i, self.rows[d]]
 
+    def fingerprint(self) -> str:
+        """A digest of the scored dates, the symbols and each date's rows."""
+        digest = hashlib.sha256()
+        digest.update(np.asarray(self.label["timestamp"].values).astype("datetime64[ns]").tobytes())
+        digest.update("\n".join(str(s) for s in self.label["symbol"].values).encode())
+        digest.update(np.packbits(self.in_rows).tobytes())
+        return digest.hexdigest()
+
+    def as_kind(self, kind: ColumnKind, column: list[np.ndarray]) -> list[np.ndarray]:
+        """A pool column (``daily_scores`` in float32) as ``kind`` holds it: itself, or on the tried trials' dates."""
+        return column if kind == "pool" else [column[d] for d in self.tried_sampled]
+
     def tried_scores(self, values: np.ndarray) -> list[np.ndarray]:
         """The normal scores of ``(date, symbol)`` values on the tried trials' sampled dates' rows, one array per date."""
         sampled = _normal_scores(np.where(self.in_rows[self.tried_sampled], values[self.tried_sampled], np.nan), axis=1)
@@ -665,11 +811,15 @@ class _Frame:
         """The correlation of ``(date, symbol)`` values with every tried trial, as ``tried_matrix`` holds them."""
         return self._tried_correlations([self.tried_scores(values)], self.tried)[0]
 
-    def add_tried(self, names: Sequence[str], values: Sequence[np.ndarray]) -> None:
-        """Add trials to the tried trials, from their ``(date, symbol)`` values, and their correlations to the matrix."""
+    def add_tried(self, names: Sequence[str], columns: Sequence[list[np.ndarray]]) -> None:
+        """Add trials to the tried trials, from their tried columns (``as_kind``), and their correlations to the matrix.
+
+        The correlations are of the columns as held, in float32, so a trial
+        joined from a stored column correlates as one computed does.
+        """
         if not names:
             return
-        scores = [self.tried_scores(v) for v in values]
+        scores = [[np.asarray(c, dtype=np.float32).astype(np.float64) for c in column] for column in columns]
         added = [np.column_stack([s[i] for s in scores]).astype(np.float32) for i in range(len(self.tried_sampled))]
         before = len(self.tried_names)
         self.tried = [np.column_stack([old, new]) for old, new in zip(self.tried, added)]
@@ -706,14 +856,15 @@ class _Frame:
 class _Scores:
     """A batch's statistics, with the residuals that admitting a candidate updates."""
 
-    def __init__(self, frame: _Frame, values: list[np.ndarray]):
+    def __init__(self, frame: _Frame, values: list[np.ndarray], candidates: list[list[np.ndarray]]):
+        """``candidates`` are the ``values``' ``daily_scores``."""
         self.frame = frame
         self.values = values
+        self.candidates = candidates
         self.admitted: list[tuple[int, str]] = []
         self.residuals = []
         self.spreads = []
         daily_pool, daily_batch, daily_known = [], [], []
-        candidates = [frame.daily_scores(v) for v in values]
         for d in range(len(frame.rows)):
             scores = np.column_stack([c[d] for c in candidates])
             self.spreads.append(((scores - scores.mean(axis=0)) ** 2).sum(axis=0))
@@ -779,7 +930,66 @@ class _Scores:
                 continue
             direction = direction / norm
             residuals[:, k + 1:] -= np.outer(direction, direction @ residuals[:, k + 1:])
-        self.frame.add_to_pool({name: self.values[k]})
+        self.frame.add_to_pool({name: self.candidates[k]})
+
+
+def _graph_key(graph: Graph) -> str:
+    """The name a graph's columns are stored under: the hash of its JSON."""
+    return hashlib.sha256(json.dumps(graph.to_json(), sort_keys=True).encode()).hexdigest()
+
+
+def _as_pool(scores: list[np.ndarray]) -> list[np.ndarray]:
+    """``daily_scores`` as the pool holds them, in float32."""
+    return [day.astype(np.float32) for day in scores]
+
+
+class _ColumnStore:
+    """Columns of graphs on one scored frame, in a directory: ``<graph key>.<kind>.npy`` and ``fingerprint.json``.
+
+    A column is its days' arrays one after the other, in float32. The
+    directory is emptied when its fingerprint is not ``fingerprint``. A file
+    is written to a temporary name and renamed, so a crash leaves none half
+    written.
+    """
+
+    def __init__(self, directory: Path, fingerprint: Mapping):
+        self._directory = directory
+        text = json.dumps(fingerprint, sort_keys=True, default=str) + "\n"
+        marker = directory / "fingerprint.json"
+        if directory.exists() and (not marker.exists() or marker.read_text() != text):
+            shutil.rmtree(directory)
+        directory.mkdir(parents=True, exist_ok=True)
+        if not marker.exists():
+            self._replace(marker, lambda f: f.write(text.encode()))
+
+    def read(self, key: str, kind: ColumnKind, lengths: Sequence[int]) -> list[np.ndarray] | None:
+        """The column of ``kind`` of graph ``key``, cut into days of ``lengths``; None when it is not stored whole."""
+        path = self._directory / f"{key}.{kind}.npy"
+        if not path.exists():
+            return None
+        try:
+            flat = np.load(path, allow_pickle=False)
+        except (OSError, ValueError):
+            return None
+        if flat.dtype != np.float32 or flat.shape != (sum(lengths),):
+            return None
+        return np.split(flat, np.cumsum(lengths)[:-1])
+
+    def write(self, key: str, kind: ColumnKind, column: list[np.ndarray]) -> None:
+        """Store the column of ``kind`` of graph ``key``."""
+        flat = np.concatenate([np.zeros(0, dtype=np.float32), *column]).astype(np.float32)
+        self._replace(self._directory / f"{key}.{kind}.npy", lambda f: np.save(f, flat, allow_pickle=False))
+
+    def _replace(self, path: Path, write: Callable) -> None:
+        """Write ``path`` with ``write(file)``: to a temporary file in the directory, renamed over ``path``."""
+        handle, temporary = tempfile.mkstemp(dir=self._directory, prefix=".", suffix=".tmp")
+        try:
+            with os.fdopen(handle, "wb") as f:
+                write(f)
+            os.replace(temporary, path)
+        except BaseException:
+            Path(temporary).unlink(missing_ok=True)
+            raise
 
 
 def _traceable(node, graph: Graph) -> bool:
