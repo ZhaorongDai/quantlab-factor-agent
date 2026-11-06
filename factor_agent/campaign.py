@@ -59,7 +59,9 @@ families, every direction is new and no memory is distilled. With
 ``context.theme_correlation`` every evaluated trial joins the Evaluator's
 tried trials and the planner also reads them grouped by what their factors
 measure (``_feedback.themes``); a resume computes the tried trials again
-from the ledger. With ``context.send_back_repeats`` too, before a round is
+from the ledger. With ``context.lineage`` each round computes every trial's
+Lineage (``_lineage``) once, and the planner's accepted factors and the
+proposer's parent block carry it. With ``context.send_back_repeats`` too, before a round is
 scored, a new direction's candidate that correlates that much with an
 earlier trial is rewritten once (``_renew``); a slot is rewritten once in
 all, so a candidate the reviewer sent back is not checked again.
@@ -96,7 +98,8 @@ from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-from factor_agent import _admission, _feedback, _scheduler
+from factor_agent import _admission, _feedback, _lineage, _scheduler
+from factor_agent._lineage import Lineage
 from factor_agent.config import ROLES, AdmissionConfig, CampaignConfig
 from factor_agent.evaluator import CompileFailure, DailyIC, Evaluator, Metrics
 from factor_agent.events import (
@@ -328,10 +331,13 @@ class Campaign:
                     state.write(state_path)
                 quota = _scheduler.quota(number, records, config.round, prompts.mechanism_types)
                 accepted = [r for r in records if r.status == "accepted"]
-                context = self._context(records, state, reference, known, evaluator, accepted, recent_rounds, prompts)
                 trials = _feedback.named(records)
+                lineage = _lineage.lineages(trials, config.admission) if config.context.lineage else {}
+                context = self._context(
+                    records, state, reference, known, evaluator, accepted, recent_rounds, prompts, lineage,
+                )
                 parents = {
-                    trial: _feedback.parent(trial, r, trials) for trial, r in trials if r.evaluated
+                    trial: _feedback.parent(trial, r, trials, lineage.get(trial)) for trial, r in trials if r.evaluated
                 } if config.context.feedback else {}
                 directions, issues = researcher.plan(
                     number, quota, context, list(parents) if config.context.feedback else None,
@@ -405,6 +411,8 @@ class Campaign:
                 del context["theme_correlation"]  # likewise
             if not context["send_back_repeats"]:
                 del context["send_back_repeats"]  # likewise
+            if not context["lineage"]:
+                del context["lineage"]  # likewise
             files, settings = self.config.search_files(), {"context": context}
             if self.config.data.intraday is not None:
                 settings["intraday"] = {"dataset": json.loads(json.dumps(self.config.data.intraday))}
@@ -444,13 +452,14 @@ class Campaign:
 
     def _context(
         self, records: list[TrialRecord], state: _State, reference: list, known: list, evaluator: Evaluator,
-        accepted: list[TrialRecord], recent_rounds: int, prompts: Prompts,
+        accepted: list[TrialRecord], recent_rounds: int, prompts: Prompts, lineage: dict[str, Lineage] | None = None,
     ) -> dict[str, str]:
         """The sections the planner and the proposer read; see ``_feedback``.
 
         The trials of the last ``recent_rounds`` rounds are the recent
         history, one line each; the older ones are counted in the earlier
-        summary, by mechanism type in the order of ``prompts``. With
+        summary, by mechanism type in the order of ``prompts``. Each accepted
+        factor carries its ``lineage`` (by trial id) when given. With
         ``context.feedback`` off only the seed directions and the families.
         """
         given = {"seed": _seed(self.config.directions), "families": _feedback.families(reference, known)}
@@ -469,7 +478,7 @@ class Campaign:
                 [(t, r) for t, r in trials if r.round >= first_recent], earlier=trials,
             ),
             "last_round": _feedback.last_round([(t, r) for t, r in trials if r.round == state.rounds], trials),
-            "best": _feedback.best(trials, evaluator.contributions(labels) if labels else {}),
+            "best": _feedback.best(trials, evaluator.contributions(labels) if labels else {}, lineage),
             **({"themes": _feedback.themes(
                 trials, *evaluator.tried(), self.config.context.theme_correlation, self.config.context.send_back_repeats,
             )} if self.config.context.theme_correlation is not None else {}),

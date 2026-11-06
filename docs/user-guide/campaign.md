@@ -121,6 +121,7 @@ known factor at a time.
 | `context.feedback` | true | whether the planner and the proposer read the earlier trials and a memory is distilled; off, every direction is new (a control run) |
 | `context.theme_correlation` | null | the absolute correlation at which an evaluated trial is grouped with an earlier one; set, the planner reads the groups (see below) |
 | `context.send_back_repeats` | false | whether a new direction's candidate in a group is rewritten once before it is evaluated; needs `context.theme_correlation` |
+| `context.lineage` | false | whether the planner's accepted factors and the proposer's parent carry each trial's Lineage (see below); needs `context.feedback` |
 
 ## Stopping and resuming
 
@@ -145,7 +146,7 @@ The first start copies the field, operator and replaced template files into
 `snapshot/` with their hashes, and the run searches with those copies. A resume whose
 files differ fails: a new search space needs a new run directory. A resume on other
 commits of factor_agent or quantlab only warns, and `state.json` lists the commits of every
-start and resume. `round.groups` may change on a resume; `context.recent_rounds`, `context.feedback`, `context.theme_correlation` and `context.send_back_repeats` may not.
+start and resume. `round.groups` may change on a resume; `context.recent_rounds`, `context.feedback`, `context.theme_correlation`, `context.send_back_repeats` and `context.lineage` may not.
 The reference set and the known factors are read from the config on every start. Every
 start and resume also keeps the config it was given as `config/open-<k>.yaml` (the first
 start is `open-1.yaml`), so a run says which settings it ran with even after the config
@@ -244,6 +245,20 @@ evaluated and is not a trial. Its rewrite is checked by the Gate again, and fixe
 the rest, whatever it measures. A refinement or a mutation is not
 checked, and a slot is rewritten once in all: a candidate the reviewer sent back is not
 checked again.
+
+With `context.lineage: true`, each accepted factor in the planner's context, and the parent
+trial the proposer is given for a refinement or a mutation, carries the trial's
+**Lineage**, one line on the trials whose direction names it as their parent (its direct
+children):
+
+```text
+lineage: 6 trials built on it (4 refinements, 2 mutations), 2 stopped before evaluation, 1 accepted (T2-03); best evaluated child T2-03, residual t in its direction +5.00 against this trial's +3.50
+```
+
+A child that stopped before evaluation (refused by the parser, the Gate or the reviewer, or
+not compiled) counts, so a parent whose children all failed does not look untried. The
+residual t is the partial IC's Newey-West t in each trial's own direction. The Lineage is
+computed from the ledger before each round; off, no prompt holds it.
 
 A candidate refused for its coverage is told where its graph loses its values: the first
 step whose coverage falls below `admission.min_coverage` while its inputs' does not, with

@@ -5,13 +5,20 @@ any evaluated trial, accepted or refused, as the parent of a refinement or a
 mutation, and the proposer is given that trial's code, statistics and reasons.
 With ``context.feedback`` off, no planner or proposer prompt holds an earlier
 trial and no memory is distilled: the control arm of a test of whether the
-agent learns from its trials.
+agent learns from its trials. With ``context.lineage`` the planner's
+accepted factors and the proposer's parent block carry each trial's Lineage:
+how the trials built on it did.
 """
 
-import pytest
+import json
 
+import pytest
+import yaml
+
+from factor_agent.config import ContextConfig
+from factor_agent.snapshot import SnapshotMismatch
 from tests.campaign_runner import candidate, run, write_config
-from tests.fake_llm import FakeLLM, has_tag, new_directions, tagged
+from tests.fake_llm import FakeLLM, has_tag, new_directions, round_of, tagged
 from tests.test_campaign_loop import market, noise  # noqa: F401  (the module's synthetic store)
 
 REFINED = "alpha = BackRef(close, 3) / BackRef(WindowedAvg(close, 30), 3)"
@@ -177,3 +184,74 @@ def test_the_feedback_shows_the_order_of_the_deciles_returns_and_no_return(overl
     first = tagged_text(planner, "last_round").split("\n2. ")[0]
     assert "the deciles' returns ranked from 1 (lowest) to 10, lowest factor values first: " + " ".join(map(str, ranks)) in first
     assert f"{deciles[0]:.4f}" not in planner
+
+
+def _lineage_plan(number, quota, prompt):
+    """Every round after the first refines T1-01 (the volume shock, accepted) in its first slot."""
+    directions = new_directions(number, quota, prompt)
+    if number > 1:
+        directions[0] = {**directions[0], "action": "refinement", "parent": "T1-01",
+                         "direction": "the volume shock with the day's move"}
+    return directions
+
+
+@pytest.fixture(scope="module")
+def with_lineage(tmp_path_factory, market):  # noqa: F811
+    fake = FakeLLM(_overlap_propose, plan=_lineage_plan)
+    root = tmp_path_factory.mktemp("with_lineage")
+    result = _campaign(root, market, fake, context={"lineage": True}, max_rounds=3)
+    return {"result": result, "fake": fake, "root": root}
+
+
+def test_with_lineage_the_planners_accepted_factors_carry_each_ones_lineage(with_lineage):
+    records = with_lineage["result"].records
+    assert records[0].status == "accepted"
+    child = [r for r in records if r.round == 2][0]
+    assert child.evaluated and child.status != "accepted"
+    second, third = (r.prompt for r in with_lineage["fake"].of_role("planner")[1:3])
+    assert "  lineage: no trial has built on it yet" in tagged_text(second, "best")
+    t = child.metrics["partial_ic_t"] * (1 if child.metrics["ic_mean"] > 0 else -1)
+    own = records[0].metrics["partial_ic_t"] * (1 if records[0].metrics["ic_mean"] > 0 else -1)
+    assert (
+        "  lineage: 1 trial built on it (1 refinement, 0 mutations), 0 stopped before evaluation, none accepted; "
+        f"best evaluated child T2-01, residual t in its direction {t:+.2f} against this trial's {own:+.2f}"
+    ) in tagged_text(third, "best")
+
+
+def test_with_lineage_the_proposers_parent_block_carries_the_parents_lineage(with_lineage):
+    proposers = {round_of(r.prompt): r.prompt for r in with_lineage["fake"].of_role("proposer")}
+    assert tagged(proposers[2], "directions")[0]["parent_trial"].endswith("\n   lineage: no trial has built on it yet")
+    assert "\n   lineage: 1 trial built on it (1 refinement, 0 mutations)" in tagged(proposers[3], "directions")[0]["parent_trial"]
+    snapshot = json.loads((with_lineage["root"] / "run" / "snapshot.json").read_text())
+    assert snapshot["settings"]["context"]["lineage"] is True
+
+
+def test_without_lineage_no_prompt_carries_a_lineage_and_the_snapshot_does_not_record_it(overlapping):
+    fake = overlapping["fake"]
+    assert not any("lineage:" in r.prompt for role in ("planner", "proposer") for r in fake.of_role(role))
+    snapshot = json.loads((overlapping["result"].ledger_path.parent / "snapshot.json").read_text())
+    assert "lineage" not in snapshot["settings"]["context"]
+
+
+def test_a_resume_may_not_switch_lineage_on_and_a_run_without_it_resumes(tmp_path, market):  # noqa: F811
+    path = write_config(
+        tmp_path, market["components"], round={"candidates": 10, "min_per_type": 1, "retries": 0, "max_rounds": 1},
+    )
+    run(path, FakeLLM(_overlap_propose, plan=_lineage_plan), market["cache"])
+    config = yaml.safe_load(path.read_text())
+    config["round"]["max_rounds"] = 2
+    path.write_text(yaml.safe_dump(config))
+    assert run(path, FakeLLM(_overlap_propose, plan=_lineage_plan), market["cache"]).rounds == 2
+    config["round"]["max_rounds"], config["context"] = 3, {"lineage": True}
+    path.write_text(yaml.safe_dump(config))
+    fake = FakeLLM(_overlap_propose, plan=_lineage_plan)
+    with pytest.raises(SnapshotMismatch, match=r"context\.lineage"):
+        run(path, fake, market["cache"])
+    assert fake.requests == []
+
+
+def test_lineage_needs_the_earlier_trials():
+    with pytest.raises(ValueError, match="lineage needs feedback"):
+        ContextConfig(feedback=False, lineage=True)
+    with pytest.raises(TypeError, match="lineage"):
+        ContextConfig(lineage="yes")
