@@ -1,0 +1,23 @@
+cff-version: 1.2.0
+message: If you use quantlab-factor-agent in your research, please cite it as below.
+type: software
+title: quantlab-factor-agent
+abstract: >-
+  LLM-driven, mechanism-first mining of stock factors on quantlab: language models
+  propose economic mechanisms and the KunQuant code they imply, and fixed checks and
+  training-segment statistics decide which factors are new and add to the existing set.
+version: 0.1.0
+date-released: 2026-11-06
+authors:
+  - family-names: Dai
+    given-names: Zhaorong
+license:
+  - MIT
+  - Apache-2.0
+repository-code: https://github.com/ZhaorongDai/quantlab-factor-agent
+url: https://zhaorongdai.github.io/quantlab-factor-agent/
+keywords:
+  - quantitative finance
+  - factor investing
+  - alpha mining
+  - large language models

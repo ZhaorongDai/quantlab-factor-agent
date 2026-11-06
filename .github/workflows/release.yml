@@ -36,6 +36,10 @@ jobs:
       - name: The CHANGELOG has a section for the version
         run: grep -q "^## ${GITHUB_REF_NAME#v} (" CHANGELOG.md
 
+      - name: CITATION.cff names the version
+        run: |
+          grep -qx "version: ${GITHUB_REF_NAME#v}" CITATION.cff
+
       - name: The tagged commit passed CI
         # A release ships only a commit whose CI run succeeded. The tag push starts its
         # own CI run on the same commit, so this waits (up to 90 minutes) for one of the

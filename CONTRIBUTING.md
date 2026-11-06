@@ -86,7 +86,8 @@ tree. The package depends on `quantlab-py` from PyPI, so release quantlab first 
 package needs a quantlab change, and raise the bound in `pyproject.toml`; CI's package job
 imports every module from the built wheel with its dependencies from PyPI and fails when
 the quantlab there is too old. To release, set `version` in `pyproject.toml` and
-`__version__` in `factor_agent/__init__.py`, move the *Unreleased* entries of the changelog
+`__version__` in `factor_agent/__init__.py`, set `version` and `date-released` in
+`CITATION.cff`, move the *Unreleased* entries of the changelog
 under a `## <version> (<date>)` heading, merge that, then tag `main` and push the tag:
 
 ```bash
