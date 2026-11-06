@@ -8,6 +8,13 @@ layout; there are no compatibility shims or config migrations.
 
 ### Added
 
+- `Campaign.check()` reports what `run()` would refuse before its first LLM call, every
+  problem at once, without writing to the run directory or computing a factor: a data
+  component that does not load or reads a store that does not exist, the scoring, a role
+  whose backend cannot be built (an unset API key variable), the reference and known
+  factors, a resume's files or settings that differ from the run snapshot, the vocabulary
+  and the templates; a check that needs a part that failed is reported as skipped with the
+  reason, and other code versions on a resume as a warning (`factor_agent.preflight`).
 - `context.lineage`: the planner's accepted factors and the proposer's parent trial carry
   each trial's Lineage, one line on the trials built on it: how many, refinements and
   mutations, how many stopped before evaluation, which were accepted, and the best child's

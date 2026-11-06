@@ -164,7 +164,7 @@ def theme_groups(names: list[str], matrix, threshold: float) -> list[list[str]]:
     opens a group of its own otherwise. The groups are in the order they
     were opened, each in the order its trials were tried.
     """
-    order = sorted(range(len(names)), key=lambda k: _trial_order(names[k]))
+    order = sorted(range(len(names)), key=lambda k: trial_order(names[k]))
     group_of: dict[int, int] = {}
     groups: list[list[str]] = []
     for position, j in enumerate(order):
@@ -179,7 +179,7 @@ def theme_groups(names: list[str], matrix, threshold: float) -> list[list[str]]:
     return groups
 
 
-def _trial_order(trial: str) -> tuple[int, int]:
+def trial_order(trial: str) -> tuple[int, int]:
     """The round and the slot of a trial id (``trial_id``)."""
     number, slot = _TRIAL_ID.fullmatch(trial).groups()
     return int(number), int(slot)

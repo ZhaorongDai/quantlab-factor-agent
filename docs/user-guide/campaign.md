@@ -124,6 +124,42 @@ known factor at a time.
 | `context.send_back_repeats` | false | whether a new direction's candidate in a group is rewritten once before it is evaluated; needs `context.theme_correlation` |
 | `context.lineage` | false | whether the planner's accepted factors and the proposer's parent carry each trial's Lineage (see below); needs `context.feedback` |
 
+## Checking a config
+
+`Campaign(config).check()` finds what `run()` would refuse before its first LLM call,
+without starting the run: it writes nothing (a run directory that does not exist yet is
+not made, one that does is left byte for byte as it was) and computes no factor, so it
+takes seconds where a start would first score the reference set. It checks each part on
+its own and reports every problem at once:
+
+- each data component loads and the stores it reads exist, and the price dataset's
+  columns can be read;
+- the scoring's exposures load;
+- each role's backend can be built: an unset API key variable is a problem;
+- the reference and known factors load;
+- on a resume, the field, operator and template files and the recorded settings are the
+  run snapshot's (a difference is a problem, as it would refuse the resume), and the code
+  versions are the run's last (a difference is a warning, as a resume only warns of it);
+- the vocabulary builds against the price dataset's columns, and the templates with it.
+
+The vocabulary needs the price dataset (and the intraday one, when the config names it),
+and the templates need the vocabulary, the label and the scoring; when one of those
+fails, the check that needs it is reported as skipped, with the reason, so a clean report
+after a fix is not mistaken for a complete one.
+
+```python
+from factor_agent.campaign import Campaign
+from factor_agent.config import CampaignConfig
+
+report = Campaign(CampaignConfig.from_file("campaign.yaml")).check()
+print(report.text())    # one line per check: ok, problem, warning or skipped
+if not report.ok:       # report.problems lists them as "<check>: <problem>"
+    raise SystemExit(1)
+```
+
+`check()` sends no request to a provider, so a wrong model name or base URL is still
+found at the first call.
+
 ## Stopping and resuming
 
 Before each round the run checks its stop conditions: `max_rounds`, `max_trials` and

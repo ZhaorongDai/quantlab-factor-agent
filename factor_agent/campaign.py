@@ -32,7 +32,11 @@ its files starts cleanly once they are fixed. It then opens the run's
 ``RunSnapshot``: a first start copies the config's field, operator and
 template files into the run directory, a resume fails if they changed
 since and warns if the commits did; every commit is listed in
-``state.json``. The run searches with the snapshot's copies. A replay (roles on the ``replay`` backend) searches with the
+``state.json``. The run searches with the snapshot's copies. ``check``
+makes these checks and the others a start makes before its first LLM call
+(the data and the stores it reads, the roles' backends, the reference and
+known factors, the snapshot's ``differences``) part by part, writing
+nothing, and reports every problem at once in a ``preflight.CheckReport``. A replay (roles on the ``replay`` backend) searches with the
 snapshot of the run whose LLM log it replays, whatever the config's files
 say now.
 
@@ -114,13 +118,15 @@ from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.ledger import Ledger, TrialRecord
 from factor_agent.llm.base import AskingAgain, LLMBackend, ProviderQuotaExhausted, make_backend
 from factor_agent.llm.log import LLMLog, RecordingBackend
+from factor_agent.preflight import Check, CheckReport
 from factor_agent.prompts import Prompts, Templates
 from factor_agent.researcher import Proposal, Researcher
 from factor_agent.scoring import Scoring
 from factor_agent.segments import code_version
 from factor_agent.session import SESSION_INPUTS
-from factor_agent.snapshot import RunSnapshot, SnapshotMismatch
+from factor_agent.snapshot import RunSnapshot, SearchFiles, SnapshotMismatch
 from factor_agent.zoo import Zoo
+from quantlab.core.store_uses import READS, walk_store_uses
 
 
 @dataclass(frozen=True)
@@ -243,10 +249,8 @@ class Campaign:
         """
         config, run_dir = self.config, Path(self.config.run_dir)
         state_path = run_dir / "state.json"
-        prices = config.data.load("prices")
-        intraday = config.data.load("intraday") if config.data.intraday is not None else None
-        columns, intraday_columns = _columns(prices), _intraday_columns(intraday)
-        snapshot = self._snapshot(run_dir, state_path, columns, intraday_columns)
+        prices, intraday, columns, intraday_columns, files, settings = self._load(run_dir, state_path)
+        snapshot = RunSnapshot.open(run_dir, files, code_version(), settings)
         _keep_config(config, run_dir, opening=len(snapshot.versions))
         recent_rounds = snapshot.settings["context"]["recent_rounds"]
         vocabulary = config.vocabulary(columns, snapshot.search_files, intraday_columns)
@@ -370,18 +374,118 @@ class Campaign:
             memory=state.memory, not_covered=zoo.not_covered,
         )
 
-    def _snapshot(
-        self, run_dir: Path, state_path: Path, columns: set[str] | None, intraday_columns: set[str] | None = None,
-    ) -> RunSnapshot:
-        """Open the run's snapshot: of the config's files, or, in a replay, of the replayed run's snapshot.
+    def check(self) -> CheckReport:
+        """What ``run`` would refuse before its first LLM call, found without writing anything or computing a factor.
 
-        The replaced templates and the vocabulary (against the price
-        dataset's ``columns`` and the intraday dataset's ``intraday_columns``)
-        are checked first, so broken files are never snapshotted and a run
-        refused for them starts cleanly once they are fixed. The settings
-        recorded are the prompt context, ``round.max_children`` when set and,
-        with an intraday dataset, that dataset, which the intraday family's
-        fields mean.
+        Each part is checked on its own and every problem is reported at
+        once: each data component (it loads, the stores it reads exist and
+        the price dataset's columns can be read), the scoring, each role's
+        backend (it can be built: an unset API key variable is a problem;
+        a backend passed in is not checked), the reference and known
+        factors, the run snapshot (on a resume, files or settings that
+        differ from it are a problem, other code versions a warning), the
+        vocabulary and the templates. The vocabulary needs the price and
+        intraday datasets' columns and the templates need the vocabulary,
+        the label and the scoring; each is skipped, with the reason, when
+        a part it needs failed. The run directory is only read.
+
+        Returns
+        -------
+        CheckReport
+            One ``Check`` per part, in that order; the run can start when its ``problems`` is empty.
+        """
+        config, run_dir = self.config, Path(self.config.run_dir)
+        checks: list[Check] = []
+
+        def attempt(name: str, work: Callable[[], object]) -> object:
+            """``work()``, or ``_FAILED`` with its problems recorded as ``name``'s."""
+            try:
+                value = work()
+            except Exception as exc:  # every problem is reported, none raised
+                checks.append(Check(name, problems=_problems(exc)))
+                return _FAILED
+            checks.append(Check(name))
+            return value
+
+        def data(name: str) -> object:
+            return _reading(config.data.load(name))
+
+        def scored() -> Scoring:
+            scoring = Scoring.from_config(config.scoring, config.data, njobs=config.evaluator.njobs)
+            if scoring.neutralization is not None:
+                _reading(scoring.neutralization.exposures)
+            return scoring
+
+        def with_columns(name: str, columns: Callable) -> tuple:
+            component = data(name)
+            return component, columns(component)
+
+        loaded = attempt("data.prices", lambda: with_columns("prices", _columns))
+        columns = _FAILED if loaded is _FAILED else loaded[1]
+        label = attempt("data.label", lambda: data("label"))
+        if config.data.membership is not None:
+            attempt("data.membership", lambda: data("membership"))
+        intraday_columns = None
+        if config.data.intraday is not None:
+            loaded = attempt("data.intraday", lambda: with_columns("intraday", _intraday_columns))
+            intraday_columns = _FAILED if loaded is _FAILED else loaded[1]
+        scoring = attempt("scoring", scored)
+        for role in ROLES:
+            if role in self._replaced:
+                checks.append(Check(f"llm.{role}"))
+            else:
+                attempt(f"llm.{role}", lambda role=role: make_backend(config.roles[role].spec()))
+        attempt("reference and known factors", config.load_factors)
+        files = self._check_snapshot(run_dir, checks)
+
+        needs = {"data.prices": columns, "data.intraday": intraday_columns, "run snapshot": files}
+        if lacking := [name for name, value in needs.items() if value is _FAILED]:
+            vocabulary = _FAILED
+            checks.append(Check("vocabulary", skipped=f"it needs {_parts(lacking)}, which failed"))
+        else:
+            vocabulary = attempt("vocabulary", lambda: config.vocabulary(columns, files, intraday_columns))
+        needs = {"vocabulary": vocabulary, "data.label": label, "scoring": scoring}
+        if lacking := [name for name, value in needs.items() if value is _FAILED]:
+            checks.append(Check("templates", skipped=f"they need {_parts(lacking)}, which failed or did not run"))
+        else:
+            attempt("templates", lambda: self._prompts(config.templates(files), vocabulary, label, scoring))
+        return CheckReport(tuple(checks))
+
+    def _check_snapshot(self, run_dir: Path, checks: list[Check]) -> SearchFiles | object:
+        """Check the files and settings the run would open its snapshot with; return the files, or ``_FAILED``.
+
+        A first start has nothing to compare; a resume's differences from the
+        snapshot are problems and other code versions a warning. A file that
+        cannot be read is a problem, but the files are still returned for
+        the vocabulary to report it in its terms.
+        """
+        try:
+            files, settings = self._search(run_dir, run_dir / "state.json")
+        except Exception as exc:  # every problem is reported, none raised
+            checks.append(Check("run snapshot", problems=_problems(exc)))
+            return _FAILED
+        if not RunSnapshot.exists(run_dir):
+            checks.append(Check("run snapshot"))
+            return files
+        snapshot = RunSnapshot.read(run_dir)
+        try:
+            problems = tuple(snapshot.differences(files, settings))
+        except Exception as exc:  # a file that cannot be read
+            problems = _problems(exc)
+        changed = snapshot.version_change(code_version())
+        checks.append(Check("run snapshot", problems=problems, warnings=(changed,) if changed else ()))
+        return files
+
+    def _load(self, run_dir: Path, state_path: Path) -> tuple:
+        """The loading half of a start, which writes nothing.
+
+        ``(prices, intraday, columns, intraday_columns, files, settings)``: the
+        price and intraday datasets, their columns (``_columns``,
+        ``_intraday_columns``), and the files and settings the run's
+        snapshot is opened with (``_search``). The replaced templates and the
+        vocabulary (against the price dataset's columns and the intraday
+        dataset's) are checked here, so broken files are never snapshotted
+        and a run refused for them starts cleanly once they are fixed.
 
         Raises
         ------
@@ -389,6 +493,26 @@ class Campaign:
             If a replaced template lacks a placeholder its role needs or uses one it may not.
         VocabularyError
             With every problem of the field and operator files.
+        SnapshotMismatch, ValueError
+            As ``_search`` does.
+        """
+        prices = self.config.data.load("prices")
+        intraday = self.config.data.load("intraday") if self.config.data.intraday is not None else None
+        columns, intraday_columns = _columns(prices), _intraday_columns(intraday)
+        files, settings = self._search(run_dir, state_path)
+        self.config.templates(files)
+        self.config.vocabulary(columns, files, intraday_columns)
+        return prices, intraday, columns, intraday_columns, files, settings
+
+    def _search(self, run_dir: Path, state_path: Path) -> tuple[SearchFiles, dict]:
+        """The files and settings to open the run's snapshot with: the config's, or, in a replay, the replayed run's.
+
+        The settings recorded are the prompt context, ``round.max_children``
+        when set and, with an intraday dataset, that dataset, which the
+        intraday family's fields mean.
+
+        Raises
+        ------
         SnapshotMismatch
             If the run directory holds a state but no snapshot (a run started before snapshots).
         ValueError
@@ -408,25 +532,22 @@ class Campaign:
             raise ValueError(f"campaign: the roles replay several runs {sorted(map(str, replayed))}; replay one")
         if replayed:
             recorded = RunSnapshot.read(replayed.pop())
-            files, settings = recorded.search_files, recorded.settings
-        else:
-            context = asdict(self.config.context)
-            if context["feedback"]:
-                del context["feedback"]  # as runs started before the setting recorded their context
-            if context["theme_correlation"] is None:
-                del context["theme_correlation"]  # likewise
-            if not context["send_back_repeats"]:
-                del context["send_back_repeats"]  # likewise
-            if not context["lineage"]:
-                del context["lineage"]  # likewise
-            files, settings = self.config.search_files(), {"context": context}
-            if self.config.round.max_children is not None:
-                settings["round"] = {"max_children": self.config.round.max_children}  # left out unset, likewise
-            if self.config.data.intraday is not None:
-                settings["intraday"] = {"dataset": json.loads(json.dumps(self.config.data.intraday))}
-        self.config.templates(files)
-        self.config.vocabulary(columns, files, intraday_columns)
-        return RunSnapshot.open(run_dir, files, code_version(), settings)
+            return recorded.search_files, recorded.settings
+        context = asdict(self.config.context)
+        if context["feedback"]:
+            del context["feedback"]  # as runs started before the setting recorded their context
+        if context["theme_correlation"] is None:
+            del context["theme_correlation"]  # likewise
+        if not context["send_back_repeats"]:
+            del context["send_back_repeats"]  # likewise
+        if not context["lineage"]:
+            del context["lineage"]  # likewise
+        settings = {"context": context}
+        if self.config.round.max_children is not None:
+            settings["round"] = {"max_children": self.config.round.max_children}  # left out unset, likewise
+        if self.config.data.intraday is not None:
+            settings["intraday"] = {"dataset": json.loads(json.dumps(self.config.data.intraday))}
+        return self.config.search_files(), settings
 
     def _opened(self, snapshot: RunSnapshot, state: _State, dropped: bool) -> Start:
         """The events file's record of this opening: a start, or a resume naming the round it ``dropped``."""
@@ -667,6 +788,49 @@ class Campaign:
             stats=checked.stats, attempts=_attempts(proposal), direction=proposal.direction.to_dict(),
             graph=checked.graph.to_json(),
         )
+
+
+#: What a part ``Campaign.check`` could not check gives in place of its value.
+_FAILED = object()
+
+
+class _Problems(Exception):
+    """Several problems of one part of a check."""
+
+    def __init__(self, problems: list[str]):
+        self.problems = tuple(problems)
+        super().__init__("; ".join(problems))
+
+
+def _problems(exc: Exception) -> tuple[str, ...]:
+    """The problems an exception reports: each of a ``VocabularyError``'s or a ``PromptError``'s, or its message."""
+    problems = getattr(exc, "problems", None)
+    if problems:
+        return tuple(problems)
+    return (str(exc) or type(exc).__name__,)
+
+
+def _reading(component):
+    """``component`` (or a list of components), checked to read only stores that exist.
+
+    Raises
+    ------
+    _Problems
+        Naming every store it reads that does not exist.
+    """
+    components = component if isinstance(component, list) else [component]
+    missing = [
+        use.path for item in components for use in walk_store_uses(item)
+        if use.relation == READS and use.path is not None and not Path(use.path).exists()
+    ]
+    if missing:
+        raise _Problems([f"the store {path} it reads does not exist" for path in dict.fromkeys(missing)])
+    return component
+
+
+def _parts(names: list[str]) -> str:
+    """``names`` joined for a sentence."""
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
 
 
 def _coverage_cause(evaluator: Evaluator, graph: Graph, vocabulary: Vocabulary, admission: AdmissionConfig) -> str:
