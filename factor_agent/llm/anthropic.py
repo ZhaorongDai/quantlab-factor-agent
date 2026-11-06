@@ -34,10 +34,13 @@ class AnthropicBackend:
             api_key=key_from_environment("ANTHROPIC_API_KEY"), base_url=base_url, timeout=timeout_seconds,
         )
 
+    #: The options a role's config may give besides ``backend`` and ``model``.
+    OPTIONS = ("max_tokens", "effort", "base_url", "timeout_seconds")
+
     @classmethod
     def from_config(cls, spec: dict) -> "AnthropicBackend":
         """Build from a role's config: ``model`` and optionally ``max_tokens``, ``effort``, ``base_url``, ``timeout_seconds``."""
-        options = {k: spec[k] for k in ("max_tokens", "effort", "base_url", "timeout_seconds") if k in spec}
+        options = {k: spec[k] for k in cls.OPTIONS if k in spec}
         return cls(spec["model"], **options)
 
     @property

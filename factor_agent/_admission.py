@@ -56,6 +56,11 @@ def direction(ic_mean: float) -> int:
     return int(np.sign(ic_mean)) if math.isfinite(ic_mean) else 0
 
 
+def directional_t(metrics: dict) -> float:
+    """An evaluated trial's residual (partial IC) Newey-West t in its direction, from its record's ``metrics``."""
+    return direction(metrics["ic_mean"]) * metrics["partial_ic_t"]
+
+
 def monotonicity(decile_returns, sign: int) -> float:
     """The Spearman correlation of the decile number with the decile returns, signed by ``sign``."""
     returns = np.asarray(decile_returns, dtype=float)

@@ -37,6 +37,7 @@ from quantlab.core.store_folder import load_component
 
 from factor_agent import _acceptance_model
 from factor_agent.gate.vocabulary import Vocabulary, VocabularyError
+from factor_agent.llm.base import backend_options, refuse_secrets
 from factor_agent.prompts import Templates
 from factor_agent.segments import PURGE_BARS, Segment, Segments
 from factor_agent.snapshot import SearchFiles
@@ -114,6 +115,32 @@ class ScoringConfig:
 def load_each(value: dict | str | list) -> Any:
     """Rebuild a component (see ``load``), or each of a list of components."""
     return [load(item) for item in value] if isinstance(value, list) else load(value)
+
+
+class FactorsError(ValueError):
+    """The reference or known factor entries that cannot be rebuilt, one problem each."""
+
+    def __init__(self, problems: list[str]):
+        self.problems = tuple(problems)
+        super().__init__("campaign config: " + "; ".join(problems))
+
+
+def _load_entries(section: str, entries: tuple, problems: list[str]) -> list:
+    """Rebuild each of ``section``'s ``entries`` (``load``), adding a problem naming each that fails to ``problems``."""
+    loaded = []
+    for position, component in enumerate(entries):
+        try:
+            loaded.append(load(component))
+        except Exception as exc:  # every entry that fails is named
+            problems.append(f"{section}[{position}] {_entry_name(component)}: {exc}")
+    return loaded
+
+
+def _entry_name(component: dict | str) -> str:
+    """How a problem names a reference or known entry: its store, or the class an inline component names."""
+    if isinstance(component, str):
+        return component
+    return str(component.get("store", component.get("name", "")))
 
 
 def load(component: dict | str) -> Any:
@@ -224,10 +251,25 @@ class RoundConfig:
     #: Proposal groups a round's directions are split into, each written, fixed and reviewed by
     #: calls of its own that run side by side; a resume may change it.
     groups: int = 1
+    #: Trials built on one trial (its Lineage's attempts) at which it is taken off the planner's
+    #: parents, so a direction naming it is planned as a new one; None (the default) caps none.
+    #: It needs ``context.feedback``, and a resume may not change it.
+    max_children: int | None = None
+    #: Slots each round whose parent the code chooses (Picked parents, ``_picked_parents``), each a
+    #: slot of its parent's mechanism type that the planner writes as a refinement or a mutation of
+    #: it; 0 (the default) picks none. It needs ``context.theme_correlation``, and a resume may not
+    #: change it.
+    picked_parents: int = 0
 
     def __post_init__(self):
         if self.groups < 1:
             raise ValueError(f"round: groups is {self.groups}; a round needs at least one proposal group")
+        if self.max_children is not None and (
+            isinstance(self.max_children, bool) or not isinstance(self.max_children, int) or self.max_children < 1
+        ):
+            raise ValueError(f"round: max_children is {self.max_children!r}; it is a count of at least 1")
+        if isinstance(self.picked_parents, bool) or not isinstance(self.picked_parents, int) or self.picked_parents < 0:
+            raise ValueError(f"round: picked_parents is {self.picked_parents!r}; it is a count of at least 0")
 
 
 @dataclass(frozen=True)
@@ -248,6 +290,9 @@ class ContextConfig:
     #: Whether a new direction's candidate as correlated with an earlier trial is sent back to be
     #: rewritten once before it is evaluated; it needs ``theme_correlation``.
     send_back_repeats: bool = False
+    #: Whether the planner's accepted factors and the proposer's parent block carry each trial's
+    #: Lineage (``_lineage``): how the trials built on it did; it needs ``feedback``.
+    lineage: bool = False
 
     def __post_init__(self):
         if self.recent_rounds < 1:
@@ -265,6 +310,10 @@ class ContextConfig:
             raise TypeError(f"context: send_back_repeats is {self.send_back_repeats!r}; it is true or false")
         if self.send_back_repeats and self.theme_correlation is None:
             raise ValueError("context: send_back_repeats needs theme_correlation, the correlation at which a trial repeats one")
+        if not isinstance(self.lineage, bool):
+            raise TypeError(f"context: lineage is {self.lineage!r}; it is true or false")
+        if self.lineage and not self.feedback:
+            raise ValueError("context: lineage needs feedback, since a Lineage is made of earlier trials")
 
 
 #: The values of ``acceptance.contribution``.
@@ -348,10 +397,34 @@ class RoleConfig:
     options: dict
 
     @classmethod
-    def from_dict(cls, data: dict) -> "RoleConfig":
-        """Split a role's YAML mapping into the backend, the model and the rest."""
+    def from_dict(cls, data: dict, role: str = "role") -> "RoleConfig":
+        """Split ``role``'s YAML mapping into the backend, the model and the rest.
+
+        Raises
+        ------
+        ValueError
+            If the backend name is unknown, or the rest holds an option that looks like a key (a key is read
+            only from the environment variable ``api_key_env`` names).
+        TypeError
+            If the rest holds an option the backend does not take, listing those it does.
+        """
         data = dict(data)
-        return cls(backend=data.pop("backend"), model=data.pop("model"), options=data)
+        backend, model = data.pop("backend"), data.pop("model")
+        try:
+            options = backend_options(backend)
+        except ValueError as error:
+            raise ValueError(f"campaign config: llm.{role}: {error}") from None
+        try:
+            refuse_secrets(backend, data)
+        except ValueError as error:
+            raise ValueError(f"campaign config: llm.{role}: {error}") from None
+        unknown = sorted(set(data) - set(options))
+        if unknown:
+            raise TypeError(
+                f"campaign config: llm.{role}: the {backend} backend does not take {unknown}; "
+                f"it takes {', '.join(sorted(options))}"
+            )
+        return cls(backend=backend, model=model, options=data)
 
     def spec(self) -> dict:
         """The dict ``make_backend`` takes."""
@@ -444,6 +517,13 @@ class CampaignConfig:
                 f"round: {self.round.candidates} candidates cannot hold {self.round.min_per_type} of each of "
                 f"{len(names)} mechanism types"
             )
+        if self.round.max_children is not None and not self.context.feedback:
+            raise ValueError("round: max_children needs feedback, since without it every direction is new")
+        if self.round.picked_parents and self.context.theme_correlation is None:
+            raise ValueError(
+                "round: picked_parents needs context.theme_correlation, since the Picked parents are ranked "
+                "on the evaluated trials' correlations"
+            )
 
     def load_factors(self) -> tuple[list, list]:
         """Rebuild the reference factors and the known factors, ``(reference, known)``, each in config order.
@@ -455,13 +535,19 @@ class CampaignConfig:
 
         Raises
         ------
-        ValueError, TypeError
-            As ``load`` does, for an entry its store or class does not fit.
+        FactorsError
+            Naming every entry that cannot be rebuilt (``load``: its store is
+            missing, its class cannot be imported or does not fit), each with
+            its cause.
         """
-        reference = [load(component) for component in self.reference]
+        problems: list[str] = []
+        reference = _load_entries("reference", self.reference, problems)
+        loaded_known = _load_entries("known", self.known, problems)
+        if problems:
+            raise FactorsError(problems)
         taken = {key for factor in reference for key in _output_keys(factor)}
         known = []
-        for factor in (load(component) for component in self.known):
+        for factor in loaded_known:
             names = tuple(name for name, key in zip(factor.get_factor_names(), _output_keys(factor)) if key not in taken)
             if names == tuple(factor.get_factor_names()):
                 known.append(factor)
@@ -483,17 +569,20 @@ class CampaignConfig:
         """The files the run searches with: the field files, the operator file and the replaced templates."""
         return SearchFiles(self.fields, self.operators, self.prompts)
 
-    def templates(self, files: SearchFiles | None = None) -> Templates:
+    def templates(self, files: SearchFiles | None = None, picked_parents: int | None = None) -> Templates:
         """The prompt templates: the built-in ones, those ``files`` replace read from their files.
 
         ``files`` are the config's own by default, or a run snapshot's copies.
+        With picked parents (``round.picked_parents`` by default) a replaced
+        plan template must list the picked slots (``{picked}``).
 
         Raises
         ------
         PromptError
             With every problem of the replacing files.
         """
-        return Templates.load((files or self.search_files()).prompts)
+        picked = self.round.picked_parents if picked_parents is None else picked_parents
+        return Templates.load((files or self.search_files()).prompts, picked=picked > 0)
 
     def vocabulary(self, columns=None, files: SearchFiles | None = None, intraday_columns=None) -> Vocabulary:
         """The Vocabulary of the field and operator files; ``columns``, given, are the price dataset's.
@@ -524,11 +613,13 @@ class CampaignConfig:
         Raises
         ------
         TypeError
-            If a section holds a key its config class does not have, or names a budget or per-token prices.
+            If a section holds a key its config class does not have, a segment's entry another key than
+            ``start`` and ``end``, or a role an option its backend does not take (the message lists those
+            it does), or if the config names a budget or per-token prices.
         KeyError
             If a required section or role is missing.
         ValueError
-            If a section's values do not fit together.
+            If a section's values do not fit together, or a role names an unknown backend.
         PromptError
             Naming every problem of the replaced templates.
         """
@@ -561,7 +652,7 @@ class CampaignConfig:
             segments=_segments(raw["segments"]),
             data=DataConfig(**raw["data"]),
             scoring=ScoringConfig.from_dict(raw["scoring"]),
-            roles={role: RoleConfig.from_dict(raw["llm"][role]) for role in ROLES},
+            roles={role: RoleConfig.from_dict(raw["llm"][role], role) for role in ROLES},
             fields=tuple(str(folder / f) for f in raw["fields"]),
             operators=str(folder / raw["operators"]),
             operator_modules=tuple(raw.get("operator_modules") or ()),
@@ -639,11 +730,15 @@ def _segments(raw: dict) -> Segments:
     Raises
     ------
     TypeError
-        If the section holds another key.
+        If the section holds another key, or a segment's entry another key than ``start`` and ``end``.
     """
     unknown = set(raw) - {"training", "confirmation", "validation", "holdout", "purge_bars"}
     if unknown:
         raise TypeError(f"campaign config: unknown segment key(s) {sorted(unknown)}")
+    for name in ("training", "confirmation", "validation", "holdout"):
+        unknown = set(raw.get(name) or {}) - {"start", "end"}
+        if unknown:
+            raise TypeError(f"campaign config: segments.{name}: unknown key(s) {sorted(unknown)}; it takes start and end")
     segments = {
         name: Segment(name, str(raw[name]["start"]), str(raw[name]["end"]))
         for name in ("training", "confirmation", "validation", "holdout") if name in raw

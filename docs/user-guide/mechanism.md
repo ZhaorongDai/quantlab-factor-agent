@@ -86,7 +86,17 @@ statistics or the reasons it was refused. The next round's planner and proposer 
 - optionally, **themes**: the evaluated trials grouped by what their factors measure, each
   group with how often it was tried and accepted, so the planner can see which ideas are
   exhausted. A new direction whose candidate repeats an earlier group can be sent back
-  once to be rewritten before it is evaluated.
+  once to be rewritten before it is evaluated;
+- optionally, each trial's **Lineage**: how many trials built on it, refinements and
+  mutations, how many stopped before evaluation, which were accepted, and the best child's
+  residual t against its own, on the accepted factors the planner reads and on the parent a
+  refinement or a mutation is written from, so the planner can tell a lineage that keeps
+  giving from one that is exhausted.
+- optionally, **Picked parents**: some slots' parents chosen by the code instead of the
+  planner, the evaluated trials first by Pareto rank of their quality, their fertility (how
+  their children did) and their distance from the accepted factors, each shared with the
+  trials related to them by lineage, structure and correlation; the planner still writes
+  each picked slot's action and idea.
 
 An accepted factor also changes what later candidates are judged against. It joins the zoo,
 so the Gate refuses its rewrites, and it joins the pool, so the next candidate's partial IC

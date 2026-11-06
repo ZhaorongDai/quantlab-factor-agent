@@ -2,7 +2,11 @@
 
 One YAML file holds every setting of a campaign. `CampaignConfig.from_file(path)` reads it,
 resolving the field, operator and template paths relative to the file, and refuses
-unknown sections, malformed entries and credentials. `Campaign(config).run()` runs it.
+unknown sections, malformed entries and credentials before any data loads. An unknown key
+is refused rather than ignored: an option an LLM role's backend does not take (`timeout`
+for `timeout_seconds`, say) is refused naming the role and listing the options that
+backend takes, and a segment entry takes only `start` and `end`. `Campaign(config).run()`
+runs it.
 
 ## Sections
 
@@ -113,10 +117,79 @@ known factor at a time.
 | `round.patience` | 5 | rounds in a row without an acceptance before the run stops |
 | `round.memory_every` | 5 | rounds between two distillations |
 | `round.seed` | 0 | seed of the Thompson sampling |
+| `round.max_children` | null | trials built on one trial at which no direction may build on it any more (see below); needs `context.feedback` |
+| `round.picked_parents` | 0 | slots a round whose parent the code chooses, the Picked parents (see below); needs `context.theme_correlation` |
 | `context.recent_rounds` | 5 | rounds whose trials the planner reads one line each |
 | `context.feedback` | true | whether the planner and the proposer read the earlier trials and a memory is distilled; off, every direction is new (a control run) |
 | `context.theme_correlation` | null | the absolute correlation at which an evaluated trial is grouped with an earlier one; set, the planner reads the groups (see below) |
 | `context.send_back_repeats` | false | whether a new direction's candidate in a group is rewritten once before it is evaluated; needs `context.theme_correlation` |
+| `context.lineage` | false | whether the planner's accepted factors and the proposer's parent carry each trial's Lineage (see below); needs `context.feedback` |
+
+## Checking a config
+
+`Campaign(config).check()` finds what `run()` would refuse before its first LLM call,
+without starting the run: it writes nothing (a run directory that does not exist yet is
+not made, one that does is left byte for byte as it was) and computes no factor, so it
+takes seconds where a start would first score the reference set. It checks each part on
+its own and reports every problem at once:
+
+- each data component loads and the stores it reads exist, and the price dataset's
+  columns can be read;
+- the scoring's exposures load;
+- each role's backend can be built: an unset API key variable is a problem;
+- the reference and known factors load;
+- on a resume, the field, operator and template files and the recorded settings are the
+  run snapshot's (a difference is a problem, as it would refuse the resume), and the code
+  versions are the run's last (a difference is a warning, as a resume only warns of it);
+- the vocabulary builds against the price dataset's columns, and the templates with it.
+
+The vocabulary needs the price dataset (and the intraday one, when the config names it),
+and the templates need the vocabulary, the label and the scoring; when one of those
+fails, the check that needs it is reported as skipped, with the reason, so a clean report
+after a fix is not mistaken for a complete one.
+
+From the shell, `factor-agent check` prints the report and exits with status 1 when it
+holds a problem, so a script or CI can gate a launch on it; a config that cannot be read
+(bad YAML, an unknown section or key) is printed as its first problem instead of a
+traceback:
+
+```bash
+factor-agent check campaign.yaml           # 0: the run can start, 1: a problem
+factor-agent check campaign.yaml --ping    # also send each backend one short request
+```
+
+```text
+ok       data.prices
+ok       data.label
+...
+problem  llm.reviewer
+         - the environment variable DEEPSEEK_API_KEY holding the API key is not set
+ok       run snapshot
+ok       vocabulary
+ok       templates
+1 problem(s), 0 warning(s), 0 check(s) skipped; the run would be refused
+```
+
+In Python, `check()` returns the report:
+
+```python
+from factor_agent.campaign import Campaign
+from factor_agent.config import CampaignConfig
+
+report = Campaign(CampaignConfig.from_file("campaign.yaml")).check()
+print(report.text())    # one line per check: ok, problem, warning or skipped
+if not report.ok:       # report.problems lists them as "<check>: <problem>"
+    raise SystemExit(1)
+```
+
+Without a ping the check sends no request to a provider, so a wrong model name or base URL
+is found only at the first call. With `--ping` (`check(ping=True)`) each distinct backend
+(roles with the same settings share one) gets one short request after the other checks,
+outside the LLM log; its check, named after its roles (`ping planner, proposer`), gives
+how long the answer took, or the provider's error as a problem. Roles on the `replay` or
+`scripted` backend need no provider and are not pinged, nor is a role whose backend could
+not be built; each is listed as skipped with the reason. A ping costs one short call per
+backend.
 
 ## Stopping and resuming
 
@@ -141,7 +214,7 @@ The first start copies the field, operator and replaced template files into
 `snapshot/` with their hashes, and the run searches with those copies. A resume whose
 files differ fails: a new search space needs a new run directory. A resume on other
 commits of factor_agent or quantlab only warns, and `state.json` lists the commits of every
-start and resume. `round.groups` may change on a resume; `context.recent_rounds`, `context.feedback`, `context.theme_correlation` and `context.send_back_repeats` may not.
+start and resume. `round.groups` may change on a resume; `context.recent_rounds`, `context.feedback`, `context.theme_correlation`, `context.send_back_repeats`, `context.lineage`, `round.max_children` and `round.picked_parents` may not.
 The reference set and the known factors are read from the config on every start. Every
 start and resume also keeps the config it was given as `config/open-<k>.yaml` (the first
 start is `open-1.yaml`), so a run says which settings it ran with even after the config
@@ -221,7 +294,7 @@ seventh). A research direction may build on any evaluated trial, accepted or ref
 to strengthen an accepted factor; a **mutation** follows another channel the parent's
 result points to. The direction names the parent by its id, and the proposer is given the
 parent's code, statistics and reasons. A direction whose parent is not an evaluated trial
-is kept as a new one, and the plan event records the issue.
+(or is one `round.max_children` has capped, see below) is kept as a new one, and the plan event records the issue.
 
 With `context.theme_correlation` set (0.5, say), the Evaluator keeps every evaluated trial,
 as the normal scores of its factor on every 20th scored date, and the trials are grouped
@@ -240,6 +313,52 @@ evaluated and is not a trial. Its rewrite is checked by the Gate again, and fixe
 the rest, whatever it measures. A refinement or a mutation is not
 checked, and a slot is rewritten once in all: a candidate the reviewer sent back is not
 checked again.
+
+With `context.lineage: true`, each accepted factor in the planner's context, and the parent
+trial the proposer is given for a refinement or a mutation, carries the trial's
+**Lineage**, one line on the trials whose direction names it as their parent (its direct
+children):
+
+```text
+lineage: 6 trials built on it (4 refinements, 2 mutations), 2 stopped before evaluation, 1 accepted (T2-03); best evaluated child T2-03, residual t in its direction +5.00 against this trial's +3.50
+```
+
+A child that stopped before evaluation (refused by the parser, the Gate or the reviewer, or
+not compiled) counts, so a parent whose children all failed does not look untried. The
+residual t is the partial IC's Newey-West t in each trial's own direction. The Lineage is
+computed from the ledger before each round; off, no prompt holds it.
+
+With `round.max_children: n`, a trial that n trials have built on (its Lineage's count,
+those that stopped before evaluation included) is no longer one a refinement or a mutation
+may name: a direction naming it is kept as a new one, and the plan event records the issue,
+as for a parent that is not an evaluated trial. The cap needs no `context.lineage`; the
+planner just sees no Lineage line without it. Unset, every evaluated trial stays a parent.
+
+With `round.picked_parents: k`, the code chooses the parent of k slots each round, the
+**Picked parents**, after the quota is drawn. It judges every evaluated trial, accepted or
+not, by three utilities: its **quality**, the residual t in its direction; its
+**fertility**, the mean of its three best children's outcomes in its Lineage (how far each
+child's residual t cleared the threshold it was judged against, 0 for a child that stopped
+before evaluation); and its **novelty**, its mean distance, in structure (the subtrees of
+its graph) and in correlation, from the ten nearest factors accepted so far. Each trial
+then shares its utilities with the trials related to it, by lineage (parent and child), by
+structure and by correlation, so a trial whose relatives did well is judged by that
+evidence too. The trials are ranked by Pareto front on the three, not by a weighted sum,
+within a front by how far each lies from the others, and a trial built on five times is not
+picked. In that order, each takes one slot of its own mechanism type while that type has a
+slot not yet taken, until k are taken; a trial `round.max_children` has capped is passed
+over. The constants are those of CosmosAlpha (arXiv:2611.04555) and are not configured.
+
+The planner is told the picked slots in its prompt, each with its type and its parent, and
+writes each as a refinement or a mutation of that parent, choosing the action and the idea:
+the first direction of the type that names the parent fills the slot. A picked slot the
+planner leaves out is planned as a refinement of its parent, and the plan event records the
+issue. The plan event in `events.jsonl` lists the picked parents with their utilities and
+Pareto fronts (empty with `round.picked_parents: 0`). The correlations come from the
+evaluated trials that `context.theme_correlation` keeps, so picked parents need it. A
+replaced plan template must hold the placeholder `{picked}`, where the picked slots go,
+when picked parents are on; without it the run is refused at its start, and the check
+reports it.
 
 A candidate refused for its coverage is told where its graph loses its values: the first
 step whose coverage falls below `admission.min_coverage` while its inputs' does not, with

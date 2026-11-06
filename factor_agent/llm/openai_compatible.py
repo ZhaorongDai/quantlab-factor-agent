@@ -51,12 +51,14 @@ class OpenAICompatibleBackend:
         key = key_from_environment(api_key_env) if api_key_env else "none"
         self._client = openai.OpenAI(api_key=key, base_url=base_url, timeout=timeout_seconds)
 
+    #: The options a role's config may give besides ``backend`` and ``model``; ``base_url`` is needed.
+    OPTIONS = ("base_url", "api_key_env", "max_tokens", "max_completion_tokens", "reasoning_effort", "timeout_seconds")
+
     @classmethod
     def from_config(cls, spec: dict) -> "OpenAICompatibleBackend":
         """Build from a role's config: ``model``, ``base_url`` and optionally ``api_key_env``,
         ``max_tokens`` or ``max_completion_tokens``, ``reasoning_effort`` and ``timeout_seconds``."""
-        names = ("api_key_env", "max_tokens", "max_completion_tokens", "reasoning_effort", "timeout_seconds")
-        options = {k: spec[k] for k in names if k in spec}
+        options = {k: spec[k] for k in cls.OPTIONS if k in spec and k != "base_url"}
         return cls(spec["model"], spec["base_url"], **options)
 
     @property

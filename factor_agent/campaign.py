@@ -32,7 +32,11 @@ its files starts cleanly once they are fixed. It then opens the run's
 ``RunSnapshot``: a first start copies the config's field, operator and
 template files into the run directory, a resume fails if they changed
 since and warns if the commits did; every commit is listed in
-``state.json``. The run searches with the snapshot's copies. A replay (roles on the ``replay`` backend) searches with the
+``state.json``. The run searches with the snapshot's copies. ``check``
+makes these checks and the others a start makes before its first LLM call
+(the data and the stores it reads, the roles' backends, the reference and
+known factors, the snapshot's ``differences``) part by part, writing
+nothing, and reports every problem at once in a ``preflight.CheckReport``. A replay (roles on the ``replay`` backend) searches with the
 snapshot of the run whose LLM log it replays, whatever the config's files
 say now.
 
@@ -59,9 +63,18 @@ families, every direction is new and no memory is distilled. With
 ``context.theme_correlation`` every evaluated trial joins the Evaluator's
 tried trials and the planner also reads them grouped by what their factors
 measure (``_feedback.themes``); a resume computes the tried trials again
-from the ledger. With ``context.send_back_repeats`` too, before a round is
-scored, a new direction's candidate that correlates that much with an
-earlier trial is rewritten once (``_renew``); a slot is rewritten once in
+from the ledger. With ``context.lineage`` each round computes every trial's
+Lineage (``_lineage``) once, and the planner's accepted factors and the
+proposer's parent block carry it; ``round.max_children`` takes every trial
+built on that often off the trials a direction may build on. With
+``round.picked_parents`` (which needs the tried trials) each round, after
+the quota, ranks the Picked parents (``_picked_parents``) and gives each in
+order a slot of its mechanism type while that type has one unclaimed
+(``_claim``); the planner writes those slots as refinements or mutations of
+their parents, and the plan event records them. With
+``context.send_back_repeats`` too, before a round is scored, a new
+direction's candidate that correlates that much with an earlier trial is
+rewritten once (``_renew``); a slot is rewritten once in
 all, so a candidate the reviewer sent back is not checked again.
 
 Before each round the stop conditions are checked: the round limit, the
@@ -95,8 +108,12 @@ import socket
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import NamedTuple
 
-from factor_agent import _admission, _feedback, _scheduler
+from quantlab.core.store_uses import READS, walk_store_uses
+
+from factor_agent import _admission, _feedback, _lineage, _picked_parents, _scheduler
+from factor_agent._lineage import Lineage
 from factor_agent.config import ROLES, AdmissionConfig, CampaignConfig
 from factor_agent.evaluator import CompileFailure, DailyIC, Evaluator, Metrics
 from factor_agent.events import (
@@ -109,12 +126,13 @@ from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.ledger import Ledger, TrialRecord
 from factor_agent.llm.base import AskingAgain, LLMBackend, ProviderQuotaExhausted, make_backend
 from factor_agent.llm.log import LLMLog, RecordingBackend
+from factor_agent.preflight import Check, CheckReport, ping
 from factor_agent.prompts import Prompts, Templates
 from factor_agent.researcher import Proposal, Researcher
 from factor_agent.scoring import Scoring
 from factor_agent.segments import code_version
 from factor_agent.session import SESSION_INPUTS
-from factor_agent.snapshot import RunSnapshot, SnapshotMismatch
+from factor_agent.snapshot import RunSnapshot, SearchFiles, SnapshotMismatch
 from factor_agent.zoo import Zoo
 
 
@@ -238,16 +256,17 @@ class Campaign:
         """
         config, run_dir = self.config, Path(self.config.run_dir)
         state_path = run_dir / "state.json"
-        prices = config.data.load("prices")
-        intraday = config.data.load("intraday") if config.data.intraday is not None else None
-        columns, intraday_columns = _columns(prices), _intraday_columns(intraday)
-        snapshot = self._snapshot(run_dir, state_path, columns, intraday_columns)
+        prices, intraday, columns, intraday_columns, files, settings = self._load(run_dir, state_path)
+        snapshot = RunSnapshot.open(run_dir, files, code_version(), settings)
+        parent_settings = _ParentSettings.of(snapshot.settings)
         _keep_config(config, run_dir, opening=len(snapshot.versions))
         recent_rounds = snapshot.settings["context"]["recent_rounds"]
         vocabulary = config.vocabulary(columns, snapshot.search_files, intraday_columns)
         label = config.data.load("label")
         scoring = Scoring.from_config(config.scoring, config.data, njobs=config.evaluator.njobs)
-        prompts = self._prompts(config.templates(snapshot.search_files), vocabulary, label, scoring)
+        prompts = self._prompts(
+            config.templates(snapshot.search_files, parent_settings.picked_parents), vocabulary, label, scoring,
+        )
         state = _State.read(state_path)
         state.versions = snapshot.versions
         ledger = Ledger(run_dir / "ledger.jsonl")
@@ -328,15 +347,27 @@ class Campaign:
                     state.write(state_path)
                 quota = _scheduler.quota(number, records, config.round, prompts.mechanism_types)
                 accepted = [r for r in records if r.status == "accepted"]
-                context = self._context(records, state, reference, known, evaluator, accepted, recent_rounds, prompts)
                 trials = _feedback.named(records)
-                parents = {
-                    trial: _feedback.parent(trial, r, trials) for trial, r in trials if r.evaluated
-                } if config.context.feedback else {}
-                directions, issues = researcher.plan(
-                    number, quota, context, list(parents) if config.context.feedback else None,
+                shown, cap, k = parent_settings.lineage, parent_settings.max_children, parent_settings.picked_parents
+                built = _lineage.lineages(trials, config.admission) if shown or cap is not None or k else {}
+                lineage = built if shown else {}
+                context = self._context(
+                    records, state, reference, known, evaluator, accepted, recent_rounds, prompts, lineage,
                 )
-                events.write(Plan(round=number, directions=[d.to_dict() for d in directions], quota=quota, issues=issues))
+                parents = {
+                    trial: _feedback.parent(trial, r, trials, lineage.get(trial)) for trial, r in trials if r.evaluated
+                } if config.context.feedback else {}
+                eligible = [trial for trial in parents if cap is None or built[trial].attempts < cap]
+                picked = _claim(
+                    k, quota, dict(trials), eligible, *evaluator.tried(), built, vocabulary.classes,
+                ) if k else []
+                directions, issues = researcher.plan(
+                    number, quota, context, eligible if config.context.feedback else None,
+                    [(p["mechanism_type"], p["trial"]) for p in picked],
+                )
+                events.write(Plan(
+                    round=number, directions=[d.to_dict() for d in directions], quota=quota, issues=issues, picked=picked,
+                ))
                 proposals = researcher.propose(number, directions, context, gate, zoo, config.round.retries, parents)
                 round_records = self._round(
                     number, proposals, researcher, gate, zoo, evaluator, records, events, confirming, vocabulary,
@@ -359,17 +390,154 @@ class Campaign:
             memory=state.memory, not_covered=zoo.not_covered,
         )
 
-    def _snapshot(
-        self, run_dir: Path, state_path: Path, columns: set[str] | None, intraday_columns: set[str] | None = None,
-    ) -> RunSnapshot:
-        """Open the run's snapshot: of the config's files, or, in a replay, of the replayed run's snapshot.
+    def check(self, ping: bool = False) -> CheckReport:
+        """What ``run`` would refuse before its first LLM call, found without writing anything or computing a factor.
 
-        The replaced templates and the vocabulary (against the price
-        dataset's ``columns`` and the intraday dataset's ``intraday_columns``)
-        are checked first, so broken files are never snapshotted and a run
-        refused for them starts cleanly once they are fixed. The settings
-        recorded are the prompt context and, with an intraday dataset, that
-        dataset, which the intraday family's fields mean.
+        Each part is checked on its own and every problem is reported at
+        once: each data component (it loads, the stores it reads exist and
+        the price dataset's columns can be read), the scoring, each role's
+        backend (it can be built: an unset API key variable is a problem;
+        a backend passed in is not checked), the reference and known
+        factors, the run snapshot (on a resume, files or settings that
+        differ from it are a problem, other code versions a warning), the
+        vocabulary and the templates. The vocabulary needs the price and
+        intraday datasets' columns and the templates need the vocabulary,
+        the label and the scoring; each is skipped, with the reason, when
+        a part it needs failed. The run directory is only read.
+
+        With ``ping``, each distinct backend (roles with the same config
+        share one) is then sent one short request outside the LLM log, and
+        its error is a problem; roles on the ``replay`` or ``scripted``
+        backend, with a backend passed in or whose backend cannot be built
+        are not pinged, and say why.
+
+        Returns
+        -------
+        CheckReport
+            One ``Check`` per part, in that order; the run can start when its ``problems`` is empty.
+        """
+        config, run_dir = self.config, Path(self.config.run_dir)
+        checks: list[Check] = []
+
+        def attempt(name: str, work: Callable[[], object]) -> object:
+            """``work()``, or ``_FAILED`` with its problems recorded as ``name``'s."""
+            try:
+                value = work()
+            except Exception as exc:  # every problem is reported, none raised
+                checks.append(Check(name, problems=_problems(exc)))
+                return _FAILED
+            checks.append(Check(name))
+            return value
+
+        def data(name: str) -> object:
+            """The data component ``name``, checked to read only stores that exist."""
+            return _reading(config.data.load(name))
+
+        def scored() -> Scoring:
+            """The scoring, its neutralisation's exposures checked to read only stores that exist."""
+            scoring = Scoring.from_config(config.scoring, config.data, njobs=config.evaluator.njobs)
+            if scoring.neutralization is not None:
+                _reading(scoring.neutralization.exposures)
+            return scoring
+
+        def with_columns(name: str, columns: Callable) -> tuple:
+            """The data component ``name`` (``data``) and the ``columns`` read from it."""
+            component = data(name)
+            return component, columns(component)
+
+        loaded = attempt("data.prices", lambda: with_columns("prices", _columns))
+        columns = _FAILED if loaded is _FAILED else loaded[1]
+        label = attempt("data.label", lambda: data("label"))
+        if config.data.membership is not None:
+            attempt("data.membership", lambda: data("membership"))
+        intraday_columns = None
+        if config.data.intraday is not None:
+            loaded = attempt("data.intraday", lambda: with_columns("intraday", _intraday_columns))
+            intraday_columns = _FAILED if loaded is _FAILED else loaded[1]
+        scoring = attempt("scoring", scored)
+        built = {}
+        for role in ROLES:
+            if role in self._replaced:
+                checks.append(Check(f"llm.{role}"))
+            else:
+                built[role] = attempt(f"llm.{role}", lambda role=role: make_backend(config.roles[role].spec()))
+        attempt("reference and known factors", config.load_factors)
+        searched = self._check_snapshot(run_dir, checks)
+        files = _FAILED if searched is _FAILED else searched[0]
+
+        needs = {"data.prices": columns, "data.intraday": intraday_columns, "run snapshot": files}
+        if lacking := [name for name, value in needs.items() if value is _FAILED]:
+            vocabulary = _FAILED
+            checks.append(Check("vocabulary", skipped=f"it needs {_parts(lacking)}, which failed"))
+        else:
+            vocabulary = attempt("vocabulary", lambda: config.vocabulary(columns, files, intraday_columns))
+        needs = {"vocabulary": vocabulary, "data.label": label, "scoring": scoring}
+        if lacking := [name for name, value in needs.items() if value is _FAILED]:
+            checks.append(Check("templates", skipped=f"they need {_parts(lacking)}, which failed or did not run"))
+        else:
+            picked = _ParentSettings.of(searched[1]).picked_parents
+            attempt("templates", lambda: self._prompts(config.templates(files, picked), vocabulary, label, scoring))
+        if ping:
+            checks += self._ping(built)
+        return CheckReport(tuple(checks))
+
+    def _ping(self, built: dict) -> list[Check]:
+        """A ``ping`` of each distinct backend among ``built`` (each role's backend, or ``_FAILED``), in role order."""
+        shared: dict[str, list[str]] = {}
+        for role in ROLES:
+            shared.setdefault(json.dumps(self.config.roles[role].spec(), sort_keys=True), []).append(role)
+        checks = []
+        for roles in shared.values():
+            first, name = self.config.roles[roles[0]], "ping " + ", ".join(roles)
+            if first.backend in ("replay", "scripted"):
+                checks.append(Check(name, skipped=f"the {first.backend} backend is not pinged"))
+            elif replaced := [role for role in roles if role in self._replaced]:
+                checks.append(Check(name, skipped=f"the backend of {', '.join(replaced)} was passed in"))
+            elif built[roles[0]] is _FAILED:
+                checks.append(Check(name, skipped=f"it needs llm.{roles[0]}, which failed"))
+            else:
+                checks.append(ping(name, built[roles[0]], roles[0], first.model))
+        return checks
+
+    def _check_snapshot(self, run_dir: Path, checks: list[Check]) -> tuple[SearchFiles, dict] | object:
+        """Check the files and settings the run would open its snapshot with; return them (``_search``), or ``_FAILED``.
+
+        A first start has nothing to compare; a resume's differences from the
+        snapshot are problems and other code versions a warning. A file, or
+        the snapshot itself, that cannot be read is a problem, but the files
+        are still returned for the vocabulary to report it in its terms.
+        """
+        try:
+            files, settings = self._search(run_dir, run_dir / "state.json")
+        except Exception as exc:  # every problem is reported, none raised
+            checks.append(Check("run snapshot", problems=_problems(exc)))
+            return _FAILED
+        if not RunSnapshot.exists(run_dir):
+            checks.append(Check("run snapshot"))
+            return files, settings
+        try:
+            snapshot = RunSnapshot.read(run_dir)
+            changed = snapshot.version_change(code_version())
+        except Exception as exc:  # a snapshot written in part or damaged
+            problem = f"{run_dir / 'snapshot.json'} cannot be read ({type(exc).__name__}: {exc}); the run cannot resume"
+            checks.append(Check("run snapshot", problems=(problem,)))
+            return files, settings
+        try:
+            problems = tuple(snapshot.differences(files, settings))
+        except Exception as exc:  # a file that cannot be read
+            problems = _problems(exc)
+        checks.append(Check("run snapshot", problems=problems, warnings=(changed,) if changed else ()))
+        return files, settings
+
+    def _load(self, run_dir: Path, state_path: Path) -> "_Loaded":
+        """The loading half of a start, which writes nothing.
+
+        The price and intraday datasets, their columns (``_columns``,
+        ``_intraday_columns``), and the files and settings the run's
+        snapshot is opened with (``_search``). The replaced templates and the
+        vocabulary (against the price dataset's columns and the intraday
+        dataset's) are checked here, so broken files are never snapshotted
+        and a run refused for them starts cleanly once they are fixed.
 
         Raises
         ------
@@ -377,6 +545,26 @@ class Campaign:
             If a replaced template lacks a placeholder its role needs or uses one it may not.
         VocabularyError
             With every problem of the field and operator files.
+        SnapshotMismatch, ValueError
+            As ``_search`` does.
+        """
+        prices = self.config.data.load("prices")
+        intraday = self.config.data.load("intraday") if self.config.data.intraday is not None else None
+        columns, intraday_columns = _columns(prices), _intraday_columns(intraday)
+        files, settings = self._search(run_dir, state_path)
+        self.config.templates(files, _ParentSettings.of(settings).picked_parents)
+        self.config.vocabulary(columns, files, intraday_columns)
+        return _Loaded(prices, intraday, columns, intraday_columns, files, settings)
+
+    def _search(self, run_dir: Path, state_path: Path) -> tuple[SearchFiles, dict]:
+        """The files and settings to open the run's snapshot with: the config's, or, in a replay, the replayed run's.
+
+        The settings recorded are the prompt context, ``round.max_children``
+        and ``round.picked_parents`` when set and, with an intraday dataset,
+        that dataset, which the intraday family's fields mean.
+
+        Raises
+        ------
         SnapshotMismatch
             If the run directory holds a state but no snapshot (a run started before snapshots).
         ValueError
@@ -396,21 +584,24 @@ class Campaign:
             raise ValueError(f"campaign: the roles replay several runs {sorted(map(str, replayed))}; replay one")
         if replayed:
             recorded = RunSnapshot.read(replayed.pop())
-            files, settings = recorded.search_files, recorded.settings
-        else:
-            context = asdict(self.config.context)
-            if context["feedback"]:
-                del context["feedback"]  # as runs started before the setting recorded their context
-            if context["theme_correlation"] is None:
-                del context["theme_correlation"]  # likewise
-            if not context["send_back_repeats"]:
-                del context["send_back_repeats"]  # likewise
-            files, settings = self.config.search_files(), {"context": context}
-            if self.config.data.intraday is not None:
-                settings["intraday"] = {"dataset": json.loads(json.dumps(self.config.data.intraday))}
-        self.config.templates(files)
-        self.config.vocabulary(columns, files, intraday_columns)
-        return RunSnapshot.open(run_dir, files, code_version(), settings)
+            return recorded.search_files, recorded.settings
+        context = asdict(self.config.context)
+        if context["feedback"]:
+            del context["feedback"]  # as runs started before the setting recorded their context
+        if context["theme_correlation"] is None:
+            del context["theme_correlation"]  # likewise
+        if not context["send_back_repeats"]:
+            del context["send_back_repeats"]  # likewise
+        if not context["lineage"]:
+            del context["lineage"]  # likewise
+        settings = {"context": context}
+        cap, k = self.config.round.max_children, self.config.round.picked_parents
+        rounds = ({"max_children": cap} if cap is not None else {}) | ({"picked_parents": k} if k else {})
+        if rounds:
+            settings["round"] = rounds  # each left out unset, likewise
+        if self.config.data.intraday is not None:
+            settings["intraday"] = {"dataset": json.loads(json.dumps(self.config.data.intraday))}
+        return self.config.search_files(), settings
 
     def _opened(self, snapshot: RunSnapshot, state: _State, dropped: bool) -> Start:
         """The events file's record of this opening: a start, or a resume naming the round it ``dropped``."""
@@ -444,13 +635,14 @@ class Campaign:
 
     def _context(
         self, records: list[TrialRecord], state: _State, reference: list, known: list, evaluator: Evaluator,
-        accepted: list[TrialRecord], recent_rounds: int, prompts: Prompts,
+        accepted: list[TrialRecord], recent_rounds: int, prompts: Prompts, lineage: dict[str, Lineage] | None = None,
     ) -> dict[str, str]:
         """The sections the planner and the proposer read; see ``_feedback``.
 
         The trials of the last ``recent_rounds`` rounds are the recent
         history, one line each; the older ones are counted in the earlier
-        summary, by mechanism type in the order of ``prompts``. With
+        summary, by mechanism type in the order of ``prompts``. Each accepted
+        factor carries its ``lineage`` (by trial id) when given. With
         ``context.feedback`` off only the seed directions and the families.
         """
         given = {"seed": _seed(self.config.directions), "families": _feedback.families(reference, known)}
@@ -469,7 +661,7 @@ class Campaign:
                 [(t, r) for t, r in trials if r.round >= first_recent], earlier=trials,
             ),
             "last_round": _feedback.last_round([(t, r) for t, r in trials if r.round == state.rounds], trials),
-            "best": _feedback.best(trials, evaluator.contributions(labels) if labels else {}),
+            "best": _feedback.best(trials, evaluator.contributions(labels) if labels else {}, lineage),
             **({"themes": _feedback.themes(
                 trials, *evaluator.tried(), self.config.context.theme_correlation, self.config.context.send_back_repeats,
             )} if self.config.context.theme_correlation is not None else {}),
@@ -650,6 +842,109 @@ class Campaign:
             stats=checked.stats, attempts=_attempts(proposal), direction=proposal.direction.to_dict(),
             graph=checked.graph.to_json(),
         )
+
+
+class _Loaded(NamedTuple):
+    """What ``Campaign._load`` read: the datasets, their columns, and the files and settings of the snapshot."""
+
+    prices: object
+    intraday: object
+    columns: object
+    intraday_columns: object
+    files: SearchFiles
+    settings: dict
+
+
+class _ParentSettings(NamedTuple):
+    """The Lineage, ``round.max_children`` and Picked-parent settings a run uses.
+
+    They are read from the settings the run's snapshot is opened with
+    (``Campaign._search``): the config's on a new run, the recorded run's in
+    a replay, so a replay builds on parents as the recorded run did and
+    ``check`` judges the templates as ``run`` does.
+    """
+
+    lineage: bool
+    max_children: int | None
+    picked_parents: int
+
+    @classmethod
+    def of(cls, settings: dict) -> "_ParentSettings":
+        """The settings ``settings`` (a snapshot's) record, each left out when it was off."""
+        rounds = settings.get("round", {})
+        return cls(
+            bool(settings.get("context", {}).get("lineage", False)), rounds.get("max_children"),
+            rounds.get("picked_parents", 0),
+        )
+
+
+def _claim(
+    k: int, quota: dict[str, int], trials: dict[str, TrialRecord], eligible: list[str], names: list[str], matrix,
+    lineage: dict[str, Lineage], classes,
+) -> list[dict]:
+    """The round's picked slots: the Picked parents in pick order, each given a slot of its mechanism type.
+
+    A parent takes one slot of its type (the type of the slot its trial
+    filled) while ``quota`` leaves that type one unclaimed, until ``k`` are
+    claimed; only the trials in ``eligible``, those a direction may build
+    on, are taken. Each is the ``PickedParent`` as a dict with the type.
+    """
+    ranked = _picked_parents.picked_parents(list(trials.items()), names, matrix, lineage, classes, len(trials))
+    claimed, left, eligible = [], dict(quota), set(eligible)
+    for parent in ranked:
+        record = trials[parent.trial]
+        kind = (record.direction or record.candidate).get("mechanism_type")
+        if parent.trial in eligible and left.get(kind, 0) > 0:
+            left[kind] -= 1
+            claimed.append({"trial": parent.trial, "mechanism_type": kind, **{
+                name: getattr(parent, name) for name in ("quality", "fertility", "novelty", "front")
+            }})
+            if len(claimed) == k:
+                break
+    return claimed
+
+
+#: What a part ``Campaign.check`` could not check gives in place of its value.
+_FAILED = object()
+
+
+class _Problems(Exception):
+    """Several problems of one part of a check."""
+
+    def __init__(self, problems: list[str]):
+        self.problems = tuple(problems)
+        super().__init__("; ".join(problems))
+
+
+def _problems(exc: Exception) -> tuple[str, ...]:
+    """The problems an exception reports: each of a ``VocabularyError``'s or a ``PromptError``'s, or its message."""
+    problems = getattr(exc, "problems", None)
+    if problems:
+        return tuple(problems)
+    return (str(exc) or type(exc).__name__,)
+
+
+def _reading(component):
+    """``component`` (or a list of components), checked to read only stores that exist.
+
+    Raises
+    ------
+    _Problems
+        Naming every store it reads that does not exist.
+    """
+    components = component if isinstance(component, list) else [component]
+    missing = [
+        use.path for item in components for use in walk_store_uses(item)
+        if use.relation == READS and use.path is not None and not Path(use.path).exists()
+    ]
+    if missing:
+        raise _Problems([f"the store {path} it reads does not exist" for path in dict.fromkeys(missing)])
+    return component
+
+
+def _parts(names: list[str]) -> str:
+    """``names`` joined for a sentence."""
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
 
 
 def _coverage_cause(evaluator: Evaluator, graph: Graph, vocabulary: Vocabulary, admission: AdmissionConfig) -> str:
