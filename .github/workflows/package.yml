@@ -1,0 +1,47 @@
+name: Package
+
+# Builds the distributions from the checked-out commit, so nothing outside it (untracked
+# files, a stale egg-info) can reach the package, checks them, and imports every module
+# from the installed wheel outside the repository, with its dependencies from PyPI. CI
+# runs it on every change, because a version on PyPI cannot be replaced; the release
+# publishes the artifact it uploads.
+on:
+  workflow_call:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.13"
+
+      - name: Build
+        # --no-sources: the package's metadata names quantlab-py on PyPI, not ../quantlab.
+        run: uv build --no-sources --out-dir dist
+
+      - name: Check metadata
+        run: uvx twine check --strict dist/*
+
+      - name: Import every module from the installed wheel
+        # quantlab-py comes from PyPI here, so a change that needs an unreleased quantlab
+        # fails at this step.
+        run: |
+          uv venv --python 3.13 /tmp/wheel-env
+          uv pip install --python /tmp/wheel-env/bin/python "$(ls dist/*.whl)[web]"
+          cd /tmp
+          /tmp/wheel-env/bin/python -c "
+          import importlib, pkgutil, factor_agent
+          names = [m.name for m in pkgutil.walk_packages(factor_agent.__path__, 'factor_agent.')]
+          for name in names:
+              importlib.import_module(name)
+          print(len(names), 'modules imported from', factor_agent.__file__)
+          "
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/

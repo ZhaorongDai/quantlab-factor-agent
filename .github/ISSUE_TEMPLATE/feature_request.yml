@@ -1,0 +1,20 @@
+name: Feature request
+description: An input family, operator, LLM backend, admission rule or other capability the agent lacks.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What you are trying to do
+      description: The research task, and where the agent stops you today.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you would like
+      description: The behaviour or config you have in mind, and any paper or tool it follows.
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What you tried instead

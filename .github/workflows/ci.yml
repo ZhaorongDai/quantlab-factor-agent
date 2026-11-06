@@ -1,21 +1,29 @@
 name: CI
 
+# A pull request runs on its merge ref. Pushes run only on main and on release tags, so
+# a branch with an open pull request is not tested twice; run a branch without one by
+# hand (workflow_dispatch).
 on:
   push:
+    branches: [main]
+    tags: ["v*"]
   pull_request:
   workflow_dispatch:
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  # Each commit on main has a group of its own: within a group a newer run cancels the
+  # one running and replaces the one pending, which would leave a commit untested.
+  group: ${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   cancel-in-progress: true
 
-# quantlab is an editable path dependency (../quantlab), so every job checks out both
-# repositories side by side: quantlab-factor-agent/ and quantlab/.
+# quantlab is an editable path dependency (../quantlab), so the test job checks out both
+# repositories side by side: quantlab-factor-agent/ and quantlab/. The package job builds
+# without it and installs quantlab-py from PyPI, as `pip install quantlab-factor-agent` does.
 jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -24,16 +32,16 @@ jobs:
       run:
         working-directory: quantlab-factor-agent
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           path: quantlab-factor-agent
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           repository: ZhaorongDai/quantlab
           path: quantlab
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@v7
         with:
           python-version: "3.13"
           enable-cache: true
@@ -61,9 +69,9 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -85,3 +93,5 @@ jobs:
             exit 1
           }
 
+  package:
+    uses: ./.github/workflows/package.yml

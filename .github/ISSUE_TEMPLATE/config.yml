@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Documentation
+    url: https://zhaorongdai.github.io/quantlab-factor-agent/
+    about: How the agent mines factors, the campaign config, the LLM backends and acceptance.
+  - name: A problem in quantlab
+    url: https://github.com/ZhaorongDai/quantlab/issues
+    about: Data stores, panels, labels and models belong to quantlab's tracker.

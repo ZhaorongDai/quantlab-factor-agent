@@ -70,23 +70,36 @@ than how it got there. Comments should explain why the code does something, not 
 it does. [docs/README.md](docs/README.md) explains how to build and preview the
 documentation site.
 
+## Pull requests
+
+`main` is protected: a change reaches it through a pull request whose checks pass (the
+test suite on Linux and macOS, the frontend's page, the documentation build, the package
+build and the changelog check), and it cannot be force-pushed or deleted. A pull request
+that changes `factor_agent/` needs an entry in `CHANGELOG.md` under *Unreleased*, or the
+`no-changelog` label when the change is not one a user would notice. A merged branch is
+deleted.
+
 ## Releasing
 
 A release is built and published by `.github/workflows/release.yml`, never from a working
 tree. The package depends on `quantlab-py` from PyPI, so release quantlab first when this
-package needs a quantlab change, and pin that version in `pyproject.toml`; the workflow
+package needs a quantlab change, and raise the bound in `pyproject.toml`; CI's package job
 imports every module from the built wheel with its dependencies from PyPI and fails when
-the quantlab there is too old. To release, set `version` in `pyproject.toml`, move the
-*Unreleased* entries of the changelog under that version, commit, then tag and push:
+the quantlab there is too old. To release, set `version` in `pyproject.toml` and
+`__version__` in `factor_agent/__init__.py`, move the *Unreleased* entries of the changelog
+under a `## <version> (<date>)` heading, merge that, then tag `main` and push the tag:
 
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-The workflow waits for the tagged commit's CI, checks that the tag matches the version,
-builds from the tag's checkout, runs `twine check`, and publishes through PyPI trusted
-publishing. Trusted publishing must be set up once on PyPI for the
-`ZhaorongDai/quantlab-factor-agent` repository, workflow `release.yml` and environment
-`pypi`. A version on PyPI cannot be replaced, so a manual run (`workflow_dispatch`) builds
-and checks without publishing.
+The workflow checks that the tag is on `main`, that it names the version, that the
+changelog has a section for it and that the tagged commit passed CI; it then builds from
+the tag's checkout, publishes to PyPI through trusted publishing (the `pypi` environment,
+which only `v*` tags may deploy to) and creates the GitHub Release from the version's
+changelog section. A version on PyPI cannot be replaced, so a manual run
+(`workflow_dispatch`) builds and checks without publishing.
+
+Every Monday, `latest-deps.yml` runs the suite on the newest dependencies PyPI offers,
+quantlab-py among them, and opens an issue when it fails.

@@ -1,0 +1,41 @@
+name: Bug report
+description: A campaign, the Gate, the Evaluator, acceptance or the web frontend raises an error or gives a wrong result.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you ran, what you expected and what you got instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: >-
+        The config (with your data paths and model names, never API keys) and the steps, or a
+        small example on synthetic data. Say which LLM backend each role used.
+      render: yaml
+    validations:
+      required: true
+  - type: textarea
+    id: error
+    attributes:
+      label: Full error message
+      description: The traceback, or the lines of the run directory's log around the failure.
+      render: text
+  - type: input
+    id: version
+    attributes:
+      label: quantlab-factor-agent and quantlab versions
+      description: The output of `python -c "import factor_agent, quantlab; print(factor_agent.__version__, quantlab.__version__)"`.
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Operating system and Python version
+      placeholder: macOS 15, Python 3.13.1
+    validations:
+      required: true
