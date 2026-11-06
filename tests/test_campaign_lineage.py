@@ -15,7 +15,7 @@ import json
 import pytest
 import yaml
 
-from factor_agent.config import ContextConfig, RoundConfig
+from factor_agent.config import ROLES, ContextConfig, RoundConfig
 from factor_agent.snapshot import SnapshotMismatch
 from tests.campaign_runner import candidate, run, write_config
 from tests.fake_llm import FakeLLM, has_tag, new_directions, round_of, tagged
@@ -321,3 +321,18 @@ def test_max_children_is_a_positive_count_and_needs_the_earlier_trials(tmp_path,
             RoundConfig(max_children=value)
     with pytest.raises(ValueError, match="max_children needs feedback"):
         _campaign(tmp_path, market, FakeLLM(_overlap_propose), context={"feedback": False}, max_children=2)
+
+
+def test_a_replay_whose_config_omits_the_cap_and_lineage_runs_as_the_recorded_run(tmp_path, market):  # noqa: F811
+    recorded, _ = _capped(tmp_path / "recorded", market, max_children=1)
+    assert recorded.records  # with the cap, round 3's directions naming T1-01 were planned as new ones
+    log = tmp_path / "recorded" / "run" / "llm_log"
+    path = write_config(
+        tmp_path / "replayed", market["components"],
+        round={"candidates": 10, "min_per_type": 1, "retries": 0, "max_rounds": 3},
+        llm={role: {"backend": "replay", "model": f"model-{role}", "log": str(log)} for role in ROLES},
+    )
+    run(path, None, market["cache"])
+    replayed = tmp_path / "replayed" / "run"
+    assert (replayed / "ledger.jsonl").read_text() == (tmp_path / "recorded" / "run" / "ledger.jsonl").read_text()
+    assert json.loads((replayed / "snapshot.json").read_text())["settings"]["round"] == {"max_children": 1}

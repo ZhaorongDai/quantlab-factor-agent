@@ -11,7 +11,8 @@ fertility is the same counts as one number, for choosing parents.
 A child's outcome is 0 when it stopped before evaluation and otherwise the
 amount its residual t in its direction exceeds the admission threshold it
 was judged against (``_admission.t_threshold`` at the evaluated-trial
-count after its round), floored at 0. The fertility is the mean of the
+count after its round: admission judges every candidate of a round at that
+count, whatever its place in the round), floored at 0. The fertility is the mean of the
 three best outcomes, padded with zeros, so a parent is rewarded for
 children that pass, not for many attempts.
 """

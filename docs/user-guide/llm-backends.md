@@ -45,7 +45,8 @@ llm:
 ```
 
 A replay searches with the snapshot of the run whose log it replays, not the config's
-files. A request the log has no reply for fails (`ReplayExhausted`). A log written before
+files, and builds on parents with its settings: `context.lineage`, `round.max_children`
+and `round.picked_parents` are the recorded run's, whatever the config says. A request the log has no reply for fails (`ReplayExhausted`). A log written before
 a prompt change cannot be replayed with the new prompts.
 
 ## Cost and quota

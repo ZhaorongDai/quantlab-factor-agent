@@ -297,3 +297,15 @@ def test_a_config_that_cannot_be_read_is_the_first_problem_not_a_traceback(tmp_p
 def test_a_missing_config_file_is_a_problem(tmp_path, capsys):
     assert main(["check", str(tmp_path / "nowhere.yaml")]) == 1
     assert "problem  config" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("damage", [
+    lambda text: text[: len(text) // 2],  # a write cut short
+    lambda text: json.dumps({key: value for key, value in json.loads(text).items() if key != "versions"}),
+])
+def test_a_damaged_snapshot_is_a_problem_of_the_run_snapshot_not_a_traceback(resumed, tmp_path, damage):
+    manifest = tmp_path / "run" / "snapshot.json"
+    manifest.write_text(damage(manifest.read_text()))
+    report = _check(resumed)
+    [problem] = report.problems
+    assert problem.startswith(f"run snapshot: {manifest} cannot be read (") and problem.endswith("the run cannot resume")

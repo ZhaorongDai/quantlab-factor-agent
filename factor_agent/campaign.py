@@ -108,6 +108,7 @@ import socket
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
+from typing import NamedTuple
 
 from factor_agent import _admission, _feedback, _lineage, _picked_parents, _scheduler
 from factor_agent._lineage import Lineage
@@ -256,12 +257,15 @@ class Campaign:
         state_path = run_dir / "state.json"
         prices, intraday, columns, intraday_columns, files, settings = self._load(run_dir, state_path)
         snapshot = RunSnapshot.open(run_dir, files, code_version(), settings)
+        parent_settings = _ParentSettings.of(snapshot.settings)
         _keep_config(config, run_dir, opening=len(snapshot.versions))
         recent_rounds = snapshot.settings["context"]["recent_rounds"]
         vocabulary = config.vocabulary(columns, snapshot.search_files, intraday_columns)
         label = config.data.load("label")
         scoring = Scoring.from_config(config.scoring, config.data, njobs=config.evaluator.njobs)
-        prompts = self._prompts(config.templates(snapshot.search_files), vocabulary, label, scoring)
+        prompts = self._prompts(
+            config.templates(snapshot.search_files, parent_settings.picked_parents), vocabulary, label, scoring,
+        )
         state = _State.read(state_path)
         state.versions = snapshot.versions
         ledger = Ledger(run_dir / "ledger.jsonl")
@@ -343,11 +347,9 @@ class Campaign:
                 quota = _scheduler.quota(number, records, config.round, prompts.mechanism_types)
                 accepted = [r for r in records if r.status == "accepted"]
                 trials = _feedback.named(records)
-                cap, k = config.round.max_children, snapshot.settings.get("round", {}).get("picked_parents", 0)
-                built = (
-                    _lineage.lineages(trials, config.admission) if config.context.lineage or cap is not None or k else {}
-                )
-                lineage = built if config.context.lineage else {}
+                shown, cap, k = parent_settings.lineage, parent_settings.max_children, parent_settings.picked_parents
+                built = _lineage.lineages(trials, config.admission) if shown or cap is not None or k else {}
+                lineage = built if shown else {}
                 context = self._context(
                     records, state, reference, known, evaluator, accepted, recent_rounds, prompts, lineage,
                 )
@@ -456,7 +458,8 @@ class Campaign:
             else:
                 built[role] = attempt(f"llm.{role}", lambda role=role: make_backend(config.roles[role].spec()))
         attempt("reference and known factors", config.load_factors)
-        files = self._check_snapshot(run_dir, checks)
+        searched = self._check_snapshot(run_dir, checks)
+        files = _FAILED if searched is _FAILED else searched[0]
 
         needs = {"data.prices": columns, "data.intraday": intraday_columns, "run snapshot": files}
         if lacking := [name for name, value in needs.items() if value is _FAILED]:
@@ -468,7 +471,8 @@ class Campaign:
         if lacking := [name for name, value in needs.items() if value is _FAILED]:
             checks.append(Check("templates", skipped=f"they need {_parts(lacking)}, which failed or did not run"))
         else:
-            attempt("templates", lambda: self._prompts(config.templates(files), vocabulary, label, scoring))
+            picked = _ParentSettings.of(searched[1]).picked_parents
+            attempt("templates", lambda: self._prompts(config.templates(files, picked), vocabulary, label, scoring))
         if ping:
             checks += self._ping(built)
         return CheckReport(tuple(checks))
@@ -491,13 +495,13 @@ class Campaign:
                 checks.append(ping(name, built[roles[0]], roles[0], first.model))
         return checks
 
-    def _check_snapshot(self, run_dir: Path, checks: list[Check]) -> SearchFiles | object:
-        """Check the files and settings the run would open its snapshot with; return the files, or ``_FAILED``.
+    def _check_snapshot(self, run_dir: Path, checks: list[Check]) -> tuple[SearchFiles, dict] | object:
+        """Check the files and settings the run would open its snapshot with; return them (``_search``), or ``_FAILED``.
 
         A first start has nothing to compare; a resume's differences from the
-        snapshot are problems and other code versions a warning. A file that
-        cannot be read is a problem, but the files are still returned for
-        the vocabulary to report it in its terms.
+        snapshot are problems and other code versions a warning. A file, or
+        the snapshot itself, that cannot be read is a problem, but the files
+        are still returned for the vocabulary to report it in its terms.
         """
         try:
             files, settings = self._search(run_dir, run_dir / "state.json")
@@ -506,15 +510,20 @@ class Campaign:
             return _FAILED
         if not RunSnapshot.exists(run_dir):
             checks.append(Check("run snapshot"))
-            return files
-        snapshot = RunSnapshot.read(run_dir)
+            return files, settings
+        try:
+            snapshot = RunSnapshot.read(run_dir)
+            changed = snapshot.version_change(code_version())
+        except Exception as exc:  # a snapshot written in part or damaged
+            problem = f"{run_dir / 'snapshot.json'} cannot be read ({type(exc).__name__}: {exc}); the run cannot resume"
+            checks.append(Check("run snapshot", problems=(problem,)))
+            return files, settings
         try:
             problems = tuple(snapshot.differences(files, settings))
         except Exception as exc:  # a file that cannot be read
             problems = _problems(exc)
-        changed = snapshot.version_change(code_version())
         checks.append(Check("run snapshot", problems=problems, warnings=(changed,) if changed else ()))
-        return files
+        return files, settings
 
     def _load(self, run_dir: Path, state_path: Path) -> tuple:
         """The loading half of a start, which writes nothing.
@@ -540,7 +549,7 @@ class Campaign:
         intraday = self.config.data.load("intraday") if self.config.data.intraday is not None else None
         columns, intraday_columns = _columns(prices), _intraday_columns(intraday)
         files, settings = self._search(run_dir, state_path)
-        self.config.templates(files, settings.get("round", {}).get("picked_parents", 0))
+        self.config.templates(files, _ParentSettings.of(settings).picked_parents)
         self.config.vocabulary(columns, files, intraday_columns)
         return prices, intraday, columns, intraday_columns, files, settings
 
@@ -829,6 +838,29 @@ class Campaign:
             round=number, candidate=proposal.candidate.to_dict(), fingerprint=checked.fingerprint,
             stats=checked.stats, attempts=_attempts(proposal), direction=proposal.direction.to_dict(),
             graph=checked.graph.to_json(),
+        )
+
+
+class _ParentSettings(NamedTuple):
+    """The Lineage, ``round.max_children`` and Picked-parent settings a run uses.
+
+    They are read from the settings the run's snapshot is opened with
+    (``Campaign._search``): the config's on a new run, the recorded run's in
+    a replay, so a replay builds on parents as the recorded run did and
+    ``check`` judges the templates as ``run`` does.
+    """
+
+    lineage: bool
+    max_children: int | None
+    picked_parents: int
+
+    @classmethod
+    def of(cls, settings: dict) -> "_ParentSettings":
+        """The settings ``settings`` (a snapshot's) record, each left out when it was off."""
+        rounds = settings.get("round", {})
+        return cls(
+            bool(settings.get("context", {}).get("lineage", False)), rounds.get("max_children"),
+            rounds.get("picked_parents", 0),
         )
 
 
