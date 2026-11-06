@@ -6,13 +6,16 @@ change them; the roles' scripted backends read a replies file that exists.
 A resumed run is first run for one round with ``tests/fake_llm.FakeLLM``.
 """
 
+import http.server
 import json
+import threading
 from pathlib import Path
 
 import pytest
 import yaml
 
 from factor_agent.campaign import Campaign
+from factor_agent.cli import main
 from factor_agent.config import ROLES, CampaignConfig
 from tests import synthetic_market
 from tests.campaign_runner import candidate, run, write_config
@@ -171,3 +174,126 @@ def test_a_missing_exposure_store_is_a_problem_of_the_scoring(tmp_path, market):
     report = _check(path)
     assert report.problems == [f"scoring: the store {missing} it reads does not exist"]
     assert dict(report.skipped) == {"templates": "they need scoring, which failed or did not run"}
+
+
+class _Provider:
+    """A local chat-completions server: it answers the model ``known`` and refuses any other with HTTP 404."""
+
+    def __init__(self, known: str):
+        self.models: list[str] = []
+        provider = self
+
+        class Handler(http.server.BaseHTTPRequestHandler):
+            def do_POST(self):
+                model = json.loads(self.rfile.read(int(self.headers["Content-Length"])))["model"]
+                provider.models.append(model)
+                status, body = (200, {
+                    "id": "chatcmpl-1", "object": "chat.completion", "created": 0, "model": model,
+                    "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": "OK"}}],
+                    "usage": {"prompt_tokens": 10, "completion_tokens": 1, "total_tokens": 11},
+                }) if model == known else (404, {"error": {"message": f"The model {model} does not exist"}})
+                data = json.dumps(body).encode()
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *args):
+                pass
+
+        self.server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/v1"
+
+
+@pytest.fixture
+def provider():
+    server = _Provider(known="a-model")
+    yield server
+    server.server.shutdown()
+
+
+def _on_provider(path: Path, provider: _Provider, models: dict[str, str]) -> Path:
+    """``path``'s config with each role of ``models`` on ``provider`` with that model."""
+    config = yaml.safe_load(path.read_text())
+    for role, model in models.items():
+        config["llm"][role] = {"backend": "openai_compatible", "model": model, "base_url": provider.url}
+    path.write_text(yaml.safe_dump(config))
+    return path
+
+
+def test_a_ping_sends_one_request_per_distinct_backend_and_reports_a_failing_one(tmp_path, market, provider):
+    path = _on_provider(_config(tmp_path, market), provider, {
+        "planner": "a-model", "proposer": "a-model", "reviewer": "a-wrong-model",
+    })
+    report = Campaign(CampaignConfig.from_file(path)).check(ping=True)
+    assert sorted(provider.models) == ["a-model", "a-wrong-model"]
+    [problem] = report.problems
+    assert problem.startswith("ping reviewer: ") and "a-wrong-model does not exist" in problem
+    assert dict(report.skipped) == {"ping distiller": "the scripted backend is not pinged"}
+    text = report.text()
+    assert "ok       ping planner, proposer: answered in " in text
+    assert not (tmp_path / "run").exists()
+
+
+def test_without_ping_no_request_is_sent(tmp_path, market, provider):
+    path = _on_provider(_config(tmp_path, market), provider, {"planner": "a-wrong-model"})
+    report = Campaign(CampaignConfig.from_file(path)).check()
+    assert report.ok and provider.models == []
+    assert not any(check.name.startswith("ping") for check in report.checks)
+
+
+def test_a_role_whose_backend_cannot_be_built_is_not_pinged(tmp_path, market, monkeypatch):
+    monkeypatch.delenv("FACTOR_AGENT_TEST_KEY", raising=False)
+    path = _config(tmp_path, market)
+    config = yaml.safe_load(path.read_text())
+    config["llm"]["reviewer"] = {
+        "backend": "openai_compatible", "model": "a-model", "base_url": "http://localhost:1/v1",
+        "api_key_env": "FACTOR_AGENT_TEST_KEY",
+    }
+    path.write_text(yaml.safe_dump(config))
+    report = Campaign(CampaignConfig.from_file(path)).check(ping=True)
+    [problem] = report.problems
+    assert problem.startswith("llm.reviewer: ")
+    assert dict(report.skipped)["ping reviewer"] == "it needs llm.reviewer, which failed"
+
+
+def test_the_command_exits_0_on_a_good_config_and_prints_the_report(tmp_path, market, capsys):
+    path = _config(tmp_path, market)
+    assert main(["check", str(path)]) == 0
+    out = capsys.readouterr().out
+    assert "ok       vocabulary" in out and "0 problem(s)" in out
+
+
+def test_the_command_exits_1_on_a_broken_config(tmp_path, market, capsys):
+    path = _config(tmp_path, market)
+    config = yaml.safe_load(path.read_text())
+    config["data"]["prices"]["zarr_file_path"] = str(tmp_path / "nowhere" / "prices.zarr")
+    path.write_text(yaml.safe_dump(config))
+    assert main(["check", str(path)]) == 1
+    assert capsys.readouterr().out.rstrip().endswith("the run would be refused")
+
+
+def test_the_command_pings_with_ping(tmp_path, market, provider, capsys):
+    path = _on_provider(_config(tmp_path, market), provider, {role: "a-wrong-model" for role in ROLES})
+    assert main(["check", str(path), "--ping"]) == 1
+    assert provider.models == ["a-wrong-model"]
+    assert "ping planner, proposer, reviewer, distiller" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("source, says", [
+    ("run_dir: [unclosed\n", "while parsing"),
+    ("run_dir: run\nbudget: {}\n", "unknown section(s) ['budget']"),
+])
+def test_a_config_that_cannot_be_read_is_the_first_problem_not_a_traceback(tmp_path, capsys, source, says):
+    path = tmp_path / "campaign.yaml"
+    path.write_text(source)
+    assert main(["check", str(path)]) == 1
+    out = capsys.readouterr().out
+    assert out.startswith("problem  config\n") and says in out and "Traceback" not in out
+
+
+def test_a_missing_config_file_is_a_problem(tmp_path, capsys):
+    assert main(["check", str(tmp_path / "nowhere.yaml")]) == 1
+    assert "problem  config" in capsys.readouterr().out

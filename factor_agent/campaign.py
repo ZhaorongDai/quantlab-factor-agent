@@ -123,7 +123,7 @@ from factor_agent.gate.vocabulary import Vocabulary
 from factor_agent.ledger import Ledger, TrialRecord
 from factor_agent.llm.base import AskingAgain, LLMBackend, ProviderQuotaExhausted, make_backend
 from factor_agent.llm.log import LLMLog, RecordingBackend
-from factor_agent.preflight import Check, CheckReport
+from factor_agent.preflight import Check, CheckReport, ping
 from factor_agent.prompts import Prompts, Templates
 from factor_agent.researcher import Proposal, Researcher
 from factor_agent.scoring import Scoring
@@ -387,7 +387,7 @@ class Campaign:
             memory=state.memory, not_covered=zoo.not_covered,
         )
 
-    def check(self) -> CheckReport:
+    def check(self, ping: bool = False) -> CheckReport:
         """What ``run`` would refuse before its first LLM call, found without writing anything or computing a factor.
 
         Each part is checked on its own and every problem is reported at
@@ -401,6 +401,12 @@ class Campaign:
         intraday datasets' columns and the templates need the vocabulary,
         the label and the scoring; each is skipped, with the reason, when
         a part it needs failed. The run directory is only read.
+
+        With ``ping``, each distinct backend (roles with the same config
+        share one) is then sent one short request outside the LLM log, and
+        its error is a problem; roles on the ``replay`` or ``scripted``
+        backend, with a backend passed in or whose backend cannot be built
+        are not pinged, and say why.
 
         Returns
         -------
@@ -443,11 +449,12 @@ class Campaign:
             loaded = attempt("data.intraday", lambda: with_columns("intraday", _intraday_columns))
             intraday_columns = _FAILED if loaded is _FAILED else loaded[1]
         scoring = attempt("scoring", scored)
+        built = {}
         for role in ROLES:
             if role in self._replaced:
                 checks.append(Check(f"llm.{role}"))
             else:
-                attempt(f"llm.{role}", lambda role=role: make_backend(config.roles[role].spec()))
+                built[role] = attempt(f"llm.{role}", lambda role=role: make_backend(config.roles[role].spec()))
         attempt("reference and known factors", config.load_factors)
         files = self._check_snapshot(run_dir, checks)
 
@@ -462,7 +469,27 @@ class Campaign:
             checks.append(Check("templates", skipped=f"they need {_parts(lacking)}, which failed or did not run"))
         else:
             attempt("templates", lambda: self._prompts(config.templates(files), vocabulary, label, scoring))
+        if ping:
+            checks += self._ping(built)
         return CheckReport(tuple(checks))
+
+    def _ping(self, built: dict) -> list[Check]:
+        """A ``ping`` of each distinct backend among ``built`` (each role's backend, or ``_FAILED``), in role order."""
+        shared: dict[str, list[str]] = {}
+        for role in ROLES:
+            shared.setdefault(json.dumps(self.config.roles[role].spec(), sort_keys=True), []).append(role)
+        checks = []
+        for roles in shared.values():
+            first, name = self.config.roles[roles[0]], "ping " + ", ".join(roles)
+            if first.backend in ("replay", "scripted"):
+                checks.append(Check(name, skipped=f"the {first.backend} backend is not pinged"))
+            elif replaced := [role for role in roles if role in self._replaced]:
+                checks.append(Check(name, skipped=f"the backend of {', '.join(replaced)} was passed in"))
+            elif built[roles[0]] is _FAILED:
+                checks.append(Check(name, skipped=f"it needs llm.{roles[0]}, which failed"))
+            else:
+                checks.append(ping(name, built[roles[0]], roles[0], first.model))
+        return checks
 
     def _check_snapshot(self, run_dir: Path, checks: list[Check]) -> SearchFiles | object:
         """Check the files and settings the run would open its snapshot with; return the files, or ``_FAILED``.

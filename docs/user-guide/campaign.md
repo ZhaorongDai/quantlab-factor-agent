@@ -148,6 +148,30 @@ and the templates need the vocabulary, the label and the scoring; when one of th
 fails, the check that needs it is reported as skipped, with the reason, so a clean report
 after a fix is not mistaken for a complete one.
 
+From the shell, `factor-agent check` prints the report and exits with status 1 when it
+holds a problem, so a script or CI can gate a launch on it; a config that cannot be read
+(bad YAML, an unknown section or key) is printed as its first problem instead of a
+traceback:
+
+```bash
+factor-agent check campaign.yaml           # 0: the run can start, 1: a problem
+factor-agent check campaign.yaml --ping    # also send each backend one short request
+```
+
+```text
+ok       data.prices
+ok       data.label
+...
+problem  llm.reviewer
+         - the environment variable DEEPSEEK_API_KEY holding the API key is not set
+ok       run snapshot
+ok       vocabulary
+ok       templates
+1 problem(s), 0 warning(s), 0 check(s) skipped; the run would be refused
+```
+
+In Python, `check()` returns the report:
+
 ```python
 from factor_agent.campaign import Campaign
 from factor_agent.config import CampaignConfig
@@ -158,8 +182,14 @@ if not report.ok:       # report.problems lists them as "<check>: <problem>"
     raise SystemExit(1)
 ```
 
-`check()` sends no request to a provider, so a wrong model name or base URL is still
-found at the first call.
+Without a ping the check sends no request to a provider, so a wrong model name or base URL
+is found only at the first call. With `--ping` (`check(ping=True)`) each distinct backend
+(roles with the same settings share one) gets one short request after the other checks,
+outside the LLM log; its check, named after its roles (`ping planner, proposer`), gives
+how long the answer took, or the provider's error as a problem. Roles on the `replay` or
+`scripted` backend need no provider and are not pinged, nor is a role whose backend could
+not be built; each is listed as skipped with the reason. A ping costs one short call per
+backend.
 
 ## Stopping and resuming
 

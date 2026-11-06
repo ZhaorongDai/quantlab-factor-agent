@@ -15,6 +15,12 @@ layout; there are no compatibility shims or config migrations.
   factors, a resume's files or settings that differ from the run snapshot, the vocabulary
   and the templates; a check that needs a part that failed is reported as skipped with the
   reason, and other code versions on a resume as a warning (`factor_agent.preflight`).
+- `factor-agent check <config> [--ping]`, a new console script beside `factor-agent-web`,
+  prints the report of `Campaign.check()` and exits with status 1 when it holds a problem;
+  a config that cannot be read is printed as its first problem instead of a traceback.
+  With `--ping` (`Campaign.check(ping=True)`) each distinct backend gets one short request
+  outside the LLM log and the report gives its duration or its error; roles on the replay
+  or scripted backend are not pinged.
 - `context.lineage`: the planner's accepted factors and the proposer's parent trial carry
   each trial's Lineage, one line on the trials built on it: how many, refinements and
   mutations, how many stopped before evaluation, which were accepted, and the best child's
