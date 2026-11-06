@@ -1,8 +1,22 @@
 # Installation
 
-quantlab-factor-agent needs Python 3.13 or newer, [uv](https://docs.astral.sh/uv/), a C++
-compiler on the `PATH` (KunQuant compiles each round's factor graph to native code) and a
-checkout of [quantlab](https://github.com/ZhaorongDai/quantlab) next to its own:
+quantlab-factor-agent needs Python 3.13 or newer and a C++ compiler on the `PATH` (KunQuant
+compiles each round's factor graph to native code).
+
+## Install from PyPI
+
+```bash
+pip install "quantlab-factor-agent[web]"
+```
+
+The `web` extra adds the [web frontend](../user-guide/web.md); leave it out for the library
+alone. The package installs [quantlab](https://github.com/ZhaorongDai/quantlab) from PyPI
+as `quantlab-py`. On macOS, xgboost needs Homebrew's `libomp` (`brew install libomp`).
+
+## Install from a checkout
+
+To change the code, run the example configs in `configs/` or the offline test suite, install
+with [uv](https://docs.astral.sh/uv/) from a checkout, with quantlab's checkout next to it:
 
 ```text
 projects/
@@ -10,22 +24,16 @@ projects/
 └── quantlab-factor-agent/
 ```
 
-## Install
-
 ```bash
 git clone https://github.com/ZhaorongDai/quantlab.git
 git clone https://github.com/ZhaorongDai/quantlab-factor-agent.git
 cd quantlab-factor-agent
-uv sync                       # installs quantlab from ../quantlab in editable mode
+uv sync --extra web           # installs quantlab from ../quantlab in editable mode
 uv run pytest -n auto         # the offline test suite: no LLM call, a synthetic market
 ```
 
-`uv sync --extra web` adds the [web frontend](../user-guide/web.md), and
-`uv sync --group docs` what building this site needs. On macOS, xgboost needs Homebrew's
-`libomp` (`brew install libomp`).
-
-quantlab-factor-agent follows quantlab's `main`, which is newer than the quantlab release on
-PyPI, so it is installed from a checkout rather than with `pip install`.
+`uv sync --group docs` adds what building this site needs. A checkout follows quantlab's
+`main`, which may be ahead of its latest release.
 
 ## Credentials
 

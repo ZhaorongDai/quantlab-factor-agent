@@ -6,7 +6,9 @@ layout; there are no compatibility shims or config migrations.
 
 ## Unreleased
 
-The first public version, 0.1.0.
+## 0.1.0 (2026-11-06)
+
+The first public version.
 
 ### Added
 
