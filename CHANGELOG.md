@@ -15,6 +15,19 @@ layout; there are no compatibility shims or config migrations.
   factors, a resume's files or settings that differ from the run snapshot, the vocabulary
   and the templates; a check that needs a part that failed is reported as skipped with the
   reason, and other code versions on a resume as a warning (`factor_agent.preflight`).
+- `context.lineage`: the planner's accepted factors and the proposer's parent trial carry
+  each trial's Lineage, one line on the trials built on it: how many, refinements and
+  mutations, how many stopped before evaluation, which were accepted, and the best child's
+  residual t against the parent's. Off by default and fixed by the run's snapshot; it needs
+  `context.feedback`.
+
+### Changed
+
+- `CampaignConfig.from_file` refuses an LLM role option its backend does not take, naming
+  the role and listing the options the backend takes, and a segment entry key other than
+  `start` and `end`, instead of dropping them silently. Each backend declares its options
+  (`OPTIONS`), and `factor_agent.llm.base.backends()` is the one table of backends that
+  `make_backend` builds from and `backend_options` looks options up in.
 
 ## 0.1.0 (2026-11-06)
 

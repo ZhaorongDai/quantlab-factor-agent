@@ -39,10 +39,13 @@ class ClaudeCodeBackend:
         self.executable = executable
         self.timeout_seconds = timeout_seconds
 
+    #: The options a role's config may give besides ``backend`` and ``model``.
+    OPTIONS = ("effort", "executable", "timeout_seconds")
+
     @classmethod
     def from_config(cls, spec: dict) -> "ClaudeCodeBackend":
         """Build from a role's config: ``model`` and optionally ``effort``, ``executable`` and ``timeout_seconds``."""
-        options = {k: spec[k] for k in ("effort", "executable", "timeout_seconds") if k in spec}
+        options = {k: spec[k] for k in cls.OPTIONS if k in spec}
         return cls(spec["model"], **options)
 
     def command(self) -> list[str]:

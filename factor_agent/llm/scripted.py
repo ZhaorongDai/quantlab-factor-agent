@@ -24,6 +24,9 @@ class ScriptedBackend:
         self.requests: list[Request] = []
         self._taking = threading.Lock()
 
+    #: The options a role's config may give besides ``backend`` and ``model``; ``replies`` is needed.
+    OPTIONS = ("replies",)
+
     @classmethod
     def from_config(cls, spec: dict) -> "ScriptedBackend":
         """Build from ``{"replies": <path to a JSON list of reply texts>}``."""

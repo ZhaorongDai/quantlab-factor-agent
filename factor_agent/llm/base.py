@@ -84,6 +84,39 @@ class AskingAgain:
         return self.backend.complete(request)
 
 
+def backends() -> dict:
+    """The backends a role's config may name, each name to its class.
+
+    Each class builds itself from a role's config (``from_config``) and
+    declares the options that config may give besides ``backend`` and
+    ``model`` (``OPTIONS``).
+    """
+    from factor_agent.llm.anthropic import AnthropicBackend
+    from factor_agent.llm.claude_code import ClaudeCodeBackend
+    from factor_agent.llm.openai_compatible import OpenAICompatibleBackend
+    from factor_agent.llm.replay import ReplayBackend
+    from factor_agent.llm.scripted import ScriptedBackend
+
+    return {
+        "scripted": ScriptedBackend, "replay": ReplayBackend, "claude_code": ClaudeCodeBackend,
+        "anthropic": AnthropicBackend, "openai_compatible": OpenAICompatibleBackend,
+    }
+
+
+def backend_options(name: str) -> tuple[str, ...]:
+    """The options a role's config on the backend ``name`` may give besides ``backend`` and ``model``.
+
+    Raises
+    ------
+    ValueError
+        If the backend name is unknown.
+    """
+    table = backends()
+    if name not in table:
+        raise ValueError(f"unknown LLM backend {name!r}; known: {sorted(table)}")
+    return table[name].OPTIONS
+
+
 def make_backend(spec: dict) -> LLMBackend:
     """Build the backend a role's config names in ``spec["backend"]``.
 
@@ -93,27 +126,15 @@ def make_backend(spec: dict) -> LLMBackend:
         If the backend name is unknown, or the config holds a key: keys come
         only from environment variables (``api_key_env`` names one).
     """
-    from factor_agent.llm.anthropic import AnthropicBackend
-    from factor_agent.llm.claude_code import ClaudeCodeBackend
-    from factor_agent.llm.openai_compatible import OpenAICompatibleBackend
-    from factor_agent.llm.replay import ReplayBackend
-    from factor_agent.llm.scripted import ScriptedBackend
-
-    backends = {
-        "scripted": ScriptedBackend.from_config, "replay": ReplayBackend.from_config,
-        "claude_code": ClaudeCodeBackend.from_config, "anthropic": AnthropicBackend.from_config,
-        "openai_compatible": OpenAICompatibleBackend.from_config,
-    }
     name = spec.get("backend")
-    if name not in backends:
-        raise ValueError(f"unknown LLM backend {name!r}; known: {sorted(backends)}")
+    backend_options(name)
     secrets = [option for option in spec if _is_secret(option)]
     if secrets:
         raise ValueError(
             f"LLM backend {name!r}: {secrets} look like keys; a key is read only from an environment "
             f"variable (name it with api_key_env), never from the config"
         )
-    return backends[name](spec)
+    return backends()[name].from_config(spec)
 
 
 def _is_secret(option: str) -> bool:

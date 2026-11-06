@@ -31,6 +31,9 @@ class ReplayBackend:
             request = call["request"]
             self._replies[request["role"], request["model"], request["prompt"]].append(call)
 
+    #: The options a role's config may give besides ``backend`` and ``model``; ``log`` is needed.
+    OPTIONS = ("log",)
+
     @classmethod
     def from_config(cls, spec: dict) -> "ReplayBackend":
         """Build from ``{"log": <the llm_log directory of the recorded run>}``."""
