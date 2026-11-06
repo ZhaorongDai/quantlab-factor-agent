@@ -364,3 +364,19 @@ def test_a_key_in_a_role_is_refused_when_the_config_is_read_saying_to_name_an_en
         CampaignConfig.from_file(_minimal(tmp_path, llm=llm))
     assert "sk-secret-sentinel" not in str(raised.value)
 
+
+def test_every_factor_entry_that_cannot_be_rebuilt_is_named_with_its_cause(store, tmp_path):
+    unimportable = tmp_path / "unimportable"
+    unimportable.mkdir()
+    recorded = json.loads((store / "component.json").read_text())
+    recorded["name"] = "no_such_research_package.factor.Alpha"
+    (unimportable / "component.json").write_text(json.dumps(recorded))
+    config = CampaignConfig.from_file(_minimal(
+        tmp_path, reference=[str(store), str(unimportable)], known=[{"store": str(unimportable)}],
+    ))
+    with pytest.raises(ValueError) as raised:
+        config.load_factors()
+    assert raised.value.problems == (
+        f"reference[1] {unimportable}: No module named 'no_such_research_package'",
+        f"known[0] {unimportable}: No module named 'no_such_research_package'",
+    )

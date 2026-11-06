@@ -52,6 +52,10 @@ layout; there are no compatibility shims or config migrations.
   `make_backend` builds from and `backend_options` looks options up in. An option that
   looks like a key (`api_key`, say) is refused there too, saying to name an environment
   variable with `api_key_env`.
+- `CampaignConfig.load_factors` names every reference or known entry that cannot be
+  rebuilt, by its section, position and store, with the cause (an unimportable class,
+  say), instead of raising the first entry's bare exception; `Campaign.check()` reports
+  each (#80).
 
 ## 0.1.0 (2026-11-06)
 

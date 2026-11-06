@@ -117,6 +117,32 @@ def load_each(value: dict | str | list) -> Any:
     return [load(item) for item in value] if isinstance(value, list) else load(value)
 
 
+class FactorsError(ValueError):
+    """The reference or known factor entries that cannot be rebuilt, one problem each."""
+
+    def __init__(self, problems: list[str]):
+        self.problems = tuple(problems)
+        super().__init__("campaign config: " + "; ".join(problems))
+
+
+def _load_entries(section: str, entries: tuple, problems: list[str]) -> list:
+    """Rebuild each of ``section``'s ``entries`` (``load``), adding a problem naming each that fails to ``problems``."""
+    loaded = []
+    for position, component in enumerate(entries):
+        try:
+            loaded.append(load(component))
+        except Exception as exc:  # every entry that fails is named
+            problems.append(f"{section}[{position}] {_entry_name(component)}: {exc}")
+    return loaded
+
+
+def _entry_name(component: dict | str) -> str:
+    """How a problem names a reference or known entry: its store, or the class an inline component names."""
+    if isinstance(component, str):
+        return component
+    return str(component.get("store", component.get("name", "")))
+
+
 def load(component: dict | str) -> Any:
     """Rebuild a component given as a ``get_config()`` dict, a store folder path or a store entry.
 
@@ -509,13 +535,19 @@ class CampaignConfig:
 
         Raises
         ------
-        ValueError, TypeError
-            As ``load`` does, for an entry its store or class does not fit.
+        FactorsError
+            Naming every entry that cannot be rebuilt (``load``: its store is
+            missing, its class cannot be imported or does not fit), each with
+            its cause.
         """
-        reference = [load(component) for component in self.reference]
+        problems: list[str] = []
+        reference = _load_entries("reference", self.reference, problems)
+        loaded_known = _load_entries("known", self.known, problems)
+        if problems:
+            raise FactorsError(problems)
         taken = {key for factor in reference for key in _output_keys(factor)}
         known = []
-        for factor in (load(component) for component in self.known):
+        for factor in loaded_known:
             names = tuple(name for name, key in zip(factor.get_factor_names(), _output_keys(factor)) if key not in taken)
             if names == tuple(factor.get_factor_names()):
                 known.append(factor)
