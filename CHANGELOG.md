@@ -6,6 +6,16 @@ layout; there are no compatibility shims or config migrations.
 
 ## Unreleased
 
+### Added
+
+- `Campaign.check()` reports what `run()` would refuse before its first LLM call, every
+  problem at once, without writing to the run directory or computing a factor: a data
+  component that does not load or reads a store that does not exist, the scoring, a role
+  whose backend cannot be built (an unset API key variable), the reference and known
+  factors, a resume's files or settings that differ from the run snapshot, the vocabulary
+  and the templates; a check that needs a part that failed is reported as skipped with the
+  reason, and other code versions on a resume as a warning (`factor_agent.preflight`).
+
 ## 0.1.0 (2026-11-06)
 
 The first public version.

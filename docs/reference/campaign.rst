@@ -14,6 +14,8 @@ Running a campaign
    factor_agent.campaign.Campaign
    factor_agent.campaign.CampaignResult
    factor_agent.campaign.Stop
+   factor_agent.preflight.CheckReport
+   factor_agent.preflight.Check
 
 Configuration
 -------------
