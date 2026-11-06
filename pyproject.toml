@@ -47,6 +47,7 @@ web = [
 ]
 
 [project.scripts]
+factor-agent = "factor_agent.cli:main"
 factor-agent-web = "factor_agent.web.app:main"
 
 [dependency-groups]

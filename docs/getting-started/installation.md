@@ -46,6 +46,21 @@ Keys come from environment variables only; a config that holds one is refused.
 | `claude_code` | the local Claude Code login |
 | `replay` | nothing: it serves a recorded log |
 
+## Check a config
+
+The package installs the `factor-agent` command. Before starting a campaign, check its
+config and run directory; the check writes nothing and computes no factor, and `--ping`
+also sends each LLM backend one short request to confirm the model name, the base URL and
+the key:
+
+```bash
+factor-agent check configs/your-campaign.yaml --ping
+```
+
+It prints one line per check and exits with status 1 when one found a problem (see
+[checking a config](../user-guide/campaign.md#checking-a-config)). From a checkout, run it
+as `uv run factor-agent check ...`.
+
 ## Data
 
 A campaign reads quantlab stores: a whole-market price dataset, a forward-return label, a

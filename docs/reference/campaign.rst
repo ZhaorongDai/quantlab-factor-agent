@@ -16,6 +16,7 @@ Running a campaign
    factor_agent.campaign.Stop
    factor_agent.preflight.CheckReport
    factor_agent.preflight.Check
+   factor_agent.cli.main
 
 Configuration
 -------------
