@@ -37,6 +37,7 @@ from quantlab.core.store_folder import load_component
 
 from factor_agent import _acceptance_model
 from factor_agent.gate.vocabulary import Vocabulary, VocabularyError
+from factor_agent.llm.base import backend_options
 from factor_agent.prompts import Templates
 from factor_agent.segments import PURGE_BARS, Segment, Segments
 from factor_agent.snapshot import SearchFiles
@@ -348,10 +349,29 @@ class RoleConfig:
     options: dict
 
     @classmethod
-    def from_dict(cls, data: dict) -> "RoleConfig":
-        """Split a role's YAML mapping into the backend, the model and the rest."""
+    def from_dict(cls, data: dict, role: str = "role") -> "RoleConfig":
+        """Split ``role``'s YAML mapping into the backend, the model and the rest.
+
+        Raises
+        ------
+        ValueError
+            If the backend name is unknown.
+        TypeError
+            If the rest holds an option the backend does not take, listing those it does.
+        """
         data = dict(data)
-        return cls(backend=data.pop("backend"), model=data.pop("model"), options=data)
+        backend, model = data.pop("backend"), data.pop("model")
+        try:
+            options = backend_options(backend)
+        except ValueError as error:
+            raise ValueError(f"campaign config: llm.{role}: {error}") from None
+        unknown = sorted(set(data) - set(options))
+        if unknown:
+            raise TypeError(
+                f"campaign config: llm.{role}: the {backend} backend does not take {unknown}; "
+                f"it takes {', '.join(sorted(options))}"
+            )
+        return cls(backend=backend, model=model, options=data)
 
     def spec(self) -> dict:
         """The dict ``make_backend`` takes."""
@@ -524,11 +544,13 @@ class CampaignConfig:
         Raises
         ------
         TypeError
-            If a section holds a key its config class does not have, or names a budget or per-token prices.
+            If a section holds a key its config class does not have, a segment's entry another key than
+            ``start`` and ``end``, or a role an option its backend does not take (the message lists those
+            it does), or if the config names a budget or per-token prices.
         KeyError
             If a required section or role is missing.
         ValueError
-            If a section's values do not fit together.
+            If a section's values do not fit together, or a role names an unknown backend.
         PromptError
             Naming every problem of the replaced templates.
         """
@@ -561,7 +583,7 @@ class CampaignConfig:
             segments=_segments(raw["segments"]),
             data=DataConfig(**raw["data"]),
             scoring=ScoringConfig.from_dict(raw["scoring"]),
-            roles={role: RoleConfig.from_dict(raw["llm"][role]) for role in ROLES},
+            roles={role: RoleConfig.from_dict(raw["llm"][role], role) for role in ROLES},
             fields=tuple(str(folder / f) for f in raw["fields"]),
             operators=str(folder / raw["operators"]),
             operator_modules=tuple(raw.get("operator_modules") or ()),
@@ -639,11 +661,15 @@ def _segments(raw: dict) -> Segments:
     Raises
     ------
     TypeError
-        If the section holds another key.
+        If the section holds another key, or a segment's entry another key than ``start`` and ``end``.
     """
     unknown = set(raw) - {"training", "confirmation", "validation", "holdout", "purge_bars"}
     if unknown:
         raise TypeError(f"campaign config: unknown segment key(s) {sorted(unknown)}")
+    for name in ("training", "confirmation", "validation", "holdout"):
+        unknown = set(raw.get(name) or {}) - {"start", "end"}
+        if unknown:
+            raise TypeError(f"campaign config: segments.{name}: unknown key(s) {sorted(unknown)}; it takes start and end")
     segments = {
         name: Segment(name, str(raw[name]["start"]), str(raw[name]["end"]))
         for name in ("training", "confirmation", "validation", "holdout") if name in raw

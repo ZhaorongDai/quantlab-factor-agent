@@ -2,7 +2,11 @@
 
 One YAML file holds every setting of a campaign. `CampaignConfig.from_file(path)` reads it,
 resolving the field, operator and template paths relative to the file, and refuses
-unknown sections, malformed entries and credentials. `Campaign(config).run()` runs it.
+unknown sections, malformed entries and credentials before any data loads. An unknown key
+is refused rather than ignored: an option an LLM role's backend does not take (`timeout`
+for `timeout_seconds`, say) is refused naming the role and listing the options that
+backend takes, and a segment entry takes only `start` and `end`. `Campaign(config).run()`
+runs it.
 
 ## Sections
 

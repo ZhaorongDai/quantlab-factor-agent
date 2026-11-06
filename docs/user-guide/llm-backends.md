@@ -21,7 +21,8 @@ llm:
 | `replay` | the replies of a recorded LLM log, matched on role and prompt | none |
 
 For a reasoning model on an OpenAI-compatible endpoint give `max_completion_tokens` in
-place of `max_tokens`, and `reasoning_effort`. A key written in the config is refused.
+place of `max_tokens`, and `reasoning_effort`. A key written in the config is refused, and
+so is an option the role's backend does not take: the message lists the ones it does.
 
 ## The LLM log
 

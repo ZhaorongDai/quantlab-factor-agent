@@ -6,6 +6,14 @@ layout; there are no compatibility shims or config migrations.
 
 ## Unreleased
 
+### Changed
+
+- `CampaignConfig.from_file` refuses an LLM role option its backend does not take, naming
+  the role and listing the options the backend takes, and a segment entry key other than
+  `start` and `end`, instead of dropping them silently. Each backend declares its options
+  (`OPTIONS`), and `factor_agent.llm.base.backends()` is the one table of backends that
+  `make_backend` builds from and `backend_options` looks options up in.
+
 ## 0.1.0 (2026-11-06)
 
 The first public version.
