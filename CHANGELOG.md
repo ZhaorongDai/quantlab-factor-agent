@@ -42,6 +42,15 @@ layout; there are no compatibility shims or config migrations.
   parents with their utilities and fronts (`Plan.picked`, empty when off). 0 by default;
   above 0 it needs `context.theme_correlation`, a replaced plan template without `{picked}`
   is refused at start and by `Campaign.check()`, and it is fixed by the run's snapshot.
+- The web panel's trials page shows the run's Lineage: a round stepper with any round's
+  plan (its slots with their action, parent and outcome, which parents the code picked, the
+  quota and the plan's issues), the round in progress included, and a Lineage graph of every
+  trial in a column of its round, its action as the node's shape, its outcome as the colour,
+  an arrow from each parent (solid when the code picked it, dashed when the planner chose
+  it) and a ring per round a trial was a Picked parent. The side reader gains the trial's
+  Lineage and a close button, and a trial selected on the graph or the admission map is
+  marked on both. `GET /api/run/round` reads one round's plan, and a run's trials carry
+  their Lineage, the rounds they were picked in and whether their parent was picked.
 
 ### Changed
 
