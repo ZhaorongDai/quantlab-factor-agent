@@ -33,11 +33,17 @@ passes over the nodes the planner's cap leaves out, so that cap changes no
 other node's front. The names in code quotes are the settings
 (``TrialGraphConfig``, the config's ``trial_graph``), by default
 CosmosAlpha's (arXiv:2611.04555, Appendix A and C.3).
+
+A round that picks parents keeps its graph in the run directory as
+``trial_graph/round_NN.json`` (``write``), the graph's ``to_dict``; ``read``
+reads it back. The file holds no ranks: the pick order is computed again.
 """
 
+import json
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from pathlib import Path
 from typing import NamedTuple
 
 import numpy as np
@@ -170,6 +176,19 @@ class TrialGraph:
             ),
             tuple(Edge(relation, *edge) for relation, edges in data["edges"].items() for edge in edges),
         )
+
+
+def write(graph: TrialGraph, run_dir: Path | str, number: int) -> None:
+    """Keep ``graph``, round ``number``'s, in ``trial_graph/round_NN.json`` of ``run_dir``; a round planned again writes it anew."""
+    folder = Path(run_dir) / "trial_graph"
+    folder.mkdir(exist_ok=True)
+    (folder / f"round_{number:02d}.json").write_text(json.dumps(graph.to_dict()))
+
+
+def read(run_dir: Path | str, number: int) -> TrialGraph | None:
+    """Round ``number``'s graph as ``write`` kept it in ``run_dir``, None when the round has no graph file."""
+    path = Path(run_dir) / "trial_graph" / f"round_{number:02d}.json"
+    return TrialGraph.from_dict(json.loads(path.read_text())) if path.exists() else None
 
 
 def build(

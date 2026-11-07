@@ -71,7 +71,9 @@ built on that often off the trials a direction may build on. With
 the quota, builds the Trial graph (``_trial_graph``) and gives each trial in
 its pick order a slot of its mechanism type while that type has one unclaimed
 (``_claim``); the planner writes those slots as refinements or mutations of
-their parents, and the plan event records them. With
+their parents, and the plan event records them. The round's graph is kept
+in ``trial_graph/round_NN.json`` (``_trial_graph.write``) after the plan,
+and written anew when a resume plans the round again. With
 ``context.send_back_repeats`` too, before a round is scored, a new
 direction's candidate that correlates that much with an earlier trial is
 rewritten once (``_renew``); a slot is rewritten once in
@@ -360,9 +362,10 @@ class Campaign:
                     trial: _feedback.parent(trial, r, trials, lineage.get(trial)) for trial, r in trials if r.evaluated
                 } if config.context.feedback else {}
                 eligible = [trial for trial in parents if cap is None or built[trial].attempts < cap]
-                picked = _claim(k, quota, dict(trials), _trial_graph.build(
+                graph = _trial_graph.build(
                     trials, *evaluator.tried(), built, vocabulary.classes, parent_settings.trial_graph, cap,
-                )) if k else []
+                ) if k else None
+                picked = _claim(k, quota, dict(trials), graph) if k else []
                 directions, issues = researcher.plan(
                     number, quota, context, eligible if config.context.feedback else None,
                     [(p["mechanism_type"], p["trial"]) for p in picked],
@@ -370,6 +373,8 @@ class Campaign:
                 events.write(Plan(
                     round=number, directions=[d.to_dict() for d in directions], quota=quota, issues=issues, picked=picked,
                 ))
+                if graph is not None:
+                    _trial_graph.write(graph, run_dir, number)
                 proposals = researcher.propose(number, directions, context, gate, zoo, config.round.retries, parents)
                 round_records = self._round(
                     number, proposals, researcher, gate, zoo, evaluator, records, events, confirming, vocabulary,
@@ -563,8 +568,10 @@ class Campaign:
 
         The settings recorded are the prompt context, ``round.max_children``
         and ``round.picked_parents`` when set, with Picked parents every
-        ``trial_graph`` value and, with an intraday dataset, that dataset,
-        which the intraday family's fields mean.
+        ``trial_graph`` value (none on the resume of a run with Picked parents
+        started before the section, while they are its defaults, the values
+        it ran with) and, with an intraday dataset, that dataset, which the
+        intraday family's fields mean.
 
         Raises
         ------
@@ -606,6 +613,8 @@ class Campaign:
             settings["round"] = rounds  # each left out unset, likewise
         if k:
             settings["trial_graph"] = asdict(self.config.trial_graph)  # every value, so no change of a default moves it
+            if settings["trial_graph"] == asdict(TrialGraphConfig()) and _predates_trial_graph(run_dir):
+                del settings["trial_graph"]  # a run started before the section ran with its defaults
         if self.config.data.intraday is not None:
             settings["intraday"] = {"dataset": json.loads(json.dumps(self.config.data.intraday))}
         return self.config.search_files(), settings
@@ -860,6 +869,14 @@ class _Loaded(NamedTuple):
     intraday_columns: object
     files: SearchFiles
     settings: dict
+
+
+def _predates_trial_graph(run_dir: Path) -> bool:
+    """Whether ``run_dir`` holds a snapshot of a run with Picked parents that records no ``trial_graph``."""
+    if not RunSnapshot.exists(run_dir):
+        return False
+    recorded = RunSnapshot.read(run_dir).settings
+    return bool(recorded.get("round", {}).get("picked_parents")) and "trial_graph" not in recorded
 
 
 class _ParentSettings(NamedTuple):
