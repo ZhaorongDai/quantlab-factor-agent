@@ -116,8 +116,8 @@ class Plan(Event):
 
     ``picked`` are the round's Picked parents in pick order, each with the
     ``trial``, the ``mechanism_type`` of the slot it was given, its
-    ``quality``, ``fertility`` and ``novelty`` after the flow and its Pareto
-    ``front`` (``_picked_parents``); empty without ``round.picked_parents``.
+    ``quality``, ``fertility`` and ``novelty`` after propagation and its
+    Pareto ``front`` (``_trial_graph``); empty without ``round.picked_parents``.
     """
 
     type = "plan"

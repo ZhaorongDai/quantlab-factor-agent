@@ -31,7 +31,7 @@ layout; there are no compatibility shims or config migrations.
   direction naming it is planned as a new one with a plan issue. Unset by default; set, it
   is fixed by the run's snapshot and needs `context.feedback`.
 - `round.picked_parents: k`: each round the code chooses the parents of k slots, the
-  Picked parents (`factor_agent._picked_parents`): the evaluated trials ranked by Pareto
+  Picked parents (`factor_agent._trial_graph`): the evaluated trials ranked by Pareto
   front and crowding distance on their quality (residual t in their direction), fertility
   (their Lineage's) and novelty (distance from the accepted factors), each shared over the
   trials' lineage, structure and correlation edges, a trial built on five times left out.

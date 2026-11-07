@@ -255,7 +255,7 @@ class RoundConfig:
     #: parents, so a direction naming it is planned as a new one; None (the default) caps none.
     #: It needs ``context.feedback``, and a resume may not change it.
     max_children: int | None = None
-    #: Slots each round whose parent the code chooses (Picked parents, ``_picked_parents``), each a
+    #: Slots each round whose parent the code chooses (Picked parents, ``_trial_graph``), each a
     #: slot of its parent's mechanism type that the planner writes as a refinement or a mutation of
     #: it; 0 (the default) picks none. It needs ``context.theme_correlation``, and a resume may not
     #: change it.
