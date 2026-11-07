@@ -16,7 +16,8 @@ Routes:
 - ``GET /api/run/ic?name=<name>&round=<round>&slot=<slot>``: a trial's daily IC and partial IC (``read_ic``),
   404 when it was not evaluated or the run kept none;
 - ``GET /api/run/round?name=<name>&round=<round>``: one round's plan (``read_round``), its slots, quota and
-  issues, the round in progress included, 404 for a round neither written nor planned;
+  issues and its Trial graph with each node's ranks, the round in progress included, 404 for a round
+  neither written nor planned;
 - ``GET /api/run/version?name=<name>``: a text that changes whenever the run writes (``run_version``),
   which the page polls before reading the run again;
 - ``GET /``: the page, built from ``frontend/`` into ``factor_agent/web/static``.

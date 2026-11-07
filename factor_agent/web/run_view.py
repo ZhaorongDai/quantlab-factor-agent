@@ -65,6 +65,8 @@ alone know them, and read them while a campaign may be writing them:
   slots from the ledger and has no Picked parents. A trial's Lineage is
   computed from the ledger with the admission settings the run was last
   opened with, the defaults without events.
+  A round's Trial graph is its ``trial_graph/round_NN.json``, ranked again
+  by the graph's pick order; a round without the file has none.
 - The memory's versions are the distiller's files ``memory/round_NN.md``,
   each written before round ``NN``, so after round ``NN - 1``. A version
   after the first is compared with the one before it line by line.

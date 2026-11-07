@@ -71,8 +71,30 @@ export type PlanSlot = {
   outcome: 'accepted' | 'rejected' | 'failed' | null
 }
 
-// One round's plan; quota and issues are empty for a run whose events do not hold it.
-export type RoundPlan = { round: number; slots: PlanSlot[]; quota: Record<string, number>; issues: string[]; graph: unknown }
+export type Utilities = { quality: number; fertility: number; novelty: number }
+
+// A trial in a round's Trial graph: its utilities, its ranks in the pick order on its own and on its propagated
+// utilities (null when it may not be picked, reason saying why) and its heaviest edges to other trials.
+export type GraphNode = {
+  trial: string
+  own: Utilities
+  propagated: Utilities
+  neighbourhood: Utilities
+  rank_own: number | null
+  rank_propagated: number | null
+  eligible: boolean
+  reason: 'expansion_cap' | 'max_children' | null
+  heaviest: { trial: string; relation: 'generation' | 'structure' | 'correlation'; weight: number }[]
+}
+
+// A round's Trial graph: gamma, the round's Picked parents in pick order and every node.
+export type RoundGraph = { gamma: number; picked: string[]; nodes: GraphNode[] }
+
+// One round's plan; quota and issues are empty for a run whose events do not hold it, graph null for a round whose
+// Trial graph the run directory does not hold.
+export type RoundPlan = {
+  round: number; slots: PlanSlot[]; quota: Record<string, number>; issues: string[]; graph: RoundGraph | null
+}
 
 export type LineChange = { change: 'kept' | 'added' | 'removed'; line: string }
 export type MemoryLine = LineChange

@@ -155,7 +155,7 @@ figure.lineage > svg { width: 100%; height: auto; display: block }
 .lineage .arrow.dim { opacity: .15 }
 .lineage .arrow.now line { stroke-width: 2.2 }
 .pick-ring { fill: none; stroke: var(--gold); stroke-width: 1.3 }
-.lineage .picks { cursor: help }
+.lineage .picks { cursor: pointer }
 .lineage .picks.dim { opacity: .3 }
 .lineage .pick-now { fill: none; stroke: var(--acc); stroke-width: 2.6 }
 .lineage-reader { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 8px 0; padding-bottom: 6px }
@@ -166,6 +166,40 @@ figure.lineage > svg { width: 100%; height: auto; display: block }
 .lineage-reader .tbars i { height: 6px; background: var(--mut); border-radius: 3px; min-width: 1px }
 .lineage-reader .tbars i.best { background: var(--acc) }
 .lineage-reader ul.children { list-style: none; margin: 4px 0 0; padding: 0 }
+.stepper button.on { border-color: var(--acc); color: var(--acc) }
+section.propagation { border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 8px 12px; margin-top: 12px }
+section.propagation > .close { float: right; color: var(--mut) }
+section.propagation > .close:hover { color: var(--fg) }
+section.propagation h4 { margin: 0 0 8px; font-size: 13px; font-weight: 600 }
+.propagation-row { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start }
+.propagation .mixes { display: grid; gap: 10px; min-width: 0; flex: 1 1 420px; max-width: 560px }
+.propagation .mix { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 8px; align-items: center; font-size: 12px; color: var(--mut) }
+.propagation .mix svg { width: 100%; height: auto; display: block }
+.propagation .axis { stroke: var(--line) }
+.propagation .tick { stroke: var(--mut); stroke-opacity: .45; stroke-width: 1 }
+.propagation .span { stroke: var(--acc); stroke-opacity: .35; stroke-width: 3 }
+.propagation .own { fill: var(--card); stroke: var(--fg); stroke-width: 1.5 }
+.propagation .neighbours { fill: var(--mut); stroke: var(--card); cursor: help }
+.propagation .result { fill: var(--acc) }
+.propagation .heaviest { grid-column: 2; justify-self: start; display: grid; gap: 2px; padding: 6px 8px; background: var(--card);
+  border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, .18); font-size: 11px; white-space: nowrap }
+.propagation .heaviest button { font: inherit; background: none; border: 0; padding: 1px 0; color: var(--fg); text-align: left; cursor: pointer }
+.propagation .heaviest button b { color: var(--acc) } .propagation .heaviest button span { color: var(--mut); margin-left: 6px }
+.propagation .mix-key { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--mut) }
+.propagation .mix-key span { display: inline-flex; align-items: center; gap: 4px } .propagation .mix-key svg { overflow: visible }
+.propagation svg.ladder { width: 100%; height: auto; display: block; flex: 0 1 200px }
+.propagation .label { fill: var(--mut); font-size: 11px }
+.propagation .rank { fill: var(--mut); font-size: 10px; font-variant-numeric: tabular-nums }
+.propagation .rank-id { fill: var(--mut); font-size: 10px; font-family: ui-monospace, monospace; cursor: pointer }
+.propagation .rank-id.picked { fill: var(--fg); font-weight: 600 } .propagation .rank-id.self { fill: var(--acc) }
+.propagation .pick-line { stroke: var(--fg); stroke-width: 1.5; stroke-dasharray: 6 3 }
+.propagation .rank-arrow { stroke-width: 2 } .propagation .rank-arrow.up { stroke: var(--good) } .propagation .rank-arrow.down { stroke: var(--bad) }
+.propagation .rank-dot { fill: var(--card); stroke: var(--mut); stroke-width: 1.5 }
+.propagation .rank-dot.after { fill: var(--acc); stroke: var(--acc) } .propagation .rank-dot.after.picked { stroke: var(--fg); stroke-width: 2.5 }
+.propagation .picked-list { display: flex; flex-wrap: wrap; gap: 6px 18px }
+.propagation .picked-list button { font: inherit; font-size: 13px; background: none; border: 0; color: var(--fg); cursor: pointer; padding: 2px 0 }
+.propagation .rank-move { margin-left: 4px; color: var(--mut); font-variant-numeric: tabular-nums }
+.propagation .rank-move.up { color: var(--good) } .propagation .rank-move.down { color: var(--bad) }
 figure.admission { margin: 0 }
 figure.admission svg { width: 100%; max-width: 760px; height: auto; display: block }
 .admission .zone { fill: color-mix(in srgb, var(--good) 9%, transparent) }

@@ -203,6 +203,24 @@ trial built on it do. Click a round's number to step to it. A run without Picked
 or written before campaigns recorded plans, shows the graph without rings, and a run
 without an events file shows no quota or issues.
 
+A round that picked its parents on the Trial graph (see `round.picked_parents` in
+{doc}`campaign`) shows "why these parents" by the stepper; it, or a click on a ring of the
+stepped round's Picked parents, opens the propagation view under the graph and the map.
+With no trial selected it lists the round's Picked parents, each with its rank before and
+after propagation; click one to select it. For the selected trial it draws one axis per
+utility (quality, fertility, novelty): its own value (hollow dot), its neighbours' average
+(dot), its value after propagation (bar), which lies the propagation's γ of the way from
+the first to the second, and faint ticks for the other candidates' values after
+propagation. Hover the neighbours' dot to list the trials that weigh most in that average,
+with their relation (parent or child, shared structure, correlated) and weight; click one
+to select it. Beside the axes, the rank ladder lists the round's ranks after propagation
+with their trials, a dashed pick line under the last Picked parent, and joins the trial's
+rank before propagation to its rank after; a rank past the ladder is written below it. A
+trial that could not be picked says why (at the expansion cap, or at the cap on children)
+in place of the ladder. "close" closes the view; the ranks are the campaign's own pick
+order, read again from the round's `trial_graph/round_NN.json`, so a run made before
+graph files, or without Picked parents, has no view.
+
 Beside it, the admission map places every evaluated trial by two facts admission judges
 (see {doc}`evaluation`): across, its largest absolute correlation with an existing factor
 (the nearest reference or accepted factor, or the nearest known one); up, its partial

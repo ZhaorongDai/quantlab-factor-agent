@@ -56,7 +56,194 @@
       "information_diffusion": 1
     },
     "issues": [],
-    "graph": null
+    "graph": {
+      "gamma": "<number>",
+      "picked": [
+        "T1-05",
+        "T1-04"
+      ],
+      "nodes": [
+        {
+          "trial": "T1-01",
+          "own": {
+            "quality": "<number>",
+            "fertility": "<number>",
+            "novelty": "<number>"
+          },
+          "propagated": {
+            "quality": "<number>",
+            "fertility": "<number>",
+            "novelty": "<number>"
+          },
+          "neighbourhood": {
+            "quality": "<number>",
+            "fertility": "<number>",
+            "novelty": "<number>"
+          },
+          "rank_own": 5,
+          "rank_propagated": 5,
+          "eligible": true,
+          "reason": null,
+          "heaviest": [
+            {
+              "trial": "T1-02",
+              "relation": "correlation",
+              "weight": "<number>"
+            },
+            {
+              "trial": "T1-03",
+              "relation": "correlation",
+              "weight": "<number>"
+            },
+            {
+              "trial": "T1-04",
+              "relation": "correlation",
+              "weight": "<number>"
+            }
+          ]
+        },
+        {
+          "trial": "T1-02",
+          "own": {
+            "quality": "<number>",
+            "fertility": "<number>",
+            "novelty": "<number>"
+          },
+          "propagated": {
+            "quality": "<number>",
+            "fertility": "<number>",
+            "novelty": "<number>"
+          },
+          "neighbourhood": {
+            "quality": "<number>",
+            "fertility": "<number>",
+            "novelty": "<number>"
+          },
+          "rank_own": 3,
+          "rank_propagated": 3,
+          "eligible": true,
+          "reason": null,
+          "heaviest": [
+            {
+              "trial": "T1-01",
+              "relation": "correlation",
+              "weight": "<number>"
+            },
+            {
+              "trial": "T1-04",
+              "relation": "correlation",
+              "weight": "<number>"
+            },
+            {
+              "trial": "T1-03",
+              "relation": "correlation",
+              "weight": "<number>"
+            }
+          ]
+        },
+        {
+          "trial": "T1-03",
+          "own": {
+            "quality": "<number>",
+            "fertility": "<number>",
+            "novelty": "<number>"
+          },
+          "propagated": {
+            "quality": "<number>",
+            "fertility": "<number>",
+            "novelty": "<number>"
+          },
+          "neighbourhood": {
+            "quality": "<number>",
+            "fertility": "<number>",
+            "novelty": "<number>"
+          },
+          "rank_own": 4,
+          "rank_propagated": 4,
+          "eligible": true,
+          "reason": null,
+          "heaviest": [
+            {
+              "trial": "T1-04",
+              "relation": "correlation",
+              "weight": "<number>"
+            },
+            {
+              "trial": "T1-01",
+              "relation": "correlation",
+              "weight": "<number>"
+            },
+            {
+              "trial": "T1-02",
+              "relation": "correlation",
+              "weight": "<number>"
+            }
+          ]
+        },
+        {
+          "trial": "T1-04",
+          "own": {
+            "quality": "<number>",
+            "fertility": "<number>",
+            "novelty": "<number>"
+          },
+          "propagated": {
+            "quality": "<number>",
+            "fertility": "<number>",
+            "novelty": "<number>"
+          },
+          "neighbourhood": {
+            "quality": "<number>",
+            "fertility": "<number>",
+            "novelty": "<number>"
+          },
+          "rank_own": 2,
+          "rank_propagated": 2,
+          "eligible": true,
+          "reason": null,
+          "heaviest": [
+            {
+              "trial": "T1-02",
+              "relation": "correlation",
+              "weight": "<number>"
+            },
+            {
+              "trial": "T1-03",
+              "relation": "correlation",
+              "weight": "<number>"
+            },
+            {
+              "trial": "T1-01",
+              "relation": "correlation",
+              "weight": "<number>"
+            }
+          ]
+        },
+        {
+          "trial": "T1-05",
+          "own": {
+            "quality": "<number>",
+            "fertility": "<number>",
+            "novelty": "<number>"
+          },
+          "propagated": {
+            "quality": "<number>",
+            "fertility": "<number>",
+            "novelty": "<number>"
+          },
+          "neighbourhood": {
+            "quality": "<number>",
+            "fertility": "<number>",
+            "novelty": "<number>"
+          },
+          "rank_own": 1,
+          "rank_propagated": 1,
+          "eligible": true,
+          "reason": null,
+          "heaviest": []
+        }
+      ]
+    }
   },
   "trials": [
     {

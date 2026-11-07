@@ -95,7 +95,8 @@ def test_a_round_reads_its_slots_quota_and_issues_from_its_plan(picked):
     run_dir, view, plans = picked
     plan = plans[3]
     found = read_round(run_dir, 3)
-    assert found.quota == plan.quota and list(found.issues) == plan.issues and found.graph is None
+    assert found.quota == plan.quota and list(found.issues) == plan.issues
+    assert list(found.graph.picked) == [p["trial"] for p in plan.picked]
     assert [(s.mechanism_type, s.action, s.parent) for s in found.slots] == [
         (d["mechanism_type"], d["action"], d["parent"]) for d in plan.directions]
     assert sorted(s.parent for s in found.slots if s.picked) == sorted(p["trial"] for p in plan.picked)

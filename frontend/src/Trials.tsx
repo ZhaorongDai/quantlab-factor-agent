@@ -1,6 +1,7 @@
 // The trials page: a numbers bar, a round stepper with the stepped round's plan, the Lineage graph beside the admission
 // map of every evaluated trial (largest correlation with an existing factor against the partial-IC t in the trial's
-// direction), both marking the picked trial, the trials that never reached the Evaluator grouped by stage and reason,
+// direction), both marking the picked trial, under them, when opened, the propagation view of a round that picked its
+// parents on a Trial graph, the trials that never reached the Evaluator grouped by stage and reason,
 // and one side panel reading the picked trial, LLM call or pending trial, until it is closed. While the campaign
 // runs, the round in progress sits between the bar and the stepper. Trials that arrive while the page is open stand
 // out for a while.
@@ -8,7 +9,9 @@ import { useEffect, useRef, useState } from 'react'
 import type { Placed, Refusal, Run, Trial } from './api'
 import { checks } from './charts'
 import { Checks, CumulativeIC, DecileChart } from './FactorCharts'
-import { LineageGraph, LineageSection, RoundPlanView, StepperBar, useStepper } from './LineageGraph'
+import { LineageGraph, LineageSection, RoundPlanView, StepperBar, useRoundPlan, useStepper } from './LineageGraph'
+import { idOf, keyOf } from './lineage'
+import { Propagation } from './PropagationView'
 import { CallReader, PendingReader, RoundStrip, type Picked } from './Round'
 
 const W = 720, H = 440, P = 44
@@ -243,6 +246,11 @@ export default function Trials({ run, name, clock }: { run: Run; name: string; c
   const pick = (k: string) => setPicked({ trial: k })
   const open = pickedTrial ? trials.get(pickedTrial) : undefined
   const stepper = useStepper(run)
+  const { plan, error } = useRoundPlan(name, run, stepper.round)
+  const [why, setWhy] = useState(false)
+  const graph = plan?.graph?.nodes.length ? plan.graph : null
+  const selectedId = pickedTrial ? idOf(...(pickedTrial.split('.').map(Number) as [number, number])) : null
+  const pickId = (id: string) => { const k = keyOf(id); if (k) setPicked({ trial: k }) }
   let reader
   if (picked && 'call' in picked) reader = <CallReader name={name} number={picked.call} pick={setPicked} />
   else if (picked && 'slot' in picked) {
@@ -259,15 +267,18 @@ export default function Trials({ run, name, clock }: { run: Run; name: string; c
       <div className={`trials-page${reader ? '' : ' closed'}`}>
         <div>
           {stepper.round != null && <>
-            <StepperBar stepper={stepper} />
-            <RoundPlanView name={name} run={run} round={stepper.round} picked={picked} pick={setPicked} />
+            <StepperBar stepper={stepper}>
+              {graph && <button className={why ? 'on' : ''} onClick={() => setWhy(!why)}>why these parents</button>}
+            </StepperBar>
+            <RoundPlanView run={run} round={stepper.round} plan={plan} error={error} picked={picked} pick={setPicked} />
           </>}
           <div className="pair">
-            <LineageGraph run={run} stepper={stepper} selected={picked} pick={setPicked} />
+            <LineageGraph run={run} stepper={stepper} selected={picked} pick={setPicked} onPicks={() => setWhy(true)} />
             {run.evaluated.length
               ? <AdmissionMap run={run} picked={pickedTrial} fresh={fresh} pick={pick} />
               : <p className="muted">No trial evaluated yet.</p>}
           </div>
+          {why && graph && <Propagation graph={graph} selected={selectedId} pick={pickId} close={() => setWhy(false)} />}
           <NeverEvaluated groups={run.never_evaluated} trials={trials} picked={pickedTrial} pick={pick} />
         </div>
         {reader && (

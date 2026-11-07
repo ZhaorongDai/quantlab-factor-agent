@@ -7,8 +7,8 @@ calls is compared with stored snapshots (``tests/snapshots/web_runs.json``,
 ``tests/snapshots/web_run_health.json``, ``tests/snapshots/web_run_running.json``,
 ``tests/snapshots/web_run_call.json``), of a round's plan
 (``tests/snapshots/web_run_round.json``) and of a run with Picked parents
-(``tests/snapshots/web_run_picked.json``: a round's plan and the trials'
-Lineage and picks), with the values that change from
+(``tests/snapshots/web_run_picked.json``: a round's plan with its Trial
+graph, and the trials' Lineage and picks), with the values that change from
 run to run or machine to machine (the code version, the time, statistics)
 replaced. After a deliberate change of the
 JSON's shape, rewrite the snapshot with ``FACTOR_AGENT_UPDATE_SNAPSHOTS=1``.
@@ -24,6 +24,7 @@ import pytest
 pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient  # noqa: E402
 
+from factor_agent import _trial_graph, events  # noqa: E402
 from factor_agent.evaluator import Evaluator  # noqa: E402
 from factor_agent.web.app import create_app, main  # noqa: E402
 from quantlab.core.component import rebuild  # noqa: E402
@@ -302,3 +303,30 @@ def test_a_run_with_picked_parents_answers_with_the_snapshot_json(client, tmp_pa
     if os.environ.get("FACTOR_AGENT_UPDATE_SNAPSHOTS"):
         PICKED.write_text(json.dumps(found, indent=2) + "\n")
     assert found == json.loads(PICKED.read_text())
+
+
+def test_a_rounds_trial_graph_ranks_as_the_graph_file_does_and_is_absent_without_the_file(client, tmp_path):
+    config = write_config(tmp_path / "picked", CLIENT[client]["components"], context={"theme_correlation": 0.5},
+                          round={"candidates": 5, "min_per_type": 1, "retries": 0, "max_rounds": 2, "picked_parents": 2})
+    run(config, FakeLLM(lambda number, directions: [noise(number, slot) for slot in range(len(directions))],
+                        plan=_follow_picks), CLIENT[client]["cache"])
+    picked = TestClient(create_app(tmp_path))
+    params = {"name": "picked/run", "round": 2}
+    found = picked.get("/api/run/round", params=params).json()["graph"]
+    graph = _trial_graph.read(tmp_path / "picked" / "run", 2)
+    assert found["gamma"] == graph.gamma
+    plan = next(e for e in events.read(tmp_path / "picked" / "run" / events.FILE) if e.type == "plan" and e.round == 2)
+    assert found["picked"] == [p["trial"] for p in plan.picked]
+    nodes = {n["trial"]: n for n in found["nodes"]}
+    for propagated in (True, False):
+        ranked = sorted((n for n in found["nodes"] if n["rank_propagated" if propagated else "rank_own"] is not None),
+                        key=lambda n: n["rank_propagated" if propagated else "rank_own"])
+        assert [n["trial"] for n in ranked] == [p.trial for p in graph.pick_order(propagated)]
+    for n in found["nodes"]:
+        for u in ("quality", "fertility", "novelty"):
+            assert n["propagated"][u] == pytest.approx((1 - found["gamma"]) * n["own"][u] + found["gamma"] * n["neighbourhood"][u])
+        assert [(h["trial"], h["relation"]) for h in n["heaviest"]] == [
+            (e.target, e.relation) for e in graph.heaviest(n["trial"], 5)]
+    assert set(nodes) == {n.trial for n in graph.nodes}
+    (tmp_path / "picked" / "run" / "trial_graph" / "round_02.json").unlink()
+    assert picked.get("/api/run/round", params=params).json()["graph"] is None

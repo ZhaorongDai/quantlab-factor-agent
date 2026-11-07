@@ -46,31 +46,40 @@ function nodes(run: Run): GraphNode[] {
   return [...written, ...pending]
 }
 
-export function StepperBar({ stepper }: { stepper: Stepper }) {
+export function StepperBar({ stepper, children }: { stepper: Stepper; children?: React.ReactNode }) {
   return (
     <div className="stepper">
       <button disabled={stepper.previous == null} onClick={() => stepper.go(stepper.previous!)}>previous</button>
       <b>Round {stepper.round}</b>
       <button disabled={stepper.next == null} onClick={() => stepper.go(stepper.next!)}>next</button>
+      {children}
     </div>
   )
 }
 
-// The stepped round's plan, read when the stepper reaches it and again when a round is written.
-export function RoundPlanView({ name, run, round, picked, pick }: {
-  name: string; run: Run; round: number; picked: Picked; pick: (p: Picked) => void
-}) {
+// The stepped round's plan, read when the stepper reaches it and again when a round is written; null until it is
+// read, and while the plan read is of another round.
+export function useRoundPlan(name: string, run: Run, round: number | null) {
   const [plan, setPlan] = useState<RoundPlan | null>(null)
   const [error, setError] = useState('')
   const written = run.summary.rounds
   useEffect(() => {
+    if (round == null) return
     let live = true
     setError('')
     api.plan(name, round).then(p => live && setPlan(p), e => live && setError(String(e)))
     return () => { live = false }
   }, [name, round, written])
+  return { plan: plan && plan.round === round ? plan : null, error }
+}
+
+// The stepped round's plan.
+export function RoundPlanView({ run, round, plan, error, picked, pick }: {
+  run: Run; round: number; plan: RoundPlan | null; error: string; picked: Picked; pick: (p: Picked) => void
+}) {
+  const written = run.summary.rounds
   if (error) return <p className="error small">{error}</p>
-  if (!plan || plan.round !== round) return <p className="muted small">Reading round {round}'s plan…</p>
+  if (!plan) return <p className="muted small">Reading round {round}'s plan…</p>
   const pending = round > written
   const quota = Object.entries(plan.quota).filter(([, n]) => n > 0)
   const on = (s: { slot: number }) => picked != null && (pending
@@ -131,9 +140,10 @@ function Key({ picks }: { picks: boolean }) {
 }
 
 // Every trial of the run in a column of its round. With a trial selected its family is lit; otherwise the stepped
-// round's trials and the parents they built on are.
-export function LineageGraph({ run, stepper, selected, pick }: {
-  run: Run; stepper: Stepper; selected: Picked; pick: (p: Picked) => void
+// round's trials and the parents they built on are. Clicking a ring of the stepped round's picks selects its trial and
+// calls `onPicks`, which opens the propagation view.
+export function LineageGraph({ run, stepper, selected, pick, onPicks }: {
+  run: Run; stepper: Stepper; selected: Picked; pick: (p: Picked) => void; onPicks?: () => void
 }) {
   const all = useMemo(() => nodes(run), [run])
   const at = useMemo(() => layout(all, stepper.rounds), [all, stepper.rounds.join()])
@@ -178,7 +188,8 @@ export function LineageGraph({ run, stepper, selected, pick }: {
           const [x, y] = xy(n.id) ?? [0, 0]
           if (!at.has(n.id)) return null
           return (
-            <g key={`rings ${n.id}`} className={`picks${lit(n.id) || pickedNow(n) ? '' : ' dim'}`}>
+            <g key={`rings ${n.id}`} className={`picks${lit(n.id) || pickedNow(n) ? '' : ' dim'}`}
+               onClick={() => { pick(n.open); if (pickedNow(n)) onPicks?.() }}>
               {n.pickedIn.slice(0, 3).map((r, i) => <circle key={r} cx={x} cy={y} r={8 + i * 2.6} className="pick-ring" />)}
               {pickedNow(n) && <circle cx={x} cy={y} r={8} className="pick-now" />}
               <title>{`${n.id}: picked parent in round${n.pickedIn.length > 1 ? 's' : ''} ${n.pickedIn.join(', ')}`}</title>
