@@ -79,6 +79,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from factor_agent import events
+from factor_agent._feedback import trial_id
 from factor_agent.web._config import ConfigCopy, RunFiles, SnapshotFile, read_files
 from factor_agent.web._ic import TrialIC, read_ic
 from factor_agent.web._acceptance import AcceptanceReports, Comparison, Contribution, HoldoutOpen, acceptance
@@ -91,9 +92,7 @@ from factor_agent.web._ledger import (
     Collision, Neighbour, Trial, aggregations, correlation_limit, read_trials, statuses,
 )
 from factor_agent.web._memory import MemoryLine, MemoryVersion, memory
-from factor_agent.web._plans import (
-    PlanSlot, RoundPlan, TrialLineage, fertile_children, lineage_of, read_round, trial_id,
-)
+from factor_agent.web._plans import PlanSlot, RoundPlan, TrialLineage, fertile_children, lineage_of, read_round
 from factor_agent.web._results import Factor, factors
 from factor_agent.web._round import Check, LLMCall, PendingTrial, RoundCall, RunningRound, read_call, running
 from factor_agent.web._trials import Placed, Refusal, TrialRef, trials_page

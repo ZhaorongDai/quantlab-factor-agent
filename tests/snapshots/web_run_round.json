@@ -3,6 +3,7 @@
   "slots": [
     {
       "slot": 0,
+      "trial": "T1-01",
       "mechanism_type": "risk_compensation",
       "action": "new",
       "parent": "",
@@ -12,6 +13,7 @@
     },
     {
       "slot": 1,
+      "trial": "T1-02",
       "mechanism_type": "liquidity",
       "action": "new",
       "parent": "",

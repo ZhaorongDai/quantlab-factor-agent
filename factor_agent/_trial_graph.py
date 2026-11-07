@@ -44,20 +44,22 @@ import math
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 import numpy as np
 
 from factor_agent._admission import directional_t
 from factor_agent._feedback import trial_order
 from factor_agent._lineage import Lineage
-from factor_agent.config import RELATIONS, TrialGraphConfig
+from factor_agent.config import RELATIONS, Relation, TrialGraphConfig
 from factor_agent.gate._canonical import canonical_hashes
 from factor_agent.gate.graph import Graph
 from factor_agent.ledger import TrialRecord
 
 #: Why a node is ineligible: the expansion cap, or the planner's cap on children.
-EXPANSION_CAP, MAX_CHILDREN = "expansion_cap", "max_children"
+Reason = Literal["expansion_cap", "max_children"]
+EXPANSION_CAP: Reason = "expansion_cap"
+MAX_CHILDREN: Reason = "max_children"
 
 
 class Utilities(NamedTuple):
@@ -84,7 +86,7 @@ class Node:
     own: Utilities
     propagated: Utilities
     neighbourhood: Utilities
-    reason: str | None = None
+    reason: Reason | None = None
 
     @property
     def eligible(self) -> bool:
@@ -99,10 +101,19 @@ class Edge:
     A node without an edge of a relation has one to itself.
     """
 
-    relation: str
+    relation: Relation
     source: str
     target: str
     weight: float
+
+
+@dataclass(frozen=True)
+class Neighbour:
+    """A trial a node has edges to: its total weight in P and the relations joining them, in ``RELATIONS`` order."""
+
+    trial: str
+    weight: float
+    relations: tuple[Relation, ...]
 
 
 @dataclass(frozen=True)
@@ -110,10 +121,15 @@ class Pick:
     """A node in pick order, with the utilities it was ranked on and its Pareto front (1 is the non-dominated)."""
 
     trial: str
-    quality: float
-    fertility: float
-    novelty: float
+    utilities: Utilities
     front: int
+
+
+class Ranks(NamedTuple):
+    """A node's places in the pick order, from 1, on its own and on its propagated utilities; None for an ineligible node."""
+
+    own: int | None
+    propagated: int | None
 
 
 @dataclass(frozen=True)
@@ -137,17 +153,29 @@ class TrialGraph:
             crowding = _crowding(utilities, front)
             for i in sorted(front, key=lambda i: (-crowding[i], trial_order(self.nodes[i].trial))):
                 if self.nodes[i].eligible:
-                    order.append(Pick(self.nodes[i].trial, *(float(u) for u in utilities[i]), front=number))
+                    order.append(Pick(self.nodes[i].trial, Utilities(*map(float, utilities[i])), number))
         return order
+
+    def ranks(self) -> dict[str, Ranks]:
+        """Each node's ``Ranks`` in ``pick_order`` on its own and on its propagated utilities, by trial."""
+        places = [{p.trial: rank for rank, p in enumerate(self.pick_order(propagated), 1)} for propagated in (False, True)]
+        return {n.trial: Ranks(places[0].get(n.trial), places[1].get(n.trial)) for n in self.nodes}
 
     def neighbourhood(self, trial: str) -> Utilities:
         """The weighted average of the utilities ``trial`` took from its neighbours; see ``Node``."""
         return self.node(trial).neighbourhood
 
-    def heaviest(self, trial: str, n: int) -> list[Edge]:
-        """``trial``'s ``n`` heaviest edges to other trials, the heaviest first, ties in trial and relation order."""
-        edges = [e for e in self.edges if e.source == trial and e.target != trial]
-        return sorted(edges, key=lambda e: (-e.weight, trial_order(e.target), RELATIONS.index(e.relation)))[:n]
+    def heaviest(self, trial: str, n: int) -> list[Neighbour]:
+        """``trial``'s ``n`` heaviest neighbours, other trials by the total weight of its edges to them, ties in trial order."""
+        joined: dict[str, list[Edge]] = {}
+        for e in self.edges:
+            if e.source == trial and e.target != trial:
+                joined.setdefault(e.target, []).append(e)
+        found = [
+            Neighbour(target, sum(e.weight for e in edges), tuple(r for r in RELATIONS if r in {e.relation for e in edges}))
+            for target, edges in joined.items()
+        ]
+        return sorted(found, key=lambda h: (-h.weight, trial_order(h.trial)))[:n]
 
     def to_dict(self) -> dict:
         """The graph as plain JSON values; ``from_dict`` reads it back."""
@@ -233,7 +261,7 @@ def build(
     )
 
 
-def _reason(lineage: Lineage | None, max_expansions: int, max_children: int | None) -> str | None:
+def _reason(lineage: Lineage | None, max_expansions: int, max_children: int | None) -> Reason | None:
     """Why a node with ``lineage`` may not be picked, None when it may."""
     attempts = lineage.attempts if lineage is not None else 0
     if attempts >= max_expansions:

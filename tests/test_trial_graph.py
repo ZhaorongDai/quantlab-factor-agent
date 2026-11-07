@@ -79,8 +79,8 @@ def test_of_equal_quality_the_trial_farther_from_the_accepted_factors_is_picked_
     matrix = [[1.0, 0.8, 0.0], [0.8, 1.0, 0.0], [0.0, 0.0, 1.0]]
     picked = {p.trial: p for p in _rank([accepted, near, far], matrix=matrix, propagated=False)}
     # Structure distance 1 - 3/7, correlation distance 1 - 0.8; the far trial is at 1 on both.
-    assert math.isclose(picked["T2-01"].novelty, (1 - 3 / 7) / 2 + 0.2 / 2)
-    assert picked["T2-02"].novelty == 1.0
+    assert math.isclose(picked["T2-01"].utilities.novelty, (1 - 3 / 7) / 2 + 0.2 / 2)
+    assert picked["T2-02"].utilities.novelty == 1.0
     order = _order(_rank([accepted, near, far], matrix=matrix))
     assert order.index("T2-02") < order.index("T2-01")
 
@@ -112,7 +112,7 @@ def test_without_an_accepted_factor_the_novelty_is_zero_and_quality_and_fertilit
     records = [_trial(1, 3.0, APART[0]), _trial(1, 1.0, APART[1]), _trial(1, 1.0, APART[2])]
     lineage = {"T1-02": Lineage(attempts=1, fertility=1.0)}
     picked = _rank(records, lineage)
-    assert [p.novelty for p in picked] == [0.0, 0.0, 0.0]
+    assert [p.utilities.novelty for p in picked] == [0.0, 0.0, 0.0]
     # Neither of the first two dominates the other; the third is dominated by both.
     assert [(p.trial, p.front) for p in picked] == [("T1-01", 1), ("T1-02", 1), ("T1-03", 2)]
 
@@ -121,9 +121,9 @@ def test_a_nan_correlation_makes_no_edge_and_no_error():
     strong, twin, other = _trial(1, 6.0, APART[1]), _trial(2, 1.0, APART[0]), _trial(2, 1.0, APART[2])
     matrix = [[1.0, math.nan, 0.0], [math.nan, 1.0, 0.0], [0.0, 0.0, 1.0]]
     picked = {p.trial: p for p in _rank([strong, twin, other], matrix=matrix)}
-    assert picked["T2-01"].quality == picked["T2-02"].quality
+    assert picked["T2-01"].utilities.quality == picked["T2-02"].utilities.quality
     linked = {p.trial: p for p in _rank([strong, twin, other], matrix=[[1.0, 0.5, 0.0], [0.5, 1.0, 0.0], [0.0, 0.0, 1.0]])}
-    assert linked["T2-01"].quality > linked["T2-02"].quality
+    assert linked["T2-01"].utilities.quality > linked["T2-02"].utilities.quality
 
 
 def test_an_ineligible_node_says_why_and_is_never_picked_and_the_planners_cap_changes_no_other_front():
@@ -154,21 +154,32 @@ def test_a_propagated_utility_lies_gamma_of_the_way_from_its_own_to_its_neighbou
     assert graph.node("T2-02").propagated.quality > graph.node("T2-01").propagated.quality > 1.0
 
 
-def test_the_heaviest_neighbours_carry_their_relation_and_weight_and_each_relation_keeps_a_lone_node_to_itself():
+def test_the_heaviest_neighbours_carry_their_total_weight_and_relations_and_each_relation_keeps_a_lone_node_to_itself():
     strong, twin, linked = _trial(1, 6.0, APART[1]), _trial(2, 1.0, APART[0]), _trial(2, 1.0, APART[2], parent="T1-01")
     matrix = [[1.0, 0.0, 0.2], [0.0, 1.0, 0.5], [0.2, 0.5, 1.0]]
     graph = _graph_of([strong, twin, linked], matrix=matrix)
-    # Each relation is a third of P; T2-02's correlations 0.5 and 0.2 normalise to 5/7 and 2/7 of it.
-    assert [(e.relation, e.target, round(e.weight, 12)) for e in graph.heaviest("T2-02", 5)] == [
-        ("generation", "T1-01", round(1 / 3, 12)), ("correlation", "T2-01", round(5 / 21, 12)),
-        ("correlation", "T1-01", round(2 / 21, 12)),
+    # Each relation is a third of P; T2-02's correlations 0.5 and 0.2 normalise to 5/7 and 2/7 of it, and its parent
+    # T1-01 is joined by generation (1/3) and correlation (2/21), one neighbour of 9/21.
+    assert [(h.trial, h.relations, round(h.weight, 12)) for h in graph.heaviest("T2-02", 5)] == [
+        ("T1-01", ("generation", "correlation"), round(9 / 21, 12)), ("T2-01", ("correlation",), round(5 / 21, 12)),
     ]
-    assert graph.heaviest("T2-02", 1)[0].target == "T1-01"
+    assert [h.trial for h in graph.heaviest("T2-02", 1)] == ["T1-01"]
     # No code is shared: the structure relation keeps every node to itself, and no node is its own neighbour.
     assert [(e.source, e.target) for e in graph.edges if e.relation == "structure"] == [
         ("T1-01", "T1-01"), ("T2-01", "T2-01"), ("T2-02", "T2-02"),
     ]
-    assert all(e.target != "T2-02" for e in graph.heaviest("T2-02", 5))
+    assert all(h.trial != "T2-02" for h in graph.heaviest("T2-02", 5))
+
+
+def test_each_node_ranks_in_the_pick_order_on_its_own_and_its_propagated_utilities_and_an_ineligible_one_not_at_all():
+    records = [_trial(1, 3.0, APART[0]), _trial(1, 2.0, APART[1]), _trial(1, 1.0, APART[2], parent="T1-01")]
+    graph = _graph_of(records, {"T1-01": Lineage(attempts=2), "T1-02": Lineage(fertility=0.5)}, max_children=2)
+    ranks = graph.ranks()
+    assert ranks["T1-01"] == (None, None)
+    for propagated in (False, True):
+        assert [trial for trial, _ in sorted(((t, r[propagated]) for t, r in ranks.items() if r[propagated] is not None),
+                                             key=lambda p: p[1])] == ["T1-02", "T1-03"]
+    assert ranks["T1-02"].own == 1 and ranks["T1-03"].propagated == 2
 
 
 def test_the_graph_reads_back_from_its_file_dictionary_with_the_same_pick_order():
@@ -224,9 +235,9 @@ def test_a_correlation_below_the_threshold_makes_no_edge():
     strong, twin, other = _trial(1, 6.0, APART[1]), _trial(2, 1.0, APART[0]), _trial(2, 1.0, APART[2])
     matrix = [[1.0, 0.3, 0.0], [0.3, 1.0, 0.0], [0.0, 0.0, 1.0]]
     lifted = {p.trial: p for p in _rank([strong, twin, other], matrix=matrix)}
-    assert lifted["T2-01"].quality > lifted["T2-02"].quality
+    assert lifted["T2-01"].utilities.quality > lifted["T2-02"].utilities.quality
     apart = {p.trial: p for p in _rank([strong, twin, other], matrix=matrix, settings=TrialGraphConfig(min_correlation=0.5))}
-    assert apart["T2-01"].quality == apart["T2-02"].quality
+    assert apart["T2-01"].utilities.quality == apart["T2-02"].utilities.quality
 
 
 def test_the_expansion_cap_is_the_settings():

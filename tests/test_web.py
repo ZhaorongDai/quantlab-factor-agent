@@ -272,6 +272,7 @@ def test_a_run_answers_with_its_diagnosis_and_each_trials_collisions(client):
 
 def test_a_rounds_plan_answers_with_the_snapshot_json(client):
     plan = client.get("/api/run/round", params={"name": "example/run", "round": 1}).json()
+    assert [s["trial"] for s in plan["slots"]] == ["T1-01", "T1-02"]
     if os.environ.get("FACTOR_AGENT_UPDATE_SNAPSHOTS"):
         ROUND_PLAN.write_text(json.dumps(plan, indent=2) + "\n")
     assert plan == json.loads(ROUND_PLAN.read_text())
@@ -297,6 +298,7 @@ def test_a_run_with_picked_parents_answers_with_the_snapshot_json(client, tmp_pa
     trials = picked.get("/api/run", params={"name": "picked/run"}).json()["trials"]
     plan = picked.get("/api/run/round", params={"name": "picked/run", "round": 2}).json()
     assert sum(s["picked"] for s in plan["slots"]) == 2
+    assert [s["trial"] for s in plan["slots"]] == [f"T2-{slot:02d}" for slot in range(1, 6)]
     found = _shape({"round": {**plan, "slots": [{**s, "outcome": "<outcome>"} for s in plan["slots"]]},
                     "trials": [{key: t[key] for key in ("round", "slot", "lineage", "picked_in", "parent_picked")}
                                for t in trials]})
@@ -325,8 +327,9 @@ def test_a_rounds_trial_graph_ranks_as_the_graph_file_does_and_is_absent_without
     for n in found["nodes"]:
         for u in ("quality", "fertility", "novelty"):
             assert n["propagated"][u] == pytest.approx((1 - found["gamma"]) * n["own"][u] + found["gamma"] * n["neighbourhood"][u])
-        assert [(h["trial"], h["relation"]) for h in n["heaviest"]] == [
-            (e.target, e.relation) for e in graph.heaviest(n["trial"], 5)]
+        assert [(h["trial"], h["weight"], tuple(h["relations"])) for h in n["heaviest"]] == [
+            (h.trial, h.weight, h.relations) for h in graph.heaviest(n["trial"], 5)]
+        assert len({h["trial"] for h in n["heaviest"]}) == len(n["heaviest"])
     assert set(nodes) == {n.trial for n in graph.nodes}
     (tmp_path / "picked" / "run" / "trial_graph" / "round_02.json").unlink()
     assert picked.get("/api/run/round", params=params).json()["graph"] is None

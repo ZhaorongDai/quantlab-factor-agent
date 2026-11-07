@@ -26,10 +26,11 @@ each with a one-line description, and ``prompts`` maps a template's name
 """
 
 import dataclasses
+from collections.abc import Mapping
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from quantlab.core.component import rebuild
@@ -320,8 +321,16 @@ class ContextConfig:
             raise ValueError(f"context: fertile_children is {self.fertile_children!r}; it is a count of at least 1")
 
 
+def recorded_fertile_children(settings: Mapping) -> int:
+    """The ``context.fertile_children`` a run snapshot's ``settings`` record; the default when they record none."""
+    return (settings.get("context") or {}).get("fertile_children", ContextConfig.fertile_children)
+
+
+#: A relation of the Trial graph.
+Relation = Literal["generation", "structure", "correlation"]
+
 #: The Trial graph's relations, in the order its edges are listed.
-RELATIONS = ("generation", "structure", "correlation")
+RELATIONS: tuple[Relation, ...] = ("generation", "structure", "correlation")
 
 
 @dataclass(frozen=True)

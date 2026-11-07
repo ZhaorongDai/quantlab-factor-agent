@@ -26,9 +26,10 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from factor_agent import _trial_graph, events
-from factor_agent._feedback import named
+from factor_agent._feedback import named, trial_id
 from factor_agent._lineage import lineages
-from factor_agent.config import AdmissionConfig, ContextConfig
+from factor_agent._trial_graph import Neighbour, Reason
+from factor_agent.config import AdmissionConfig, recorded_fertile_children
 from factor_agent.ledger import TrialRecord
 from factor_agent.web._files import Replayed, read_json
 from factor_agent.web._ledger import Trial, read_trials
@@ -59,6 +60,7 @@ class TrialLineage:
 class PlanSlot:
     """One slot of a round's plan.
 
+    ``trial`` is its trial's id, ``slot`` its place in the round from 0.
     ``mechanism_type``, ``action``, ``parent`` (a trial id, ``""`` for a new
     direction) and ``direction`` are its research direction's. ``picked`` is
     true when the code picked its parent (a Picked parent), false when the
@@ -67,6 +69,7 @@ class PlanSlot:
     """
 
     slot: int
+    trial: str
     mechanism_type: str
     action: str
     parent: str
@@ -76,16 +79,7 @@ class PlanSlot:
 
 
 @dataclass(frozen=True)
-class Neighbour:
-    """One of a node's heaviest edges in the Trial graph: the trial it joins, its relation and its weight in P."""
-
-    trial: str
-    relation: str
-    weight: float
-
-
-@dataclass(frozen=True)
-class GraphNode:
+class NodeView:
     """A trial in a round's Trial graph (``factor_agent._trial_graph.Node``), as the propagation view reads it.
 
     ``own``, ``propagated`` and ``neighbourhood`` hold its quality, fertility
@@ -93,8 +87,9 @@ class GraphNode:
     ``rank_own`` and ``rank_propagated`` are its places in the pick order on
     its own and on its propagated utilities, from 1, ``None`` for a node that
     may not be picked, ``reason`` saying why (``expansion_cap`` or
-    ``max_children``). ``heaviest`` are its five heaviest edges to other
-    trials, the heaviest first.
+    ``max_children``). ``heaviest`` are its five heaviest neighbours, the
+    heaviest first, each with the total weight of its edges to them and the
+    relations joining them.
     """
 
     trial: str
@@ -104,7 +99,7 @@ class GraphNode:
     rank_own: int | None
     rank_propagated: int | None
     eligible: bool
-    reason: str | None
+    reason: Reason | None
     heaviest: tuple[Neighbour, ...]
 
 
@@ -114,10 +109,10 @@ class RoundGraph:
 
     gamma: float
     picked: tuple[str, ...]
-    nodes: tuple[GraphNode, ...]
+    nodes: tuple[NodeView, ...]
 
 
-#: The heaviest edges each node of a round's graph lists.
+#: The heaviest neighbours each node of a round's graph lists.
 HEAVIEST = 5
 
 
@@ -126,13 +121,12 @@ def _graph(run_dir: Path, number: int, plan: events.Plan) -> RoundGraph | None:
     graph = _trial_graph.read(run_dir, number)
     if graph is None:
         return None
-    ranks = {propagated: {p.trial: rank for rank, p in enumerate(graph.pick_order(propagated), 1)}
-             for propagated in (False, True)}
+    ranks = graph.ranks()
     return RoundGraph(gamma=graph.gamma, picked=tuple(p["trial"] for p in plan.picked), nodes=tuple(
-        GraphNode(trial=n.trial, own=n.own._asdict(), propagated=n.propagated._asdict(),
-                  neighbourhood=n.neighbourhood._asdict(), rank_own=ranks[False].get(n.trial),
-                  rank_propagated=ranks[True].get(n.trial), eligible=n.eligible, reason=n.reason,
-                  heaviest=tuple(Neighbour(e.target, e.relation, e.weight) for e in graph.heaviest(n.trial, HEAVIEST)))
+        NodeView(trial=n.trial, own=n.own._asdict(), propagated=n.propagated._asdict(),
+                 neighbourhood=n.neighbourhood._asdict(), rank_own=ranks[n.trial].own,
+                 rank_propagated=ranks[n.trial].propagated, eligible=n.eligible, reason=n.reason,
+                 heaviest=tuple(graph.heaviest(n.trial, HEAVIEST)))
         for n in graph.nodes))
 
 
@@ -175,13 +169,14 @@ def picked_slots(plan: events.Plan) -> set[int]:
     return slots
 
 
-def trial_id(round: int, slot: int) -> str:
-    """The id of the trial of ``round`` in ``slot`` (from 0), as ``_feedback.trial_id``."""
-    return f"T{round}-{slot + 1:02d}"
-
-
-def _nan(value):
+def _nan(value: float | None) -> float:
+    """``value``, NaN for ``None``: a metric of the ledger read as ``None`` (``read_trials``) is NaN again."""
     return float("nan") if value is None else value
+
+
+def _finite(value: float) -> float | None:
+    """``value``, ``None`` when it is not a finite number."""
+    return value if math.isfinite(value) else None
 
 
 def _lineages(trials: tuple[Trial, ...], admission: AdmissionConfig, fertile_children: int) -> dict[str, TrialLineage]:
@@ -191,19 +186,17 @@ def _lineages(trials: tuple[Trial, ...], admission: AdmissionConfig, fertile_chi
         metrics={key: _nan(value) for key, value in t.metrics.items()} if t.metrics is not None else None,
         direction=t.direction,
     ) for t in trials]
-    finite = lambda v: v if math.isfinite(v) else None  # noqa: E731
     return {trial: TrialLineage(
         attempts=found.attempts, refinements=found.refinements, mutations=found.mutations,
         unevaluated=found.unevaluated, accepted=found.accepted, best_child=found.best_child or None,
-        best_child_t=finite(found.best_child_t), own_t=finite(found.own_t), fertility=found.fertility,
+        best_child_t=_finite(found.best_child_t), own_t=_finite(found.own_t), fertility=found.fertility,
     ) for trial, found in lineages(named(records), admission, fertile_children).items()}
 
 
 def fertile_children(run_dir: Path) -> int:
     """The best child outcomes a fertility is the mean of, as the run's snapshot records them."""
     manifest = read_json(Path(run_dir) / "snapshot.json") or {}
-    context = (manifest.get("settings") or {}).get("context") or {}
-    return context.get("fertile_children", ContextConfig.fertile_children)
+    return recorded_fertile_children(manifest.get("settings") or {})
 
 
 def admission(replayed: Replayed) -> AdmissionConfig:
@@ -219,7 +212,7 @@ def admission(replayed: Replayed) -> AdmissionConfig:
 
 
 @dataclass(frozen=True)
-class Lineages:
+class RunLineage:
     """What the run's Lineage gives each trial: its Lineage, the rounds it was picked in, whether its parent was."""
 
     lineage: dict[str, TrialLineage]
@@ -227,9 +220,12 @@ class Lineages:
     parent_picked: set[str]
 
 
-def lineage_of(trials: tuple[Trial, ...], replayed: Replayed, last: int, fertile_children: int) -> Lineages:
-    """The Lineage of ``trials`` and their picks in the plans of rounds up to ``last``: the written ones, and the
-    round in progress when there is one. ``fertile_children`` is the run's (``fertile_children``)."""
+def lineage_of(trials: tuple[Trial, ...], replayed: Replayed, last: int, fertile_children: int) -> RunLineage:
+    """The Lineage of ``trials`` and their picks in the plans of the rounds up to ``last``.
+
+    The rounds are the written ones, and the round in progress when there is
+    one; ``fertile_children`` is the run's (``fertile_children``).
+    """
     picked_in: dict[str, list[int]] = {}
     parent_picked = set()
     for number, plan in sorted(plans(replayed).items()):
@@ -238,7 +234,7 @@ def lineage_of(trials: tuple[Trial, ...], replayed: Replayed, last: int, fertile
         for p in plan.picked:
             picked_in.setdefault(p["trial"], []).append(number)
         parent_picked |= {trial_id(number, slot) for slot in picked_slots(plan)}
-    return Lineages(lineage=_lineages(trials, admission(replayed), fertile_children),
+    return RunLineage(lineage=_lineages(trials, admission(replayed), fertile_children),
                     picked_in={trial: tuple(rounds) for trial, rounds in picked_in.items()},
                     parent_picked=parent_picked)
 
@@ -257,14 +253,16 @@ def read_round(run_dir: str | Path, number: int) -> RoundPlan | None:
         if not written:
             return None
         return RoundPlan(round=number, slots=tuple(
-            PlanSlot(slot=t.slot, mechanism_type=(t.direction or t.candidate).get("mechanism_type") or "",
-                     action=(t.direction or {}).get("action") or "new", parent=(t.direction or {}).get("parent") or "",
-                     direction=(t.direction or {}).get("direction") or "", picked=False, outcome=t.status)
+            _slot(number, t.slot, t.direction or {"mechanism_type": t.candidate.get("mechanism_type")}, False, t.status)
             for t in written), quota={}, issues=())
     picked = picked_slots(plan)
     return RoundPlan(round=number, slots=tuple(
-        PlanSlot(slot=slot, mechanism_type=d.get("mechanism_type") or "", action=d.get("action") or "new",
-                 parent=d.get("parent") or "", direction=d.get("direction") or "", picked=slot in picked,
-                 outcome=outcomes.get(slot))
-        for slot, d in enumerate(plan.directions)), quota=dict(plan.quota), issues=tuple(plan.issues),
-        graph=_graph(run_dir, number, plan))
+        _slot(number, slot, d, slot in picked, outcomes.get(slot)) for slot, d in enumerate(plan.directions)),
+        quota=dict(plan.quota), issues=tuple(plan.issues), graph=_graph(run_dir, number, plan))
+
+
+def _slot(number: int, slot: int, direction: dict, picked: bool, outcome: str | None) -> PlanSlot:
+    """Slot ``slot`` of round ``number``, with ``direction``'s fields, empty where it has none."""
+    return PlanSlot(slot=slot, trial=trial_id(number, slot), mechanism_type=direction.get("mechanism_type") or "",
+                    action=direction.get("action") or "new", parent=direction.get("parent") or "",
+                    direction=direction.get("direction") or "", picked=picked, outcome=outcome)

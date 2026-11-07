@@ -4,6 +4,7 @@
     "slots": [
       {
         "slot": 0,
+        "trial": "T2-01",
         "mechanism_type": "behavioural_bias",
         "action": "new",
         "parent": "",
@@ -13,6 +14,7 @@
       },
       {
         "slot": 1,
+        "trial": "T2-02",
         "mechanism_type": "risk_compensation",
         "action": "new",
         "parent": "",
@@ -22,6 +24,7 @@
       },
       {
         "slot": 2,
+        "trial": "T2-03",
         "mechanism_type": "liquidity",
         "action": "new",
         "parent": "",
@@ -31,6 +34,7 @@
       },
       {
         "slot": 3,
+        "trial": "T2-04",
         "mechanism_type": "microstructure",
         "action": "mutation",
         "parent": "T1-04",
@@ -40,6 +44,7 @@
       },
       {
         "slot": 4,
+        "trial": "T2-05",
         "mechanism_type": "information_diffusion",
         "action": "mutation",
         "parent": "T1-05",
@@ -87,18 +92,24 @@
           "heaviest": [
             {
               "trial": "T1-02",
-              "relation": "correlation",
-              "weight": "<number>"
+              "weight": "<number>",
+              "relations": [
+                "correlation"
+              ]
             },
             {
               "trial": "T1-03",
-              "relation": "correlation",
-              "weight": "<number>"
+              "weight": "<number>",
+              "relations": [
+                "correlation"
+              ]
             },
             {
               "trial": "T1-04",
-              "relation": "correlation",
-              "weight": "<number>"
+              "weight": "<number>",
+              "relations": [
+                "correlation"
+              ]
             }
           ]
         },
@@ -126,18 +137,24 @@
           "heaviest": [
             {
               "trial": "T1-01",
-              "relation": "correlation",
-              "weight": "<number>"
+              "weight": "<number>",
+              "relations": [
+                "correlation"
+              ]
             },
             {
               "trial": "T1-04",
-              "relation": "correlation",
-              "weight": "<number>"
+              "weight": "<number>",
+              "relations": [
+                "correlation"
+              ]
             },
             {
               "trial": "T1-03",
-              "relation": "correlation",
-              "weight": "<number>"
+              "weight": "<number>",
+              "relations": [
+                "correlation"
+              ]
             }
           ]
         },
@@ -165,18 +182,24 @@
           "heaviest": [
             {
               "trial": "T1-04",
-              "relation": "correlation",
-              "weight": "<number>"
+              "weight": "<number>",
+              "relations": [
+                "correlation"
+              ]
             },
             {
               "trial": "T1-01",
-              "relation": "correlation",
-              "weight": "<number>"
+              "weight": "<number>",
+              "relations": [
+                "correlation"
+              ]
             },
             {
               "trial": "T1-02",
-              "relation": "correlation",
-              "weight": "<number>"
+              "weight": "<number>",
+              "relations": [
+                "correlation"
+              ]
             }
           ]
         },
@@ -204,18 +227,24 @@
           "heaviest": [
             {
               "trial": "T1-02",
-              "relation": "correlation",
-              "weight": "<number>"
+              "weight": "<number>",
+              "relations": [
+                "correlation"
+              ]
             },
             {
               "trial": "T1-03",
-              "relation": "correlation",
-              "weight": "<number>"
+              "weight": "<number>",
+              "relations": [
+                "correlation"
+              ]
             },
             {
               "trial": "T1-01",
-              "relation": "correlation",
-              "weight": "<number>"
+              "weight": "<number>",
+              "relations": [
+                "correlation"
+              ]
             }
           ]
         },

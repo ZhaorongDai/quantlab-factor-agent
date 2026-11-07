@@ -116,7 +116,9 @@ from quantlab.core.store_uses import READS, walk_store_uses
 
 from factor_agent import _admission, _feedback, _lineage, _scheduler, _trial_graph
 from factor_agent._lineage import Lineage
-from factor_agent.config import ROLES, AdmissionConfig, CampaignConfig, ContextConfig, TrialGraphConfig
+from factor_agent.config import (
+    ROLES, AdmissionConfig, CampaignConfig, ContextConfig, TrialGraphConfig, recorded_fertile_children,
+)
 from factor_agent.evaluator import CompileFailure, DailyIC, Evaluator, Metrics
 from factor_agent.events import (
     FILE as EVENTS_FILE, AdmissionOutcome, EvaluationStart, Events, Plan, Resume, RoundEnd, Start, Stopped,
@@ -900,7 +902,7 @@ class _ParentSettings(NamedTuple):
         context, rounds = settings.get("context", {}), settings.get("round", {})
         return cls(
             bool(context.get("lineage", False)), rounds.get("max_children"), rounds.get("picked_parents", 0),
-            context.get("fertile_children", ContextConfig.fertile_children),
+            recorded_fertile_children(settings),
             TrialGraphConfig(**settings.get("trial_graph", {})),
         )
 
@@ -918,9 +920,7 @@ def _claim(k: int, quota: dict[str, int], trials: dict[str, TrialRecord], graph:
         kind = (record.direction or record.candidate).get("mechanism_type")
         if left.get(kind, 0) > 0:
             left[kind] -= 1
-            claimed.append({"trial": pick.trial, "mechanism_type": kind, **{
-                name: getattr(pick, name) for name in ("quality", "fertility", "novelty", "front")
-            }})
+            claimed.append({"trial": pick.trial, "mechanism_type": kind, **pick.utilities._asdict(), "front": pick.front})
             if len(claimed) == k:
                 break
     return claimed
