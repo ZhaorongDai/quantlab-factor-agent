@@ -16,7 +16,7 @@ import yaml
 
 from factor_agent import events
 from factor_agent.campaign import Campaign
-from factor_agent.config import CampaignConfig
+from factor_agent.config import ROLES, CampaignConfig
 from factor_agent.prompts import PLAN, PromptError
 from factor_agent.snapshot import SnapshotMismatch
 from tests.campaign_runner import run, write_config
@@ -93,6 +93,17 @@ def test_a_planned_direction_naming_a_picked_parent_fills_its_slot(picked):
     assert snapshot["settings"]["round"] == {"picked_parents": 2}
 
 
+def test_the_snapshot_records_every_trial_graph_value_and_not_the_default_fertile_children(picked):
+    settings = json.loads((picked["run_dir"] / "snapshot.json").read_text())["settings"]
+    assert settings["trial_graph"] == {  # the paper's
+        "gamma": 0.75, "iterations": 100, "tolerance": 1e-8,
+        "weights": {"generation": 1 / 3, "structure": 1 / 3, "correlation": 1 / 3},
+        "min_jaccard": 0.2, "structure_neighbours": 30, "min_correlation": 0.1, "correlation_neighbours": 30,
+        "nearest_accepted": 10, "max_expansions": 5,
+    }
+    assert "fertile_children" not in settings["context"]
+
+
 def test_a_picked_slot_the_planner_leaves_out_is_planned_as_a_refinement_of_its_parent(tmp_path, market):  # noqa: F811
     fake = FakeLLM(_propose)  # every direction new
     run(_config(tmp_path, market, {"picked_parents": 1}, context=THEMES), fake, market["cache"])
@@ -113,7 +124,8 @@ def test_without_picked_parents_the_planner_and_the_snapshot_are_as_before(tmp_p
     assert not any(has_tag(r.prompt, "picked_slots") for r in fake.of_role("planner"))
     assert all(plan.picked == [] for plan in _plans(tmp_path / "run"))
     snapshot = json.loads((tmp_path / "run" / "snapshot.json").read_text())
-    assert "round" not in snapshot["settings"]
+    assert "round" not in snapshot["settings"] and "trial_graph" not in snapshot["settings"]
+    assert "fertile_children" not in snapshot["settings"]["context"]
 
 
 def test_picked_parents_need_themes(tmp_path, market):  # noqa: F811
@@ -159,3 +171,35 @@ def test_a_resume_may_not_change_picked_parents(tmp_path, market):  # noqa: F811
     with pytest.raises(SnapshotMismatch, match=r"round\.picked_parents"):
         run(path, fake, market["cache"])
     assert fake.requests == []
+
+
+@pytest.mark.parametrize("section, value, says", [
+    ("trial_graph", {"gamma": 0.5}, r"trial_graph\.gamma was 0\.75, now 0\.5"),
+    ("context", {"fertile_children": 2}, r"context\.fertile_children was not recorded, now 2"),
+])
+def test_a_resume_may_not_change_the_trial_graph_or_the_fertile_children(tmp_path, market, section, value, says):  # noqa: F811
+    path = _config(tmp_path, market, {"picked_parents": 2, "max_rounds": 1}, context=THEMES)
+    run(path, FakeLLM(_propose, plan=_follow_picks), market["cache"])
+    config = yaml.safe_load(path.read_text())
+    config["round"]["max_rounds"] = 2
+    config[section] = {**config.get(section, {}), **value}
+    path.write_text(yaml.safe_dump(config))
+    fake = FakeLLM(_propose, plan=_follow_picks)
+    with pytest.raises(SnapshotMismatch, match=says):
+        run(path, fake, market["cache"])
+    assert fake.requests == []
+
+
+def test_a_replay_whose_config_omits_the_trial_graph_picks_as_the_recorded_run(tmp_path, market):  # noqa: F811
+    changed = {"gamma": 0.5, "max_expansions": 2}
+    recorded = _config(tmp_path / "recorded", market, {"picked_parents": 2},
+                       context={**THEMES, "fertile_children": 1}, trial_graph=changed)
+    run(recorded, FakeLLM(_propose, plan=_follow_picks), market["cache"])
+    log = tmp_path / "recorded" / "run" / "llm_log"
+    replay = _config(tmp_path / "replayed", market, {"picked_parents": 2}, context=THEMES,
+                     llm={role: {"backend": "replay", "model": f"model-{role}", "log": str(log)} for role in ROLES})
+    run(replay, None, market["cache"])
+    assert [p.picked for p in _plans(tmp_path / "replayed" / "run")] == [p.picked for p in _plans(tmp_path / "recorded" / "run")]
+    settings = json.loads((tmp_path / "replayed" / "run" / "snapshot.json").read_text())["settings"]
+    assert settings["trial_graph"]["gamma"] == 0.5 and settings["trial_graph"]["max_expansions"] == 2
+    assert settings["context"]["fertile_children"] == 1

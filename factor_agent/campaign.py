@@ -114,7 +114,7 @@ from quantlab.core.store_uses import READS, walk_store_uses
 
 from factor_agent import _admission, _feedback, _lineage, _scheduler, _trial_graph
 from factor_agent._lineage import Lineage
-from factor_agent.config import ROLES, AdmissionConfig, CampaignConfig
+from factor_agent.config import ROLES, AdmissionConfig, CampaignConfig, ContextConfig, TrialGraphConfig
 from factor_agent.evaluator import CompileFailure, DailyIC, Evaluator, Metrics
 from factor_agent.events import (
     FILE as EVENTS_FILE, AdmissionOutcome, EvaluationStart, Events, Plan, Resume, RoundEnd, Start, Stopped,
@@ -349,7 +349,9 @@ class Campaign:
                 accepted = [r for r in records if r.status == "accepted"]
                 trials = _feedback.named(records)
                 shown, cap, k = parent_settings.lineage, parent_settings.max_children, parent_settings.picked_parents
-                built = _lineage.lineages(trials, config.admission) if shown or cap is not None or k else {}
+                built = _lineage.lineages(
+                    trials, config.admission, parent_settings.fertile_children,
+                ) if shown or cap is not None or k else {}
                 lineage = built if shown else {}
                 context = self._context(
                     records, state, reference, known, evaluator, accepted, recent_rounds, prompts, lineage,
@@ -358,9 +360,9 @@ class Campaign:
                     trial: _feedback.parent(trial, r, trials, lineage.get(trial)) for trial, r in trials if r.evaluated
                 } if config.context.feedback else {}
                 eligible = [trial for trial in parents if cap is None or built[trial].attempts < cap]
-                picked = _claim(
-                    k, quota, dict(trials), _trial_graph.build(trials, *evaluator.tried(), built, vocabulary.classes, cap),
-                ) if k else []
+                picked = _claim(k, quota, dict(trials), _trial_graph.build(
+                    trials, *evaluator.tried(), built, vocabulary.classes, parent_settings.trial_graph, cap,
+                )) if k else []
                 directions, issues = researcher.plan(
                     number, quota, context, eligible if config.context.feedback else None,
                     [(p["mechanism_type"], p["trial"]) for p in picked],
@@ -560,8 +562,9 @@ class Campaign:
         """The files and settings to open the run's snapshot with: the config's, or, in a replay, the replayed run's.
 
         The settings recorded are the prompt context, ``round.max_children``
-        and ``round.picked_parents`` when set and, with an intraday dataset,
-        that dataset, which the intraday family's fields mean.
+        and ``round.picked_parents`` when set, with Picked parents every
+        ``trial_graph`` value and, with an intraday dataset, that dataset,
+        which the intraday family's fields mean.
 
         Raises
         ------
@@ -594,11 +597,15 @@ class Campaign:
             del context["send_back_repeats"]  # likewise
         if not context["lineage"]:
             del context["lineage"]  # likewise
+        if context["fertile_children"] == ContextConfig.fertile_children:
+            del context["fertile_children"]  # likewise
         settings = {"context": context}
         cap, k = self.config.round.max_children, self.config.round.picked_parents
         rounds = ({"max_children": cap} if cap is not None else {}) | ({"picked_parents": k} if k else {})
         if rounds:
             settings["round"] = rounds  # each left out unset, likewise
+        if k:
+            settings["trial_graph"] = asdict(self.config.trial_graph)  # every value, so no change of a default moves it
         if self.config.data.intraday is not None:
             settings["intraday"] = {"dataset": json.loads(json.dumps(self.config.data.intraday))}
         return self.config.search_files(), settings
@@ -856,7 +863,7 @@ class _Loaded(NamedTuple):
 
 
 class _ParentSettings(NamedTuple):
-    """The Lineage, ``round.max_children`` and Picked-parent settings a run uses.
+    """The Lineage, ``round.max_children``, Picked-parent and Trial graph settings a run uses.
 
     They are read from the settings the run's snapshot is opened with
     (``Campaign._search``): the config's on a new run, the recorded run's in
@@ -867,14 +874,17 @@ class _ParentSettings(NamedTuple):
     lineage: bool
     max_children: int | None
     picked_parents: int
+    fertile_children: int
+    trial_graph: TrialGraphConfig
 
     @classmethod
     def of(cls, settings: dict) -> "_ParentSettings":
-        """The settings ``settings`` (a snapshot's) record, each left out when it was off."""
-        rounds = settings.get("round", {})
+        """The settings ``settings`` (a snapshot's) record, each left out when it was off or its default."""
+        context, rounds = settings.get("context", {}), settings.get("round", {})
         return cls(
-            bool(settings.get("context", {}).get("lineage", False)), rounds.get("max_children"),
-            rounds.get("picked_parents", 0),
+            bool(context.get("lineage", False)), rounds.get("max_children"), rounds.get("picked_parents", 0),
+            context.get("fertile_children", ContextConfig.fertile_children),
+            TrialGraphConfig(**settings.get("trial_graph", {})),
         )
 
 
