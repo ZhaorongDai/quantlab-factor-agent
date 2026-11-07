@@ -60,7 +60,20 @@
         "overlaps": []
       },
       "collisions": [],
-      "intraday": false
+      "intraday": false,
+      "lineage": {
+        "attempts": 0,
+        "refinements": 0,
+        "mutations": 0,
+        "unevaluated": 0,
+        "accepted": [],
+        "best_child": null,
+        "best_child_t": null,
+        "own_t": "<number>",
+        "fertility": "<number>"
+      },
+      "picked_in": [],
+      "parent_picked": false
     },
     {
       "round": 1,
@@ -102,7 +115,20 @@
       "stats": null,
       "metrics": null,
       "collisions": [],
-      "intraday": false
+      "intraday": false,
+      "lineage": {
+        "attempts": 0,
+        "refinements": 0,
+        "mutations": 0,
+        "unevaluated": 0,
+        "accepted": [],
+        "best_child": null,
+        "best_child_t": null,
+        "own_t": null,
+        "fertility": "<number>"
+      },
+      "picked_in": [],
+      "parent_picked": false
     }
   ],
   "evaluated": [
