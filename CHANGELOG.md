@@ -42,6 +42,12 @@ layout; there are no compatibility shims or config migrations.
   parents with their utilities and fronts (`Plan.picked`, empty when off). 0 by default;
   above 0 it needs `context.theme_correlation`, a replaced plan template without `{picked}`
   is refused at start and by `Campaign.check()`, and it is fixed by the run's snapshot.
+- A round with Picked parents writes its Trial graph to `trial_graph/round_NN.json` in the
+  run directory once it is planned: every evaluated trial's own and propagated utilities,
+  the average it took from its neighbours and why it could not be picked, and each
+  relation's edges with their weights, but no ranks; `factor_agent._trial_graph.read`
+  reads it back and its `pick_order()` gives the round's order again. A resume that plans
+  the round again overwrites it; a run without Picked parents writes none.
 
 ### Changed
 

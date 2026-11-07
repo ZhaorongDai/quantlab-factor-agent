@@ -233,6 +233,7 @@ file has changed.
 | `config/open-<k>.yaml` | the config of the k-th start or resume, as it was given |
 | `columns/<segment>/` | the scored values of every factor in a segment's pool and, with themes, of every evaluated trial, one file per graph, for a resume to read instead of computing them; about 45 MB per accepted factor and 2.3 MB per evaluated trial on 3000 members over 15 years |
 | `ic/round_NN.json` | each evaluated trial's daily rank IC and partial IC in round NN, by slot, for the frontend's cumulative IC |
+| `trial_graph/round_NN.json` | with `round.picked_parents`, the Trial graph round NN picked its parents on: every evaluated trial's own and propagated utilities and whether it could be picked (and why not), and the edges of each relation with their weights |
 | `zoo.json` | the reference and known factors the Gate covers, and those without a graph it cannot |
 | `acceptance/` | validation and hold-out reports and the model cache |
 | `holdout.lock` | written when the hold-out is opened |
@@ -359,6 +360,15 @@ evaluated trials that `context.theme_correlation` keeps, so picked parents need 
 replaced plan template must hold the placeholder `{picked}`, where the picked slots go,
 when picked parents are on; without it the run is refused at its start, and the check
 reports it.
+
+Each round that picks parents writes the graph it picked them on to
+`trial_graph/round_NN.json` once the round is planned: γ, every evaluated trial with its
+own utilities, its utilities after propagation, the average it took from its neighbours and,
+when it could not be picked, why (`expansion_cap`, built on five times, or `max_children`),
+and the edges of each relation (lineage, structure, correlation) with the weights propagation
+used. It holds no ranks; `factor_agent._trial_graph.read(run_dir, round)` reads it back, and
+its `pick_order()` gives the order the round's parents were claimed in. A resume that plans
+a round again writes its file anew.
 
 A candidate refused for its coverage is told where its graph loses its values: the first
 step whose coverage falls below `admission.min_coverage` while its inputs' does not, with

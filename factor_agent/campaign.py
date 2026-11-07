@@ -71,7 +71,9 @@ built on that often off the trials a direction may build on. With
 the quota, builds the Trial graph (``_trial_graph``) and gives each trial in
 its pick order a slot of its mechanism type while that type has one unclaimed
 (``_claim``); the planner writes those slots as refinements or mutations of
-their parents, and the plan event records them. With
+their parents, and the plan event records them. The round's graph is kept
+in ``trial_graph/round_NN.json`` (``_trial_graph.write``) after the plan,
+and written anew when a resume plans the round again. With
 ``context.send_back_repeats`` too, before a round is scored, a new
 direction's candidate that correlates that much with an earlier trial is
 rewritten once (``_renew``); a slot is rewritten once in
@@ -358,9 +360,8 @@ class Campaign:
                     trial: _feedback.parent(trial, r, trials, lineage.get(trial)) for trial, r in trials if r.evaluated
                 } if config.context.feedback else {}
                 eligible = [trial for trial in parents if cap is None or built[trial].attempts < cap]
-                picked = _claim(
-                    k, quota, dict(trials), _trial_graph.build(trials, *evaluator.tried(), built, vocabulary.classes, cap),
-                ) if k else []
+                graph = _trial_graph.build(trials, *evaluator.tried(), built, vocabulary.classes, cap) if k else None
+                picked = _claim(k, quota, dict(trials), graph) if k else []
                 directions, issues = researcher.plan(
                     number, quota, context, eligible if config.context.feedback else None,
                     [(p["mechanism_type"], p["trial"]) for p in picked],
@@ -368,6 +369,8 @@ class Campaign:
                 events.write(Plan(
                     round=number, directions=[d.to_dict() for d in directions], quota=quota, issues=issues, picked=picked,
                 ))
+                if graph is not None:
+                    _trial_graph.write(graph, run_dir, number)
                 proposals = researcher.propose(number, directions, context, gate, zoo, config.round.retries, parents)
                 round_records = self._round(
                     number, proposals, researcher, gate, zoo, evaluator, records, events, confirming, vocabulary,

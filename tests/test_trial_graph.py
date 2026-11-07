@@ -12,7 +12,7 @@ import numpy as np
 
 from factor_agent._feedback import named
 from factor_agent._lineage import Lineage
-from factor_agent._trial_graph import TrialGraph, build
+from factor_agent._trial_graph import TrialGraph, build, read, write
 from factor_agent.gate.graph import Graph
 from factor_agent.ledger import TrialRecord
 from tests.vocabulary_files import price_volume
@@ -179,6 +179,17 @@ def test_the_graph_reads_back_from_its_file_dictionary_with_the_same_pick_order(
     assert read == graph
     assert read.pick_order() == graph.pick_order() and read.pick_order(False) == graph.pick_order(False)
     assert set(graph.to_dict()["edges"]) == {"lineage", "structure", "correlation"}
+
+
+def test_a_rounds_graph_file_reads_back_as_the_graph_and_is_written_anew(tmp_path):
+    records = [_trial(1, t, code) for t, code in zip([2.0, 1.0, 3.0], APART)]
+    first = _graph_of(records[:2])
+    write(first, tmp_path, 3)
+    assert (tmp_path / "trial_graph" / "round_03.json").exists()
+    assert read(tmp_path, 3) == first and read(tmp_path, 4) is None
+    second = _graph_of(records, matrix=[[1.0, 0.5, 0.2], [0.5, 1.0, 0.0], [0.2, 0.0, 1.0]])
+    write(second, tmp_path, 3)
+    assert read(tmp_path, 3) == second and read(tmp_path, 3).gamma == 0.75
 
 
 def test_a_round_without_an_evaluated_trial_has_an_empty_graph():

@@ -14,13 +14,14 @@ import json
 import pytest
 import yaml
 
-from factor_agent import events
+from factor_agent import _trial_graph, events
+from factor_agent._feedback import named
 from factor_agent.campaign import Campaign
 from factor_agent.config import CampaignConfig
 from factor_agent.prompts import PLAN, PromptError
 from factor_agent.snapshot import SnapshotMismatch
 from tests.campaign_runner import run, write_config
-from tests.fake_llm import FakeLLM, has_tag, new_directions, tagged
+from tests.fake_llm import FakeLLM, has_tag, new_directions, round_of, tagged
 from tests.test_campaign_loop import market, noise  # noqa: F401  (the module's synthetic store)
 
 #: One slot of each of the five default mechanism types a round.
@@ -93,6 +94,43 @@ def test_a_planned_direction_naming_a_picked_parent_fills_its_slot(picked):
     assert snapshot["settings"]["round"] == {"picked_parents": 2}
 
 
+def _claimed(graph, quota, records, k):
+    """The picks the claiming rule makes from ``graph``: in pick order, one per slot of the parent's type, up to ``k``."""
+    type_of = {trial: r.direction["mechanism_type"] for trial, r in named(records)}
+    left, picks = dict(quota), []
+    for pick in graph.pick_order():
+        if left.get(type_of[pick.trial], 0) > 0 and len(picks) < k:
+            left[type_of[pick.trial]] -= 1
+            picks.append(pick.trial)
+    return picks
+
+
+def test_each_round_writes_its_trial_graph_whose_pick_order_gives_the_plans_picks(picked):
+    run_dir, records = picked["run_dir"], picked["result"].records
+    assert sorted(p.name for p in (run_dir / "trial_graph").iterdir()) == ["round_01.json", "round_02.json"]
+    first, second = _plans(run_dir)
+    assert _trial_graph.read(run_dir, 1).nodes == ()  # nothing was evaluated before round 1
+    graph = _trial_graph.read(run_dir, 2)
+    assert [n.trial for n in graph.nodes] == [f"T1-{slot:02d}" for slot in range(1, 6)]
+    assert _claimed(graph, second.quota, records, 2) == [p["trial"] for p in second.picked]
+    assert _trial_graph.read(run_dir, 3) is None
+
+
+def test_a_round_planned_again_after_a_resume_writes_its_trial_graph_anew(tmp_path, market):  # noqa: F811
+    path = _config(tmp_path, market, {"picked_parents": 2}, context=THEMES)
+    exhausted = FakeLLM(_propose, plan=_follow_picks, quota=lambda r: r.role == "reviewer" and round_of(r.prompt) == 2)
+    run(path, exhausted, market["cache"])
+    kept = tmp_path / "run" / "trial_graph" / "round_02.json"
+    assert _trial_graph.read(tmp_path / "run", 2).nodes  # written after the plan, before the round was dropped
+    kept.write_text("{}")
+    result = run(path, FakeLLM(_propose, plan=_follow_picks), market["cache"])
+    second = _plans(tmp_path / "run")[-1]
+    assert second.round == 2
+    assert _claimed(_trial_graph.read(tmp_path / "run", 2), second.quota, result.records, 2) == [
+        p["trial"] for p in second.picked
+    ]
+
+
 def test_a_picked_slot_the_planner_leaves_out_is_planned_as_a_refinement_of_its_parent(tmp_path, market):  # noqa: F811
     fake = FakeLLM(_propose)  # every direction new
     run(_config(tmp_path, market, {"picked_parents": 1}, context=THEMES), fake, market["cache"])
@@ -112,6 +150,7 @@ def test_without_picked_parents_the_planner_and_the_snapshot_are_as_before(tmp_p
     run(_config(tmp_path, market, context=THEMES), fake, market["cache"])
     assert not any(has_tag(r.prompt, "picked_slots") for r in fake.of_role("planner"))
     assert all(plan.picked == [] for plan in _plans(tmp_path / "run"))
+    assert not (tmp_path / "run" / "trial_graph").exists()
     snapshot = json.loads((tmp_path / "run" / "snapshot.json").read_text())
     assert "round" not in snapshot["settings"]
 
