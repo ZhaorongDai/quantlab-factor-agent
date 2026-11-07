@@ -246,7 +246,7 @@ gives the width back to the charts. The panel shows its round, mechanism type an
 research direction, its Lineage (the trial it builds on, as a link, and whether the code
 or the planner chose it; the rounds it was a Picked parent in; how many trials were built
 on it, refinements and mutations, how many stopped before evaluation and were accepted,
-its fertility, its own partial-IC t in its direction against its best child's, and each
+its fertility (over the run's `context.fertile_children`), its own partial-IC t in its direction against its best child's, and each
 child with its action and outcome), the hypothesis, description and code of its final
 version, the reasons it was refused, the versions refused before it with their reasons and hints, an
 `intraday` tag when its graph holds a session aggregation (a trial refused before the Gate

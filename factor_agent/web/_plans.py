@@ -11,7 +11,9 @@ Picked parent fills the first slot of its type naming it.
 
 Each trial's Lineage is ``factor_agent._lineage``'s, computed from the
 ledger with the admission settings the run was last opened with (the
-defaults for a run without events), its NaN read as ``None``.
+defaults for a run without events) and the snapshot's
+``context.fertile_children`` (3 when it records none), its NaN read as
+``None``.
 
 A round that picked parents kept its Trial graph in the run directory
 (``factor_agent._trial_graph``); the round's plan then carries it with each
@@ -26,7 +28,7 @@ from pathlib import Path
 from factor_agent import _trial_graph, events
 from factor_agent._feedback import named
 from factor_agent._lineage import lineages
-from factor_agent.config import AdmissionConfig
+from factor_agent.config import AdmissionConfig, ContextConfig
 from factor_agent.ledger import TrialRecord
 from factor_agent.web._files import Replayed, read_json
 from factor_agent.web._ledger import Trial, read_trials
@@ -182,7 +184,7 @@ def _nan(value):
     return float("nan") if value is None else value
 
 
-def _lineages(trials: tuple[Trial, ...], admission: AdmissionConfig) -> dict[str, TrialLineage]:
+def _lineages(trials: tuple[Trial, ...], admission: AdmissionConfig, fertile_children: int) -> dict[str, TrialLineage]:
     """Each trial's Lineage by its id; the ledger's NaN, read as ``None``, is NaN again while it is computed."""
     records = [TrialRecord(
         round=t.round, candidate=t.candidate, status=t.status, stage=t.stage, reasons=list(t.reasons),
@@ -194,7 +196,14 @@ def _lineages(trials: tuple[Trial, ...], admission: AdmissionConfig) -> dict[str
         attempts=found.attempts, refinements=found.refinements, mutations=found.mutations,
         unevaluated=found.unevaluated, accepted=found.accepted, best_child=found.best_child or None,
         best_child_t=finite(found.best_child_t), own_t=finite(found.own_t), fertility=found.fertility,
-    ) for trial, found in lineages(named(records), admission).items()}
+    ) for trial, found in lineages(named(records), admission, fertile_children).items()}
+
+
+def fertile_children(run_dir: Path) -> int:
+    """The best child outcomes a fertility is the mean of, as the run's snapshot records them."""
+    manifest = read_json(Path(run_dir) / "snapshot.json") or {}
+    context = (manifest.get("settings") or {}).get("context") or {}
+    return context.get("fertile_children", ContextConfig.fertile_children)
 
 
 def admission(replayed: Replayed) -> AdmissionConfig:
@@ -218,9 +227,9 @@ class Lineages:
     parent_picked: set[str]
 
 
-def lineage_of(trials: tuple[Trial, ...], replayed: Replayed, last: int) -> Lineages:
+def lineage_of(trials: tuple[Trial, ...], replayed: Replayed, last: int, fertile_children: int) -> Lineages:
     """The Lineage of ``trials`` and their picks in the plans of rounds up to ``last``: the written ones, and the
-    round in progress when there is one."""
+    round in progress when there is one. ``fertile_children`` is the run's (``fertile_children``)."""
     picked_in: dict[str, list[int]] = {}
     parent_picked = set()
     for number, plan in sorted(plans(replayed).items()):
@@ -229,7 +238,7 @@ def lineage_of(trials: tuple[Trial, ...], replayed: Replayed, last: int) -> Line
         for p in plan.picked:
             picked_in.setdefault(p["trial"], []).append(number)
         parent_picked |= {trial_id(number, slot) for slot in picked_slots(plan)}
-    return Lineages(lineage=_lineages(trials, admission(replayed)),
+    return Lineages(lineage=_lineages(trials, admission(replayed), fertile_children),
                     picked_in={trial: tuple(rounds) for trial, rounds in picked_in.items()},
                     parent_picked=parent_picked)
 

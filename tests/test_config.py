@@ -15,7 +15,7 @@ from quantlab.dataset.stock import StockDataset
 from quantlab.factor.config import FactorConfig
 from quantlab.factor.predefined.alpha158 import Alpha158Stock
 
-from factor_agent.config import DEFAULT_MECHANISMS, ROLES, CampaignConfig, NeutralizeConfig, load
+from factor_agent.config import DEFAULT_MECHANISMS, ROLES, CampaignConfig, NeutralizeConfig, TrialGraphConfig, load
 from factor_agent.gate.vocabulary import VocabularyError
 from factor_agent.prompts import PromptError
 from tests.campaign_runner import XGB
@@ -380,3 +380,54 @@ def test_every_factor_entry_that_cannot_be_rebuilt_is_named_with_its_cause(store
         f"reference[1] {unimportable}: No module named 'no_such_research_package'",
         f"known[0] {unimportable}: No module named 'no_such_research_package'",
     )
+
+
+def test_a_config_without_a_trial_graph_section_takes_the_papers_values(tmp_path):
+    config = CampaignConfig.from_file(_minimal(tmp_path))
+    # CosmosAlpha, Tables 6 and 7.
+    assert config.trial_graph == TrialGraphConfig(
+        gamma=0.75, iterations=100, tolerance=1e-8,
+        weights={"generation": 1 / 3, "structure": 1 / 3, "correlation": 1 / 3},
+        min_jaccard=0.20, structure_neighbours=30, min_correlation=0.10, correlation_neighbours=30,
+        nearest_accepted=10, max_expansions=5,
+    )
+    assert config.context.fertile_children == 3
+
+
+def test_the_trial_graph_section_sets_its_values(tmp_path):
+    section = {"gamma": 0.5, "weights": {"generation": 0.5, "structure": 0.25, "correlation": 0.25}, "max_expansions": 2}
+    config = CampaignConfig.from_file(_minimal(tmp_path, trial_graph=section, context={"fertile_children": 1}))
+    assert config.trial_graph.gamma == 0.5 and config.trial_graph.max_expansions == 2
+    assert config.trial_graph.weights == {"generation": 0.5, "structure": 0.25, "correlation": 0.25}
+    assert config.trial_graph.min_jaccard == 0.20 and config.context.fertile_children == 1
+
+
+@pytest.mark.parametrize("section, message", [
+    ({"gamma": 1.0}, "trial_graph: gamma is 1.0"),
+    ({"gamma": -0.1}, "trial_graph: gamma is -0.1"),
+    ({"iterations": 0}, "trial_graph: iterations is 0"),
+    ({"tolerance": 0.0}, "trial_graph: tolerance is 0.0"),
+    ({"weights": {"generation": 0.5, "structure": 0.5, "correlation": 0.5}}, "trial_graph: weights sum to 1.5"),
+    ({"weights": {"generation": 1.5, "structure": -0.5, "correlation": 0.0}}, "trial_graph: weights.structure is -0.5"),
+    ({"weights": {"lineage": 0.5, "structure": 0.5}}, "trial_graph: weights has"),
+    ({"min_jaccard": 1.2}, "trial_graph: min_jaccard is 1.2"),
+    ({"min_correlation": -0.1}, "trial_graph: min_correlation is -0.1"),
+    ({"structure_neighbours": 0}, "trial_graph: structure_neighbours is 0"),
+    ({"correlation_neighbours": 2.5}, "trial_graph: correlation_neighbours is 2.5"),
+    ({"nearest_accepted": 0}, "trial_graph: nearest_accepted is 0"),
+    ({"max_expansions": 0}, "trial_graph: max_expansions is 0"),
+])
+def test_an_invalid_trial_graph_value_is_refused_naming_its_key(tmp_path, section, message):
+    with pytest.raises((ValueError, TypeError), match=re.escape(message)):
+        CampaignConfig.from_file(_minimal(tmp_path, trial_graph=section))
+
+
+def test_an_unknown_trial_graph_key_is_refused(tmp_path):
+    with pytest.raises(TypeError, match="gama"):
+        CampaignConfig.from_file(_minimal(tmp_path, trial_graph={"gama": 0.5}))
+
+
+@pytest.mark.parametrize("count", [0, 1.5, True])
+def test_a_fertile_children_count_below_one_is_refused(tmp_path, count):
+    with pytest.raises(ValueError, match=re.escape(f"context: fertile_children is {count!r}")):
+        CampaignConfig.from_file(_minimal(tmp_path, context={"fertile_children": count}))

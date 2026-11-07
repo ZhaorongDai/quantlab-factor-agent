@@ -22,7 +22,7 @@ runs it.
 | `known` | no | the known factors |
 | `directions` | no | seed research directions for the planner, one string each |
 | `mechanisms`, `prompts` | no | mechanism types and replaced templates; see [prompts](prompts.md) |
-| `evaluator`, `gate`, `admission`, `round`, `context` | no | settings with defaults (below) |
+| `evaluator`, `gate`, `admission`, `round`, `context`, `trial_graph` | no | settings with defaults (below) |
 | `llm` | yes | one entry per role; see [LLM backends](llm-backends.md) |
 | `acceptance` | yes | the acceptance model and seeds; see [acceptance](acceptance.md) |
 
@@ -124,6 +124,17 @@ known factor at a time.
 | `context.theme_correlation` | null | the absolute correlation at which an evaluated trial is grouped with an earlier one; set, the planner reads the groups (see below) |
 | `context.send_back_repeats` | false | whether a new direction's candidate in a group is rewritten once before it is evaluated; needs `context.theme_correlation` |
 | `context.lineage` | false | whether the planner's accepted factors and the proposer's parent carry each trial's Lineage (see below); needs `context.feedback` |
+| `context.fertile_children` | 3 | best children's outcomes a trial's fertility is the mean of (see below) |
+| `trial_graph.gamma` | 0.75 | share of each utility the Picked parents take from the related trials, in [0, 1) (see below) |
+| `trial_graph.iterations` | 100 | propagation steps at most |
+| `trial_graph.tolerance` | 1e-8 | the largest move of a utility at which propagation stops |
+| `trial_graph.weights` | 1/3 each | each relation's share, `generation`, `structure` and `correlation`, summing to 1 |
+| `trial_graph.min_jaccard` | 0.20 | smallest share of subtrees two trials have in common that joins them by structure |
+| `trial_graph.structure_neighbours` | 30 | structure neighbours each trial keeps, the closest |
+| `trial_graph.min_correlation` | 0.10 | smallest absolute correlation that joins two trials by correlation |
+| `trial_graph.correlation_neighbours` | 30 | correlation neighbours each trial keeps, the closest |
+| `trial_graph.nearest_accepted` | 10 | accepted factors a trial's novelty is measured against, the nearest |
+| `trial_graph.max_expansions` | 5 | trials built on one trial at which it is no longer picked |
 
 ## Checking a config
 
@@ -214,7 +225,7 @@ The first start copies the field, operator and replaced template files into
 `snapshot/` with their hashes, and the run searches with those copies. A resume whose
 files differ fails: a new search space needs a new run directory. A resume on other
 commits of factor_agent or quantlab only warns, and `state.json` lists the commits of every
-start and resume. `round.groups` may change on a resume; `context.recent_rounds`, `context.feedback`, `context.theme_correlation`, `context.send_back_repeats`, `context.lineage`, `round.max_children` and `round.picked_parents` may not.
+start and resume. `round.groups` may change on a resume; `context.recent_rounds`, `context.feedback`, `context.theme_correlation`, `context.send_back_repeats`, `context.lineage`, `context.fertile_children`, `round.max_children`, `round.picked_parents` and, with Picked parents, the `trial_graph` values may not.
 The reference set and the known factors are read from the config on every start. Every
 start and resume also keeps the config it was given as `config/open-<k>.yaml` (the first
 start is `open-1.yaml`), so a run says which settings it ran with even after the config
@@ -338,17 +349,49 @@ planner just sees no Lineage line without it. Unset, every evaluated trial stays
 With `round.picked_parents: k`, the code chooses the parent of k slots each round, the
 **Picked parents**, after the quota is drawn. It judges every evaluated trial, accepted or
 not, by three utilities: its **quality**, the residual t in its direction; its
-**fertility**, the mean of its three best children's outcomes in its Lineage (how far each
-child's residual t cleared the threshold it was judged against, 0 for a child that stopped
-before evaluation); and its **novelty**, its mean distance, in structure (the subtrees of
-its graph) and in correlation, from the ten nearest factors accepted so far. Each trial
-then shares its utilities with the trials related to it, by lineage (parent and child), by
-structure and by correlation, so a trial whose relatives did well is judged by that
-evidence too. The trials are ranked by Pareto front on the three, not by a weighted sum,
-within a front by how far each lies from the others, and a trial built on five times is not
-picked. In that order, each takes one slot of its own mechanism type while that type has a
-slot not yet taken, until k are taken; a trial `round.max_children` has capped is passed
-over. The constants are those of CosmosAlpha (arXiv:2611.04555) and are not configured.
+**fertility**, the mean of its `context.fertile_children` (3) best children's outcomes in
+its Lineage (how far each child's residual t cleared the threshold it was judged against, 0
+for a child that stopped before evaluation); and its **novelty**, its mean distance, in
+structure (the subtrees of its graph) and in correlation, from the
+`trial_graph.nearest_accepted` (10) nearest factors accepted so far. The trials form the
+**Trial graph**, joined by three relations: generation (parent and child), structure (the
+share of subtrees two trials have in common, from `trial_graph.min_jaccard`) and
+correlation (from `trial_graph.min_correlation`), each trial keeping its closest
+`structure_neighbours` and `correlation_neighbours` (30). Each trial then shares its
+utilities with the trials related to it, the relations weighted by `trial_graph.weights`,
+so a trial whose relatives did well is judged by that evidence too: its utility after
+propagation lies `trial_graph.gamma` (0.75) of the way from its own to its neighbours'
+average. The trials are ranked by Pareto front on the three, not by a weighted sum,
+within a front by how far each lies from the others, and a trial built on
+`trial_graph.max_expansions` (5) times is not picked. In that order, each takes one slot of
+its own mechanism type while that type has a slot not yet taken, until k are taken; a trial
+`round.max_children` has capped is passed over.
+
+The `trial_graph` section's defaults are the values of the CosmosAlpha paper
+(arXiv:2611.04555, Tables 6 and 7), so a config without it runs the method as published:
+
+```yaml
+trial_graph:
+  gamma: 0.75
+  iterations: 100
+  tolerance: 1.0e-8
+  weights: {generation: 0.3333333333, structure: 0.3333333333, correlation: 0.3333333334}
+  min_jaccard: 0.20
+  structure_neighbours: 30
+  min_correlation: 0.10
+  correlation_neighbours: 30
+  nearest_accepted: 10
+  max_expansions: 5
+```
+
+A value out of its range (`gamma` outside [0, 1), weights that are negative or do not sum
+to 1, a count below 1, a threshold outside [0, 1]) is refused when the config is read, and
+`factor-agent check` reports it. With Picked parents on, the run snapshot records every
+`trial_graph` value at the first start, so a resume that changes one is refused and a
+replay picks with the recorded run's values whatever its own config says; without Picked
+parents the section is not recorded. A run with Picked parents started before the section
+existed ran with its defaults: it resumes while the config keeps them. `context.fertile_children` is recorded when it is not
+3, and fixed alike.
 
 The planner is told the picked slots in its prompt, each with its type and its parent, and
 writes each as a refinement or a mutation of that parent, choosing the action and the idea:
@@ -364,8 +407,9 @@ reports it.
 Each round that picks parents writes the graph it picked them on to
 `trial_graph/round_NN.json` once the round is planned: γ, every evaluated trial with its
 own utilities, its utilities after propagation, the average it took from its neighbours and,
-when it could not be picked, why (`expansion_cap`, built on five times, or `max_children`),
-and the edges of each relation (lineage, structure, correlation) with the weights propagation
+when it could not be picked, why (`expansion_cap`, built on `trial_graph.max_expansions`
+times, or `max_children`), and the edges of each relation (`generation`, `structure`,
+`correlation`) with the weights propagation
 used. It holds no ranks; `factor_agent._trial_graph.read(run_dir, round)` reads it back, and
 its `pick_order()` gives the order the round's parents were claimed in. A resume that plans
 a round again writes its file anew.

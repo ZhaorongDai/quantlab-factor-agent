@@ -34,7 +34,8 @@ layout; there are no compatibility shims or config migrations.
   Picked parents (`factor_agent._trial_graph`): the evaluated trials ranked by Pareto
   front and crowding distance on their quality (residual t in their direction), fertility
   (their Lineage's) and novelty (distance from the accepted factors), each shared over the
-  trials' lineage, structure and correlation edges, a trial built on five times left out.
+  trials' generation, structure and correlation edges, a trial built on
+  `trial_graph.max_expansions` (5) times left out.
   Each takes a slot of its own mechanism type while that type has one unclaimed; the
   planner is told the picked slots (the plan template's new `{picked}` placeholder) and
   writes each as a refinement or a mutation of its parent, and one it leaves out is planned
@@ -42,6 +43,19 @@ layout; there are no compatibility shims or config migrations.
   parents with their utilities and fronts (`Plan.picked`, empty when off). 0 by default;
   above 0 it needs `context.theme_correlation`, a replaced plan template without `{picked}`
   is refused at start and by `Campaign.check()`, and it is fixed by the run's snapshot.
+- A `trial_graph` section configures the Trial graph the Picked parents are chosen over:
+  `gamma` (0.75), `iterations` (100), `tolerance` (1e-8), the relation `weights`
+  (`generation`, `structure`, `correlation`, 1/3 each), `min_jaccard` (0.20) and
+  `structure_neighbours` (30), `min_correlation` (0.10) and `correlation_neighbours` (30),
+  `nearest_accepted` (10) and `max_expansions` (5), by default the CosmosAlpha paper's
+  values, so a config without it picks as before. `context.fertile_children` (3) sets how
+  many best children's outcomes a Lineage's fertility averages. A value out of its range is
+  refused when the config is read, naming its key, and `factor-agent check` reports it.
+  With Picked parents on, the run snapshot records every `trial_graph` value, and
+  `context.fertile_children` when it is not 3: a resume may not change them, and a replay
+  picks with the recorded values. A run without Picked parents keeps the snapshot it had,
+  and one with Picked parents whose snapshot records no `trial_graph` resumes while the
+  config keeps the defaults it ran with.
 - A round with Picked parents writes its Trial graph to `trial_graph/round_NN.json` in the
   run directory once it is planned: every evaluated trial's own and propagated utilities,
   the average it took from its neighbours and why it could not be picked, and each

@@ -91,7 +91,9 @@ from factor_agent.web._ledger import (
     Collision, Neighbour, Trial, aggregations, correlation_limit, read_trials, statuses,
 )
 from factor_agent.web._memory import MemoryLine, MemoryVersion, memory
-from factor_agent.web._plans import PlanSlot, RoundPlan, TrialLineage, lineage_of, read_round, trial_id
+from factor_agent.web._plans import (
+    PlanSlot, RoundPlan, TrialLineage, fertile_children, lineage_of, read_round, trial_id,
+)
 from factor_agent.web._results import Factor, factors
 from factor_agent.web._round import Check, LLMCall, PendingTrial, RoundCall, RunningRound, read_call, running
 from factor_agent.web._trials import Placed, Refusal, TrialRef, trials_page
@@ -218,7 +220,7 @@ class RunView:
         trials = read_trials(run_dir / "ledger.jsonl", state.get("rounds", 0), aggregations(run_dir))
         replayed = Replayed.read(run_dir)
         summary = _summary(run_dir, name or run_dir.name, state, replayed, [t.status for t in trials])
-        found = lineage_of(trials, replayed, summary.rounds + (0 if summary.stop else 1))
+        found = lineage_of(trials, replayed, summary.rounds + (0 if summary.stop else 1), fertile_children(run_dir))
         ids = [trial_id(t.round, t.slot) for t in trials]
         trials = tuple(replace(t, lineage=found.lineage[i], picked_in=found.picked_in.get(i, ()),
                                parent_picked=i in found.parent_picked) for t, i in zip(trials, ids))

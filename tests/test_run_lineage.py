@@ -146,3 +146,27 @@ def test_a_run_without_picked_parents_has_no_picks(tmp_path, market):  # noqa: F
     assert not any(t.picked_in or t.parent_picked for t in view.trials)
     assert all(t.lineage is not None for t in view.trials)
     assert not any(s.picked for s in read_round(tmp_path / "run", 2).slots)
+
+
+def _with(run_dir, copy, fertile_children=None):
+    """A copy of the run whose children clear the threshold (0.67 for any trial count), with the snapshot's count."""
+    shutil.copytree(run_dir, copy)
+    lines = (copy / events.FILE).read_text().splitlines()
+    start = {**json.loads(lines[0]), "t_threshold": 0.0, "trial_exponent": 1e-9}
+    (copy / events.FILE).write_text("\n".join([json.dumps(start), *lines[1:]]) + "\n")
+    if fertile_children is not None:
+        manifest = json.loads((copy / "snapshot.json").read_text())
+        manifest["settings"]["context"]["fertile_children"] = fertile_children
+        (copy / "snapshot.json").write_text(json.dumps(manifest))
+    return _by_id(RunView.read(copy))
+
+
+def test_the_fertility_averages_as_many_children_as_the_runs_snapshot_says(picked, tmp_path):
+    run_dir, _, _ = picked
+    three, one = _with(run_dir, tmp_path / "three"), _with(run_dir, tmp_path / "one", fertile_children=1)
+    # T1-02 has one evaluated child: the mean of three pads it with two zeros, the mean of one does not.
+    assert three["T1-02"].lineage.attempts == 1 and three["T1-02"].lineage.fertility > 0
+    assert one["T1-02"].lineage.fertility == pytest.approx(3 * three["T1-02"].lineage.fertility)
+    # T1-05 has two: the best alone is more than their mean with a zero.
+    assert one["T1-05"].lineage.fertility > three["T1-05"].lineage.fertility > 0
+    assert [t.lineage.attempts for t in one.values()] == [t.lineage.attempts for t in three.values()]

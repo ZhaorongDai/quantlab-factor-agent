@@ -13,6 +13,7 @@ import numpy as np
 from factor_agent._feedback import named
 from factor_agent._lineage import Lineage
 from factor_agent._trial_graph import TrialGraph, build, read, write
+from factor_agent.config import TrialGraphConfig
 from factor_agent.gate.graph import Graph
 from factor_agent.ledger import TrialRecord
 from tests.vocabulary_files import price_volume
@@ -42,16 +43,16 @@ def _trial(number, t, code, status="rejected", parent=""):
     )
 
 
-def _graph_of(records, lineage=None, matrix=None, max_children=None):
+def _graph_of(records, lineage=None, matrix=None, max_children=None, settings=TrialGraphConfig()):
     trials = named(records)
     names = [trial for trial, _ in trials]
     if matrix is None:
         matrix = np.eye(len(names))
-    return build(trials, names, np.asarray(matrix, dtype=float), lineage or {}, VOCABULARY.classes, max_children)
+    return build(trials, names, np.asarray(matrix, dtype=float), lineage or {}, VOCABULARY.classes, settings, max_children)
 
 
-def _rank(records, lineage=None, matrix=None, k=10, propagated=True):
-    return _graph_of(records, lineage, matrix).pick_order(propagated)[:k]
+def _rank(records, lineage=None, matrix=None, k=10, propagated=True, settings=TrialGraphConfig()):
+    return _graph_of(records, lineage, matrix, settings=settings).pick_order(propagated)[:k]
 
 
 def _order(picked):
@@ -159,7 +160,7 @@ def test_the_heaviest_neighbours_carry_their_relation_and_weight_and_each_relati
     graph = _graph_of([strong, twin, linked], matrix=matrix)
     # Each relation is a third of P; T2-02's correlations 0.5 and 0.2 normalise to 5/7 and 2/7 of it.
     assert [(e.relation, e.target, round(e.weight, 12)) for e in graph.heaviest("T2-02", 5)] == [
-        ("lineage", "T1-01", round(1 / 3, 12)), ("correlation", "T2-01", round(5 / 21, 12)),
+        ("generation", "T1-01", round(1 / 3, 12)), ("correlation", "T2-01", round(5 / 21, 12)),
         ("correlation", "T1-01", round(2 / 21, 12)),
     ]
     assert graph.heaviest("T2-02", 1)[0].target == "T1-01"
@@ -178,7 +179,7 @@ def test_the_graph_reads_back_from_its_file_dictionary_with_the_same_pick_order(
     read = TrialGraph.from_dict(json.loads(json.dumps(graph.to_dict())))
     assert read == graph
     assert read.pick_order() == graph.pick_order() and read.pick_order(False) == graph.pick_order(False)
-    assert set(graph.to_dict()["edges"]) == {"lineage", "structure", "correlation"}
+    assert set(graph.to_dict()["edges"]) == {"generation", "structure", "correlation"}
 
 
 def test_a_rounds_graph_file_reads_back_as_the_graph_and_is_written_anew(tmp_path):
@@ -195,5 +196,53 @@ def test_a_rounds_graph_file_reads_back_as_the_graph_and_is_written_anew(tmp_pat
 def test_a_round_without_an_evaluated_trial_has_an_empty_graph():
     unevaluated = TrialRecord(round=1, candidate={"description": "x", "mechanism_type": "momentum"}, status="rejected",
                               stage="gate", reasons=[], metrics=None)
-    graph = build(named([unevaluated]), [], np.zeros((0, 0)), {}, VOCABULARY.classes)
+    graph = build(named([unevaluated]), [], np.zeros((0, 0)), {}, VOCABULARY.classes, TrialGraphConfig())
     assert graph.nodes == () and graph.edges == () and graph.pick_order() == []
+
+
+def test_without_propagation_the_linked_trial_ranks_on_its_own_utilities():
+    strong = _trial(1, 6.0, APART[1])                     # T1-01
+    twin = _trial(2, 1.0, APART[0])                       # T2-01
+    linked = _trial(2, 1.0, APART[2], parent="T1-01")     # T2-02, a refinement of the strong trial
+    graph = _graph_of([strong, twin, linked], settings=TrialGraphConfig(gamma=0.0))
+    assert graph.gamma == 0.0
+    assert all(n.propagated == n.own for n in graph.nodes)
+    assert _order(graph.pick_order()) == ["T1-01", "T2-01", "T2-02"]
+
+
+def test_the_relation_weights_decide_how_much_a_relation_lifts():
+    strong, twin, linked = _trial(1, 6.0, APART[1]), _trial(2, 1.0, APART[0]), _trial(2, 1.0, APART[2], parent="T1-01")
+    matrix = [[1.0, 0.9, 0.0], [0.9, 1.0, 0.0], [0.0, 0.0, 1.0]]   # the twin correlates with the strong trial
+    # Generation alone lifts the child; correlation alone the twin.
+    by_generation = TrialGraphConfig(weights={"generation": 1.0, "structure": 0.0, "correlation": 0.0})
+    by_correlation = TrialGraphConfig(weights={"generation": 0.0, "structure": 0.0, "correlation": 1.0})
+    assert _order(_rank([strong, twin, linked], matrix=matrix, settings=by_generation)) == ["T1-01", "T2-02", "T2-01"]
+    assert _order(_rank([strong, twin, linked], matrix=matrix, settings=by_correlation)) == ["T1-01", "T2-01", "T2-02"]
+
+
+def test_a_correlation_below_the_threshold_makes_no_edge():
+    strong, twin, other = _trial(1, 6.0, APART[1]), _trial(2, 1.0, APART[0]), _trial(2, 1.0, APART[2])
+    matrix = [[1.0, 0.3, 0.0], [0.3, 1.0, 0.0], [0.0, 0.0, 1.0]]
+    lifted = {p.trial: p for p in _rank([strong, twin, other], matrix=matrix)}
+    assert lifted["T2-01"].quality > lifted["T2-02"].quality
+    apart = {p.trial: p for p in _rank([strong, twin, other], matrix=matrix, settings=TrialGraphConfig(min_correlation=0.5))}
+    assert apart["T2-01"].quality == apart["T2-02"].quality
+
+
+def test_the_expansion_cap_is_the_settings():
+    records = [_trial(1, 9.0, APART[0]), _trial(1, 1.0, APART[1])]
+    lineage = {"T1-01": Lineage(attempts=2, refinements=2)}
+    assert _order(_rank(records, lineage)) == ["T1-01", "T1-02"]
+    graph = _graph_of(records, lineage, settings=TrialGraphConfig(max_expansions=2))
+    assert graph.node("T1-01").reason == "expansion_cap" and _order(graph.pick_order()) == ["T1-02"]
+
+
+def test_novelty_is_measured_against_as_many_accepted_factors_as_the_settings_say():
+    near = _trial(1, 2.0, APART[0], status="accepted")
+    far = _trial(1, 2.0, APART[1], status="accepted")
+    trial = _trial(2, 2.0, APART[2])
+    matrix = [[1.0, 0.0, 0.6], [0.0, 1.0, 0.0], [0.6, 0.0, 1.0]]
+    # The correlation distance is 0.4 to the near factor and 1 to the far one; no structure is shared.
+    assert math.isclose(_graph_of([near, far, trial], matrix=matrix).node("T2-01").own.novelty, (0.7 + 1.0) / 2)
+    nearest = _graph_of([near, far, trial], matrix=matrix, settings=TrialGraphConfig(nearest_accepted=1))
+    assert math.isclose(nearest.node("T2-01").own.novelty, 0.7)

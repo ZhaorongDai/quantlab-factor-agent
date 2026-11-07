@@ -38,7 +38,7 @@ def _run() -> list[TrialRecord]:
 
 
 def test_a_parent_counts_its_direct_children_by_action_and_outcome():
-    lineage = lineages(named(_run()), AdmissionConfig())["T1-01"]
+    lineage = lineages(named(_run()), AdmissionConfig(), 3)["T1-01"]
     assert (lineage.attempts, lineage.refinements, lineage.mutations, lineage.unevaluated) == (6, 4, 2, 2)
     assert lineage.accepted == ("T2-03",)
     assert lineage.best_child == "T2-03"
@@ -46,7 +46,7 @@ def test_a_parent_counts_its_direct_children_by_action_and_outcome():
 
 
 def test_the_line_names_the_counts_the_accepted_children_and_the_best_childs_residual_t_against_the_parents():
-    assert lineages(named(_run()), AdmissionConfig())["T1-01"].text() == (
+    assert lineages(named(_run()), AdmissionConfig(), 3)["T1-01"].text() == (
         "lineage: 6 trials built on it (4 refinements, 2 mutations), 2 stopped before evaluation, "
         "1 accepted (T2-03); best evaluated child T2-03, residual t in its direction +5.00 against this trial's +3.50"
     )
@@ -55,18 +55,18 @@ def test_the_line_names_the_counts_the_accepted_children_and_the_best_childs_res
 def test_fertility_is_the_mean_of_the_three_best_outcomes_above_each_childs_own_threshold():
     # T2-03: 5.0 - 3.8172, T2-02 (in its direction): 4.5 - 3.8172, T3-01: 4.0 - 3.8406; T2-04 and the
     # unevaluated children score 0.
-    fertility = lineages(named(_run()), AdmissionConfig())["T1-01"].fertility
+    fertility = lineages(named(_run()), AdmissionConfig(), 3)["T1-01"].fertility
     assert math.isclose(fertility, (1.1828 + 0.6828 + 0.1594) / 3, abs_tol=1e-4)
 
 
 def test_fewer_than_three_children_are_padded_with_zeros():
     trials = named([_trial(1, ic=0.02, t=3.5), _trial(2, action="mutation", parent="T1-01", ic=0.02, t=5.0)])
     # The child is the second evaluated trial: its threshold is 3.3996.
-    assert math.isclose(lineages(trials, AdmissionConfig())["T1-01"].fertility, (5.0 - 3.3996) / 3, abs_tol=1e-4)
+    assert math.isclose(lineages(trials, AdmissionConfig(), 3)["T1-01"].fertility, (5.0 - 3.3996) / 3, abs_tol=1e-4)
 
 
 def test_a_child_only_of_a_grandparent_is_not_counted_and_no_evaluated_child_says_so():
-    lineage = lineages(named(_run()), AdmissionConfig())["T2-03"]
+    lineage = lineages(named(_run()), AdmissionConfig(), 3)["T2-03"]
     assert (lineage.attempts, lineage.unevaluated, lineage.fertility) == (1, 1, 0.0)
     assert lineage.text() == (
         "lineage: 1 trial built on it (1 refinement, 0 mutations), 1 stopped before evaluation, none accepted; "
@@ -75,6 +75,15 @@ def test_a_child_only_of_a_grandparent_is_not_counted_and_no_evaluated_child_say
 
 
 def test_a_trial_nothing_built_on_has_no_fertility():
-    lineage = lineages(named(_run()), AdmissionConfig())["T2-06"]
+    lineage = lineages(named(_run()), AdmissionConfig(), 3)["T2-06"]
     assert (lineage.attempts, lineage.fertility) == (0, 0.0)
     assert lineage.text() == "lineage: no trial has built on it yet"
+
+
+def test_the_fertility_is_the_mean_of_as_many_best_outcomes_as_fertile_children_says():
+    one = lineages(named(_run()), AdmissionConfig(), 1)["T1-01"]
+    assert math.isclose(one.fertility, 1.1828, abs_tol=1e-4)
+    five = lineages(named(_run()), AdmissionConfig(), 5)["T1-01"]
+    assert math.isclose(five.fertility, (1.1828 + 0.6828 + 0.1594) / 5, abs_tol=1e-4)
+    # The line has no fertility: it is the same whatever the count.
+    assert one.text() == five.text() == lineages(named(_run()), AdmissionConfig(), 3)["T1-01"].text()

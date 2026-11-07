@@ -9,7 +9,7 @@ import type { Utility } from './propagation'
 
 const UTILITIES: Utility[] = ['quality', 'fertility', 'novelty']
 const REASONS = { expansion_cap: 'at the expansion cap', max_children: 'at the cap on children' }
-const RELATIONS: Record<string, string> = { generation: 'parent or child', structure: 'shared structure', correlation: 'correlated' }
+const RELATIONS: Record<GraphNode['heaviest'][number]['relation'], string> = { generation: 'parent or child', structure: 'shared structure', correlation: 'correlated' }
 const fmt = (v: number) => v.toFixed(2)
 
 function Rank({ from, to }: { from: number | null; to: number | null }) {
@@ -43,7 +43,7 @@ function Row({ graph, node, utility, open, setOpen, pick }: {
         <div className="heaviest">
           {node.heaviest.map(h => (
             <button key={`${h.trial} ${h.relation}`} onClick={() => pick(h.trial)}>
-              <b className="mono">{h.trial}</b> <span>{RELATIONS[h.relation] ?? h.relation}</span> <span>{fmt(h.weight)}</span>
+              <b className="mono">{h.trial}</b> <span>{RELATIONS[h.relation]}</span> <span>{fmt(h.weight)}</span>
             </button>
           ))}
         </div>

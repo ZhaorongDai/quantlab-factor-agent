@@ -293,6 +293,8 @@ class ContextConfig:
     #: Whether the planner's accepted factors and the proposer's parent block carry each trial's
     #: Lineage (``_lineage``): how the trials built on it did; it needs ``feedback``.
     lineage: bool = False
+    #: The best child outcomes a Lineage's fertility is the mean of, in the prompts and the Trial graph alike.
+    fertile_children: int = 3
 
     def __post_init__(self):
         if self.recent_rounds < 1:
@@ -314,6 +316,75 @@ class ContextConfig:
             raise TypeError(f"context: lineage is {self.lineage!r}; it is true or false")
         if self.lineage and not self.feedback:
             raise ValueError("context: lineage needs feedback, since a Lineage is made of earlier trials")
+        if not _is_count(self.fertile_children):
+            raise ValueError(f"context: fertile_children is {self.fertile_children!r}; it is a count of at least 1")
+
+
+#: The Trial graph's relations, in the order its edges are listed.
+RELATIONS = ("generation", "structure", "correlation")
+
+
+@dataclass(frozen=True)
+class TrialGraphConfig:
+    """The Trial graph's parameters (``_trial_graph``), by default CosmosAlpha's (arXiv:2611.04555, Tables 6 and 7).
+
+    With ``round.picked_parents`` the run snapshot records every value at
+    the first start, and a resume may not change them.
+    """
+
+    #: The share of a utility that is propagated in from the related trials, in [0, 1).
+    gamma: float = 0.75
+    #: The propagation steps at most.
+    iterations: int = 100
+    #: The largest move of a utility at which propagation stops.
+    tolerance: float = 1e-8
+    #: Each relation's share of the propagation, summing to 1: generation (a trial and its parent),
+    #: structure (shared subtrees) and correlation.
+    weights: dict = field(default_factory=lambda: dict.fromkeys(RELATIONS, 1 / 3))
+    #: The smallest Jaccard similarity of two trials' subtrees that makes a structure edge.
+    min_jaccard: float = 0.20
+    #: The structure edges each trial keeps, the strongest.
+    structure_neighbours: int = 30
+    #: The smallest absolute correlation that makes a correlation edge.
+    min_correlation: float = 0.10
+    #: The correlation edges each trial keeps, the strongest.
+    correlation_neighbours: int = 30
+    #: The accepted factors a trial's novelty is measured against, the nearest.
+    nearest_accepted: int = 10
+    #: Trials built on one trial (its Lineage's attempts) at which it is not picked again.
+    max_expansions: int = 5
+
+    def __post_init__(self):
+        for name in ("gamma", "tolerance", "min_jaccard", "min_correlation"):
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise TypeError(f"trial_graph: {name} is {value!r}; it is a number")
+        if not 0 <= self.gamma < 1:
+            raise ValueError(f"trial_graph: gamma is {self.gamma}; it lies in [0, 1)")
+        if not self.tolerance > 0:
+            raise ValueError(f"trial_graph: tolerance is {self.tolerance}; it is above 0")
+        for name in ("min_jaccard", "min_correlation"):
+            if not 0 <= getattr(self, name) <= 1:
+                raise ValueError(f"trial_graph: {name} is {getattr(self, name)}; it lies in [0, 1]")
+        for name in ("iterations", "structure_neighbours", "correlation_neighbours", "nearest_accepted", "max_expansions"):
+            if not _is_count(getattr(self, name)):
+                raise ValueError(f"trial_graph: {name} is {getattr(self, name)!r}; it is a count of at least 1")
+        if not isinstance(self.weights, dict) or set(self.weights) != set(RELATIONS):
+            keys = sorted(self.weights) if isinstance(self.weights, dict) else self.weights
+            raise ValueError(f"trial_graph: weights has {keys!r}; it gives one weight to each of {list(RELATIONS)}")
+        for relation in RELATIONS:
+            weight = self.weights[relation]
+            if isinstance(weight, bool) or not isinstance(weight, (int, float)) or weight < 0:
+                raise ValueError(f"trial_graph: weights.{relation} is {weight!r}; it is a number of at least 0")
+        total = sum(self.weights.values())
+        if abs(total - 1) > 1e-6:
+            raise ValueError(f"trial_graph: weights sum to {total:g}; they sum to 1")
+        object.__setattr__(self, "weights", {relation: float(self.weights[relation]) for relation in RELATIONS})
+
+
+def _is_count(value) -> bool:
+    """Whether ``value`` is an int of at least 1, not a bool."""
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
 
 
 #: The values of ``acceptance.contribution``.
@@ -501,6 +572,7 @@ class CampaignConfig:
     admission: AdmissionConfig = AdmissionConfig()
     round: RoundConfig = RoundConfig()
     context: ContextConfig = ContextConfig()
+    trial_graph: TrialGraphConfig = TrialGraphConfig()
     mechanisms: tuple = DEFAULT_MECHANISMS
     prompts: dict = field(default_factory=dict)
     #: The YAML text ``from_file`` read, which a run keeps for each opening; None for a config made in code.
@@ -629,6 +701,7 @@ class CampaignConfig:
         sections = {
             "evaluator": EvaluatorConfig, "gate": GateConfig,
             "admission": AdmissionConfig, "round": RoundConfig, "context": ContextConfig,
+            "trial_graph": TrialGraphConfig,
         }
         unknown = set(raw) - {
             "run_dir", "segments", "data", "scoring", "fields", "operators", "operator_modules", "reference", "known",
