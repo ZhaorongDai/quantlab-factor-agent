@@ -48,6 +48,15 @@ layout; there are no compatibility shims or config migrations.
   relation's edges with their weights, but no ranks; `factor_agent._trial_graph.read`
   reads it back and its `pick_order()` gives the round's order again. A resume that plans
   the round again overwrites it; a run without Picked parents writes none.
+- The web panel's trials page shows the run's Lineage: a round stepper with any round's
+  plan (its slots with their action, parent and outcome, which parents the code picked, the
+  quota and the plan's issues), the round in progress included, and a Lineage graph of every
+  trial in a column of its round, its action as the node's shape, its outcome as the colour,
+  an arrow from each parent (solid when the code picked it, dashed when the planner chose
+  it) and a ring per round a trial was a Picked parent. The side reader gains the trial's
+  Lineage and a close button, and a trial selected on the graph or the admission map is
+  marked on both. `GET /api/run/round` reads one round's plan, and a run's trials carry
+  their Lineage, the rounds they were picked in and whether their parent was picked.
 
 ### Changed
 
