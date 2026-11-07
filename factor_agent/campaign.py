@@ -68,8 +68,8 @@ Lineage (``_lineage``) once, and the planner's accepted factors and the
 proposer's parent block carry it; ``round.max_children`` takes every trial
 built on that often off the trials a direction may build on. With
 ``round.picked_parents`` (which needs the tried trials) each round, after
-the quota, ranks the Picked parents (``_picked_parents``) and gives each in
-order a slot of its mechanism type while that type has one unclaimed
+the quota, builds the Trial graph (``_trial_graph``) and gives each trial in
+its pick order a slot of its mechanism type while that type has one unclaimed
 (``_claim``); the planner writes those slots as refinements or mutations of
 their parents, and the plan event records them. With
 ``context.send_back_repeats`` too, before a round is scored, a new
@@ -112,7 +112,7 @@ from typing import NamedTuple
 
 from quantlab.core.store_uses import READS, walk_store_uses
 
-from factor_agent import _admission, _feedback, _lineage, _picked_parents, _scheduler
+from factor_agent import _admission, _feedback, _lineage, _scheduler, _trial_graph
 from factor_agent._lineage import Lineage
 from factor_agent.config import ROLES, AdmissionConfig, CampaignConfig
 from factor_agent.evaluator import CompileFailure, DailyIC, Evaluator, Metrics
@@ -359,7 +359,7 @@ class Campaign:
                 } if config.context.feedback else {}
                 eligible = [trial for trial in parents if cap is None or built[trial].attempts < cap]
                 picked = _claim(
-                    k, quota, dict(trials), eligible, *evaluator.tried(), built, vocabulary.classes,
+                    k, quota, dict(trials), _trial_graph.build(trials, *evaluator.tried(), built, vocabulary.classes, cap),
                 ) if k else []
                 directions, issues = researcher.plan(
                     number, quota, context, eligible if config.context.feedback else None,
@@ -878,26 +878,21 @@ class _ParentSettings(NamedTuple):
         )
 
 
-def _claim(
-    k: int, quota: dict[str, int], trials: dict[str, TrialRecord], eligible: list[str], names: list[str], matrix,
-    lineage: dict[str, Lineage], classes,
-) -> list[dict]:
-    """The round's picked slots: the Picked parents in pick order, each given a slot of its mechanism type.
+def _claim(k: int, quota: dict[str, int], trials: dict[str, TrialRecord], graph: _trial_graph.TrialGraph) -> list[dict]:
+    """The round's picked slots: the Trial graph's pick order, each trial given a slot of its mechanism type.
 
-    A parent takes one slot of its type (the type of the slot its trial
-    filled) while ``quota`` leaves that type one unclaimed, until ``k`` are
-    claimed; only the trials in ``eligible``, those a direction may build
-    on, are taken. Each is the ``PickedParent`` as a dict with the type.
+    A trial takes one slot of its type (the type of the slot it filled)
+    while ``quota`` leaves that type one unclaimed, until ``k`` are claimed.
+    Each is the ``Pick`` as a dict with the type.
     """
-    ranked = _picked_parents.picked_parents(list(trials.items()), names, matrix, lineage, classes, len(trials))
-    claimed, left, eligible = [], dict(quota), set(eligible)
-    for parent in ranked:
-        record = trials[parent.trial]
+    claimed, left = [], dict(quota)
+    for pick in graph.pick_order():
+        record = trials[pick.trial]
         kind = (record.direction or record.candidate).get("mechanism_type")
-        if parent.trial in eligible and left.get(kind, 0) > 0:
+        if left.get(kind, 0) > 0:
             left[kind] -= 1
-            claimed.append({"trial": parent.trial, "mechanism_type": kind, **{
-                name: getattr(parent, name) for name in ("quality", "fertility", "novelty", "front")
+            claimed.append({"trial": pick.trial, "mechanism_type": kind, **{
+                name: getattr(pick, name) for name in ("quality", "fertility", "novelty", "front")
             }})
             if len(claimed) == k:
                 break

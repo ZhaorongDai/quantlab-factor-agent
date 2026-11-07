@@ -1,7 +1,7 @@
 """Picked parents in a round: with ``round.picked_parents`` the code chooses some of the slots' parents.
 
-After the quota, the campaign ranks the evaluated trials as Picked parents
-(``_picked_parents``) and gives each, in pick order, a slot of its mechanism
+After the quota, the campaign builds the Trial graph of the evaluated
+trials (``_trial_graph``) and gives each, in pick order, a slot of its mechanism
 type while that type has one unclaimed, up to ``round.picked_parents``. The
 planner is told the picked slots and writes their action and idea; a picked
 slot it leaves out is planned as a refinement of its parent, with an issue.
