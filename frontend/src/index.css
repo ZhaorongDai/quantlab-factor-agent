@@ -154,10 +154,11 @@ figure.lineage > svg { width: 100%; height: auto; display: block }
 .lineage .arrow polygon { fill: currentColor }
 .lineage .arrow.dim { opacity: .15 }
 .lineage .arrow.now line { stroke-width: 2.2 }
-.pick-ring { fill: none; stroke: var(--gold); stroke-width: 1.3 }
+.pick-ring { fill: none; stroke: var(--gold); stroke-width: 1 }
 .lineage .picks { cursor: pointer }
 .lineage .picks.dim { opacity: .3 }
-.lineage .pick-now { fill: none; stroke: var(--acc); stroke-width: 2.6 }
+.lineage .pick-now { fill: none; stroke: var(--acc); stroke-width: 1.6 }
+.lineage .ring-hit { fill: none; stroke: transparent; stroke-width: 2.5; pointer-events: stroke }
 .lineage-reader { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 8px 0; padding-bottom: 6px }
 .lineage-reader .counts { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; color: var(--mut) }
 .lineage-reader .counts b { color: var(--fg) }

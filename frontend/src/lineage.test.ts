@@ -1,7 +1,7 @@
 // The Lineage graph's layout and its nodes' kin, run with `npm test`.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { family, idOf, keyOf, layout, steppedRounds } from './lineage.ts'
+import { family, idOf, keyOf, layout, rings, steppedRounds } from './lineage.ts'
 
 const node = (id: string, parent = '') => ({ id, round: Number(id.slice(1, id.indexOf('-'))), parent })
 
@@ -42,4 +42,16 @@ test('the stepper steps through the written rounds and the round in progress onc
   assert.deepEqual(steppedRounds(3, { round: 4, planned: false }), [1, 2, 3])
   assert.deepEqual(steppedRounds(3, { round: 4, planned: true }), [1, 2, 3, 4])
   assert.deepEqual(steppedRounds(0, null), [])
+})
+
+test('a Picked parent has one ring per round it was picked in, the stepped round marked', () => {
+  const found = rings([2, 4, 5, 7, 9], 5)
+  assert.deepEqual(found.map(r => r.round), [2, 4, 5, 7, 9])
+  assert.deepEqual(found.map(r => r.now), [false, false, true, false, false])
+})
+
+test('the rings are concentric from the inner radius, as far apart as fits inside the outer one', () => {
+  assert.deepEqual(rings([1, 2, 3], 1).map(r => r.r), [8, 10.5, 13])
+  assert.deepEqual(rings([1, 2, 3, 4, 5], 1).map(r => r.r), [8, 9.5, 11, 12.5, 14])
+  assert.deepEqual(rings([3], 1).map(r => r.r), [8])
 })

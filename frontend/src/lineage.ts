@@ -1,5 +1,5 @@
-// The Lineage graph's pure parts, run with `npm test`: trial ids, the column layout, a trial's family and the rounds
-// the stepper steps through.
+// The Lineage graph's pure parts, run with `npm test`: trial ids, the column layout, a trial's family, a Picked
+// parent's rings and the rounds the stepper steps through.
 
 // A trial as the graph lays it out: its id (T<round>-<slot from 1, two digits>), its round and its parent's id.
 export type LineageNode = { id: string; round: number; parent: string }
@@ -46,4 +46,11 @@ export function family(nodes: LineageNode[], id: string | null): Set<string> {
 export function steppedRounds(written: number, running: { round: number; planned: boolean } | null): number[] {
   const rounds = Array.from({ length: written }, (_, i) => i + 1)
   return running?.planned ? [...rounds, running.round] : rounds
+}
+
+// A Picked parent's rings, one per round of `pickedIn` in its order, concentric from `inner`, `gap` apart or closer so
+// that the last stays within `outer`; `now` marks the ring of the stepped `round`.
+export function rings(pickedIn: number[], round: number | null, inner = 8, outer = 14, gap = 2.5) {
+  const step = pickedIn.length > 1 ? Math.min(gap, (outer - inner) / (pickedIn.length - 1)) : 0
+  return pickedIn.map((r, i) => ({ round: r, r: inner + i * step, now: r === round }))
 }

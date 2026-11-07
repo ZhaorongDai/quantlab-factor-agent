@@ -11,21 +11,26 @@ const node = (trial: string, own: number, neighbourhood: number, propagated: num
 const close = (found: number[], expected: number[]) =>
   assert.ok(found.length === expected.length && found.every((v, i) => Math.abs(v - expected[i]) < 1e-9), `${found} ≠ ${expected}`)
 
-test('the result sits the gamma fraction of the way from the own mark to the neighbours mark', () => {
+test('the result of a trial propagated by gamma sits the gamma fraction of the way from its own mark to its neighbours mark', () => {
   for (const gamma of [0.75, 0.4]) {
-    const row = axisRow(node('T1-01', -1, 3, -1 + gamma * 4), [], 'quality', gamma, 200)
+    const row = axisRow(node('T1-01', -1, 3, -1 + gamma * 4), [], 'quality', 200)
     assert.ok(Math.abs((row.result - row.own) / (row.neighbours - row.own) - gamma) < 1e-12)
   }
 })
 
+test('the result sits at the value after propagation', () => {
+  const row = axisRow(node('T1-01', 0, 4, 1), [], 'quality', 104, 2)
+  close([row.own, row.result, row.neighbours], [2, 27, 102])
+})
+
 test('an axis spans every mark and tick, from the first pixel to the last', () => {
   const others = [node('T1-02', 0, 0, 5), node('T1-03', 0, 0, -2)]
-  const row = axisRow(node('T1-01', 1, 2, 1.5), others, 'quality', 0.5, 110, 5)
+  const row = axisRow(node('T1-01', 1, 2, 1.5), others, 'quality', 110, 5)
   close([row.own, row.neighbours, row.result, ...row.ticks], [5 + 300 / 7, 5 + 400 / 7, 5 + 350 / 7, 105, 5])
 })
 
 test('an axis whose marks all share one value puts them in its middle', () => {
-  const row = axisRow(node('T1-01', 2, 2, 2), [node('T1-02', 0, 0, 2)], 'quality', 0.75, 100, 0)
+  const row = axisRow(node('T1-01', 2, 2, 2), [node('T1-02', 0, 0, 2)], 'quality', 100, 0)
   assert.deepEqual([row.own, row.neighbours, row.result, ...row.ticks], [50, 50, 50, 50])
 })
 

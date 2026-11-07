@@ -6,12 +6,11 @@ export type Utility = keyof Values
 export type AxisNode = { trial: string; own: Values; neighbourhood: Values; propagated: Values; rank_propagated: number | null }
 
 // Where a trial's marks sit on the axis of `utility`, `width` wide with `pad` at each end: its own value, its
-// neighbours' average, its result after propagation and, as ticks, the results of `others`. The result lies the
-// `gamma` fraction of the way from the own value to the neighbours' (what propagation computed). The axis spans every
-// mark and tick; one whose values are all the same puts them in its middle.
-export function axisRow(node: AxisNode, others: AxisNode[], utility: Utility, gamma: number, width: number, pad = 10) {
-  const own = node.own[utility], neighbours = node.neighbourhood[utility]
-  const result = own + gamma * (neighbours - own)
+// neighbours' average, its result after propagation and, as ticks, the results of `others`. Propagation puts the
+// result the gamma fraction of the way from the own value to the neighbours'. The axis spans every mark and tick; one
+// whose values are all the same puts them in its middle.
+export function axisRow(node: AxisNode, others: AxisNode[], utility: Utility, width: number, pad = 10) {
+  const own = node.own[utility], neighbours = node.neighbourhood[utility], result = node.propagated[utility]
   const ticks = others.map(n => n.propagated[utility])
   const values = [own, neighbours, result, ...ticks]
   const lo = Math.min(...values), hi = Math.max(...values)

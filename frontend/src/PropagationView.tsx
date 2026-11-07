@@ -3,13 +3,13 @@
 // fraction of the way between them, among the other candidates' results; beside it the rank ladder with the pick line.
 // With nothing selected, the round's Picked parents with their rank before and after propagation.
 import { useState } from 'react'
-import type { GraphNode, RoundGraph } from './api'
+import type { NodeView, Relation, RoundGraph } from './api'
 import { axisRow, ladder, pickLine } from './propagation'
 import type { Utility } from './propagation'
 
 const UTILITIES: Utility[] = ['quality', 'fertility', 'novelty']
 const REASONS = { expansion_cap: 'at the expansion cap', max_children: 'at the cap on children' }
-const RELATIONS: Record<GraphNode['heaviest'][number]['relation'], string> = { generation: 'parent or child', structure: 'shared structure', correlation: 'correlated' }
+const RELATIONS: Record<Relation, string> = { generation: 'parent or child', structure: 'shared structure', correlation: 'correlated' }
 const fmt = (v: number) => v.toFixed(2)
 
 function Rank({ from, to }: { from: number | null; to: number | null }) {
@@ -18,12 +18,12 @@ function Rank({ from, to }: { from: number | null; to: number | null }) {
 }
 
 function Row({ graph, node, utility, open, setOpen, pick }: {
-  graph: RoundGraph; node: GraphNode; utility: Utility; open: boolean; setOpen: (open: boolean) => void
+  graph: RoundGraph; node: NodeView; utility: Utility; open: boolean; setOpen: (open: boolean) => void
   pick: (trial: string) => void
 }) {
   const W = 420
   const others = graph.nodes.filter(n => n.eligible && n.trial !== node.trial)
-  const x = axisRow(node, others, utility, graph.gamma, W)
+  const x = axisRow(node, others, utility, W)
   return (
     <div className="mix">
       <span>{utility}</span>
@@ -42,8 +42,8 @@ function Row({ graph, node, utility, open, setOpen, pick }: {
       {open && node.heaviest.length > 0 && (
         <div className="heaviest">
           {node.heaviest.map(h => (
-            <button key={`${h.trial} ${h.relation}`} onClick={() => pick(h.trial)}>
-              <b className="mono">{h.trial}</b> <span>{RELATIONS[h.relation]}</span> <span>{fmt(h.weight)}</span>
+            <button key={h.trial} onClick={() => pick(h.trial)}>
+              <b className="mono">{h.trial}</b> <span>{h.relations.map(r => RELATIONS[r]).join(', ')}</span> <span>{fmt(h.weight)}</span>
             </button>
           ))}
         </div>
@@ -66,7 +66,7 @@ function Key() {
 
 // The ranks after propagation down to the pick line and past it, each with its trial; the trial's rank before
 // propagation on the left joined to its rank after on the right, a rank past the ladder as its number below it.
-function Ladder({ graph, node, pick }: { graph: RoundGraph; node: GraphNode; pick: (trial: string) => void }) {
+function Ladder({ graph, node, pick }: { graph: RoundGraph; node: NodeView; pick: (trial: string) => void }) {
   const line = pickLine(graph.nodes, graph.picked)
   const at = ladder(node.rank_own, node.rank_propagated, line)
   const byRank = new Map(graph.nodes.filter(n => n.rank_propagated != null).map(n => [n.rank_propagated!, n.trial]))

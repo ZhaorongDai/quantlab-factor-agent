@@ -3,8 +3,8 @@
 // ring per round a trial was a Picked parent) and the side reader's Lineage of a trial.
 import { useEffect, useMemo, useState } from 'react'
 import * as api from './api'
-import type { PendingTrial, Placed, RoundPlan, Run, Trial } from './api'
-import { family, idOf, keyOf, layout, steppedRounds } from './lineage'
+import type { PendingTrial, Placed, PlanSlot, RoundPlan, Run, Trial } from './api'
+import { family, idOf, keyOf, layout, rings, steppedRounds } from './lineage'
 import type { LineageNode } from './lineage'
 import type { Picked } from './Round'
 
@@ -23,12 +23,12 @@ export function useStepper(run: Run) {
 export type Stepper = ReturnType<typeof useStepper>
 
 // What the graph shows of a trial, written or pending.
-type GraphNode = LineageNode & {
+type DrawnTrial = LineageNode & {
   action: string; outcome: string; parentPicked: boolean; pickedIn: number[]; open: Picked; title: string
 }
 
-function nodes(run: Run): GraphNode[] {
-  const written: GraphNode[] = run.trials.map(t => {
+function nodes(run: Run): DrawnTrial[] {
+  const written: DrawnTrial[] = run.trials.map(t => {
     const action = t.direction?.action || 'new'
     return {
       id: idOf(t.round, t.slot), round: t.round, parent: t.direction?.parent ?? '', action, outcome: t.status,
@@ -82,14 +82,14 @@ export function RoundPlanView({ run, round, plan, error, picked, pick }: {
   if (!plan) return <p className="muted small">Reading round {round}'s plan…</p>
   const pending = round > written
   const quota = Object.entries(plan.quota).filter(([, n]) => n > 0)
-  const on = (s: { slot: number }) => picked != null && (pending
-    ? 'slot' in picked && picked.slot === s.slot : 'trial' in picked && picked.trial === `${round}.${s.slot}`)
+  const on = (s: PlanSlot) => picked != null && (pending
+    ? 'slot' in picked && picked.slot === s.slot : 'trial' in picked && picked.trial === keyOf(s.trial))
   return (
     <section className="plan">
       <div className="slots">
         {plan.slots.map(s => (
           <button key={s.slot} className={`slot o-${s.outcome ?? 'pending'}${s.picked ? ' picked' : ''}${on(s) ? ' on' : ''}`}
-                  title={s.direction} onClick={() => pick(pending ? { slot: s.slot } : { trial: `${round}.${s.slot}` })}>
+                  title={s.direction} onClick={() => pick(pending ? { slot: s.slot } : { trial: keyOf(s.trial)! })}>
             <span className="muted">{s.mechanism_type}</span>
             <span>{s.action}{s.parent && <> of <span className="mono">{s.parent}</span></>}</span>
             {s.picked && <span className="tag">picked parent</span>}
@@ -140,8 +140,8 @@ function Key({ picks }: { picks: boolean }) {
 }
 
 // Every trial of the run in a column of its round. With a trial selected its family is lit; otherwise the stepped
-// round's trials and the parents they built on are. Clicking a ring of the stepped round's picks selects its trial and
-// calls `onPicks`, which opens the propagation view.
+// round's trials and the parents they built on are. Clicking a Picked parent's ring of a round steps to that round,
+// selects the trial and calls `onPicks`, which opens the propagation view.
 export function LineageGraph({ run, stepper, selected, pick, onPicks }: {
   run: Run; stepper: Stepper; selected: Picked; pick: (p: Picked) => void; onPicks?: () => void
 }) {
@@ -162,7 +162,7 @@ export function LineageGraph({ run, stepper, selected, pick, onPicks }: {
   const inRound = new Set(all.filter(n => n.round === round).map(n => n.id))
   const parents = new Set(all.filter(n => inRound.has(n.id)).map(n => n.parent))
   const lit = (id: string) => (selectedId ? kin.has(id) : inRound.has(id) || parents.has(id))
-  const pickedNow = (n: GraphNode) => n.pickedIn.includes(round)
+  const pickedNow = (n: DrawnTrial) => n.pickedIn.includes(round)
   const byId = new Map(all.map(n => [n.id, n]))
   return (
     <figure className="lineage">
@@ -188,11 +188,14 @@ export function LineageGraph({ run, stepper, selected, pick, onPicks }: {
           const [x, y] = xy(n.id) ?? [0, 0]
           if (!at.has(n.id)) return null
           return (
-            <g key={`rings ${n.id}`} className={`picks${lit(n.id) || pickedNow(n) ? '' : ' dim'}`}
-               onClick={() => { pick(n.open); if (pickedNow(n)) onPicks?.() }}>
-              {n.pickedIn.slice(0, 3).map((r, i) => <circle key={r} cx={x} cy={y} r={8 + i * 2.6} className="pick-ring" />)}
-              {pickedNow(n) && <circle cx={x} cy={y} r={8} className="pick-now" />}
-              <title>{`${n.id}: picked parent in round${n.pickedIn.length > 1 ? 's' : ''} ${n.pickedIn.join(', ')}`}</title>
+            <g key={`rings ${n.id}`} className={`picks${lit(n.id) || pickedNow(n) ? '' : ' dim'}`}>
+              {rings(n.pickedIn, round).map(ring => (
+                <g key={ring.round} onClick={() => { stepper.go(ring.round); pick(n.open); onPicks?.() }}>
+                  <circle cx={x} cy={y} r={ring.r} className={ring.now ? 'pick-now' : 'pick-ring'} />
+                  <circle cx={x} cy={y} r={ring.r} className="ring-hit" />
+                  <title>{`${n.id}: picked parent in round ${ring.round}`}</title>
+                </g>
+              ))}
             </g>
           )
         })}

@@ -72,14 +72,16 @@ layout; there are no compatibility shims or config migrations.
   marked on both. `GET /api/run/round` reads one round's plan, and a run's trials carry
   their Lineage, the rounds they were picked in and whether their parent was picked.
 - The web panel's trials page shows why the Trial graph picked a round's parents: "why
-  these parents" by the stepper, or a ring of the round's picks, opens the propagation
-  view, which for the selected trial draws per utility its own value, its neighbours'
-  average and its value after propagation, γ of the way between them, among the other
-  candidates' values, lists its heaviest neighbours on hover, and beside it a rank ladder
+  these parents" by the stepper, or a Picked parent's ring of any round, which steps to that
+  round, opens the propagation view, which for the selected trial draws per utility its own
+  value, its neighbours' average and its value after propagation, γ of the way between
+  them, among the other candidates' values, lists its heaviest neighbours on hover, each
+  once with its total weight and relations, and beside it a rank ladder
   with the pick line and the trial's rank before and after propagation; with nothing
   selected it lists the round's Picked parents with their rank change. `GET
   /api/run/round` returns the round's Trial graph from its file, each node with its
-  utilities, both ranks, eligibility and heaviest neighbours, and none without the file.
+  utilities, both ranks, eligibility and heaviest neighbours, and none without the file;
+  each of the round's slots carries its trial's id.
 
 ### Changed
 

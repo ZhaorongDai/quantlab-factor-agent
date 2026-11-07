@@ -60,9 +60,10 @@ export type TrialLineage = {
   fertility: number
 }
 
-// One slot of a round's plan; outcome is its trial's status, null while it is pending.
+// One slot of a round's plan and its trial's id; outcome is its trial's status, null while it is pending.
 export type PlanSlot = {
   slot: number
+  trial: string
   mechanism_type: string
   action: string
   parent: string
@@ -72,10 +73,12 @@ export type PlanSlot = {
 }
 
 export type Utilities = { quality: number; fertility: number; novelty: number }
+export type Relation = 'generation' | 'structure' | 'correlation'
 
 // A trial in a round's Trial graph: its utilities, its ranks in the pick order on its own and on its propagated
-// utilities (null when it may not be picked, reason saying why) and its heaviest edges to other trials.
-export type GraphNode = {
+// utilities (null when it may not be picked, reason saying why) and its heaviest neighbours, each with the total weight
+// of its edges to it and the relations joining them.
+export type NodeView = {
   trial: string
   own: Utilities
   propagated: Utilities
@@ -84,11 +87,11 @@ export type GraphNode = {
   rank_propagated: number | null
   eligible: boolean
   reason: 'expansion_cap' | 'max_children' | null
-  heaviest: { trial: string; relation: 'generation' | 'structure' | 'correlation'; weight: number }[]
+  heaviest: { trial: string; weight: number; relations: Relation[] }[]
 }
 
 // A round's Trial graph: gamma, the round's Picked parents in pick order and every node.
-export type RoundGraph = { gamma: number; picked: string[]; nodes: GraphNode[] }
+export type RoundGraph = { gamma: number; picked: string[]; nodes: NodeView[] }
 
 // One round's plan; quota and issues are empty for a run whose events do not hold it, graph null for a round whose
 // Trial graph the run directory does not hold.
