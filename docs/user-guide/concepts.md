@@ -1,7 +1,7 @@
 # Concepts
 
-The vocabulary the rest of the user guide assumes: the research loop and its roles, the
-factor sets a candidate is compared with, intraday families, the segments, and what makes a
+The vocabulary the rest of the user guide assumes: the research loop and its roles, how a
+trial builds on earlier ones, the factor sets a candidate is compared with, intraday families, the segments, and what makes a
 factor accepted.
 
 ## Mechanism first
@@ -38,6 +38,24 @@ Each slot's candidate becomes a **trial** when its round is written to the ledge
 its final status: accepted, rejected or failed. Until then it is a **pending trial**: what
 is known so far of the slot in the round still running, its research direction, its
 latest version and the Gate's and the reviewer's outcomes until now.
+
+## Building on earlier trials
+
+A research direction is either **new** or builds on an earlier evaluated trial, its
+**parent**, accepted or refused, as a **refinement** (the parent's mechanism measured
+another way) or a **mutation** (another channel the parent's result points to). The trials whose direction names a trial as
+their parent are its children, and its **Lineage** tells how they did: how many were tried,
+how many stopped before evaluation, which were accepted, and how far the best of them got
+against the parent itself. With `context.lineage` the planner and the proposer read it.
+
+The planner chooses most parents. With `round.picked_parents`, the code chooses the parents
+of a few slots each round, the **Picked parents**. It judges every evaluated trial by its
+quality, its Lineage and its distance from the accepted factors, and lets each trial share
+those scores with the trials related to it, so a trial whose relatives did well rises with
+them. The trials and their relations are the **Trial graph**: the evaluated trials of the
+earlier rounds, joined where one was built on the other, where their code shares structure
+and where their factors rank the stocks alike. The `trial_graph` settings shape it. See
+[memory and context](campaign.md#memory-and-context).
 
 ## Factor sets
 

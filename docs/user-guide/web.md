@@ -181,7 +181,48 @@ pasted block never reopens it. The page runs none of these calls.
 A bar at the top counts the run's rounds, trials, evaluated trials (those the Evaluator
 scored), accepted and failed trials.
 
-Below it, the admission map places every evaluated trial by two facts admission judges
+Below it, a round stepper shows one round's plan at a time, the latest by default; previous
+and next step through the written rounds and the round in progress once it is planned.
+Each slot of the plan shows its mechanism type and its action (new, refinement or
+mutation) with the trial it builds on, its trial's outcome as the colour of its lower edge
+(grey while pending), and "picked parent" with a blue outline when the code picked that
+parent (see `round.picked_parents` in {doc}`campaign`) rather than the planner. Under the
+slots come the round's quota by mechanism type and any issues the planner's directions
+raised. Click a slot to read its trial, or its pending trial in the round in progress.
+
+The Lineage graph draws every trial of the run in a column of its round, the round in
+progress included: its action as the node's shape (circle new, square refinement, diamond
+mutation, as the key above it says), its outcome as the colour, hollow when it stopped
+before evaluation and dashed while pending, and an arrow from each parent to each child,
+solid when the code picked the parent and dashed when the planner chose it. A trial the
+code ever picked as a parent wears a thin ring per round it was picked in, the innermost
+for the first (hover one for its round); the ring of the stepped round is blue, the others
+gold, and the stepped round's Picked parents' arrows into that round are drawn bold. With nothing selected, the stepped round's trials
+and the parents they built on stand out; with a trial selected, its ancestors and every
+trial built on it do. Click a round's number to step to it. A run without Picked parents,
+or written before campaigns recorded plans, shows the graph without rings, and a run
+without an events file shows no quota or issues.
+
+A round that picked its parents on the Trial graph (see `round.picked_parents` in
+{doc}`campaign`) shows "why these parents" by the stepper; it opens the propagation view
+under the graph and the map. A click on a Picked parent's ring steps to that ring's round,
+selects the trial and opens the round's view on it.
+With no trial selected it lists the round's Picked parents, each with its rank before and
+after propagation; click one to select it. For the selected trial it draws one axis per
+utility (quality, fertility, novelty): its own value (hollow dot), its neighbours' average
+(dot), its value after propagation (bar), which lies the propagation's γ of the way from
+the first to the second, and faint ticks for the other candidates' values after
+propagation. Hover the neighbours' dot to list the neighbours that weigh most in that
+average, each once with its total weight and the relations joining it (parent or child,
+shared structure, correlated); click one to select it. Beside the axes, the rank ladder lists the round's ranks after propagation
+with their trials, a dashed pick line under the last Picked parent, and joins the trial's
+rank before propagation to its rank after; a rank past the ladder is written below it. A
+trial that could not be picked says why (at the expansion cap, or at the cap on children)
+in place of the ladder. "close" closes the view; the ranks are the campaign's own pick
+order, read again from the round's `trial_graph/round_NN.json`, so a run made before
+graph files, or without Picked parents, has no view.
+
+Beside it, the admission map places every evaluated trial by two facts admission judges
 (see {doc}`evaluation`): across, its largest absolute correlation with an existing factor
 (the nearest reference or accepted factor, or the nearest known one); up, its partial
 IC's Newey-West t in the trial's direction. A dashed upright line marks the correlation
@@ -200,9 +241,15 @@ comes last. Trials refused for the same reason, apart from the numbers, reply or
 reason quotes, are one row with their count and rounds, so a round lost to one problem is
 one line; click the row to list its trials.
 
-Click a point or a trial to read it in the side panel: its round, mechanism type and
-research direction, the hypothesis, description and code of its final version, the
-reasons it was refused, the versions refused before it with their reasons and hints, an
+Click a point, a node of the Lineage graph or a trial to read it in the side panel; the
+trial is marked on the graph and on the map alike, and "close" clears the selection and
+gives the width back to the charts. The panel shows its round, mechanism type and
+research direction, its Lineage (the trial it builds on, as a link, and whether the code
+or the planner chose it; the rounds it was a Picked parent in; how many trials were built
+on it, refinements and mutations, how many stopped before evaluation and were accepted,
+its fertility (over the run's `context.fertile_children`), its own partial-IC t in its direction against its best child's, and each
+child with its action and outcome), the hypothesis, description and code of its final
+version, the reasons it was refused, the versions refused before it with their reasons and hints, an
 `intraday` tag when its graph holds a session aggregation (a trial refused before the Gate
 built its graph has none, and is never tagged), and, for an evaluated trial, its statistics in its direction (hover one for the raw value) with
 its round's threshold, nearest factors and coverage. Trials that arrived since the page
@@ -218,7 +265,7 @@ An evaluated trial, like an accepted factor's write-up, shows:
 
 ### The round in progress
 
-While the campaign runs, the round in progress sits between the bar and the map, as a
+While the campaign runs, the round in progress sits between the bar and the stepper, as a
 timeline of its LLM calls in one lane per role (planner, proposer, reviewer) and a lane
 for the evaluation, from the end of the round before to now. A call still waiting for its
 reply is drawn open; a call that failed is marked; calls asked side by side, as proposal

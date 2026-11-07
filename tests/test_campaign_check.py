@@ -309,3 +309,10 @@ def test_a_damaged_snapshot_is_a_problem_of_the_run_snapshot_not_a_traceback(res
     report = _check(resumed)
     [problem] = report.problems
     assert problem.startswith(f"run snapshot: {manifest} cannot be read (") and problem.endswith("the run cannot resume")
+
+
+def test_an_invalid_trial_graph_value_is_a_problem_of_the_config(tmp_path, market, capsys):
+    path = _config(tmp_path, market, trial_graph={"gamma": 1.0})
+    assert main(["check", str(path)]) == 1
+    out = capsys.readouterr().out
+    assert out.startswith("problem  config\n") and "trial_graph: gamma is 1.0" in out

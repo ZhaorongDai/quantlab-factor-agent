@@ -1,10 +1,10 @@
 :root {
   --bg: #fbfbfa; --fg: #1d1d1b; --mut: #7a7a74; --line: #e4e3de; --card: #fff;
-  --good: #1f8a4c; --bad: #c2410c; --fail: #9ca3af; --acc: #2557d6;
+  --good: #1f8a4c; --bad: #c2410c; --fail: #9ca3af; --acc: #2557d6; --gold: #b7791f;
   font: 14px/1.45 ui-sans-serif, system-ui, sans-serif; color-scheme: light dark;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #151514; --fg: #e8e7e2; --mut: #8f8e88; --line: #2c2c2a; --card: #1d1d1c; --acc: #7aa2ff }
+  :root { --bg: #151514; --fg: #e8e7e2; --mut: #8f8e88; --line: #2c2c2a; --card: #1d1d1c; --acc: #7aa2ff; --gold: #e0a83a }
 }
 * { box-sizing: border-box }
 body { margin: 0; background: var(--bg); color: var(--fg) }
@@ -119,6 +119,88 @@ dl.contribution dd { margin: 0 }
 .numbers .good { color: var(--good) }
 .trials-page { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); gap: 16px; align-items: start }
 @media (max-width: 900px) { .trials-page { grid-template-columns: minmax(0, 1fr) } }
+.trials-page.closed { grid-template-columns: minmax(0, 1fr) }
+aside.reader > .close { float: right; margin-left: 8px; color: var(--mut) }
+aside.reader > .close:hover { color: var(--fg) }
+.o-accepted { --o: var(--good) } .o-rejected { --o: var(--bad) } .o-failed { --o: var(--fail) } .o-pending { --o: var(--line) }
+.stepper { display: flex; align-items: center; gap: 10px; margin-bottom: 6px }
+.stepper button { font: inherit; font-size: 12px; padding: 2px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer }
+.stepper button:disabled { opacity: .4; cursor: default }
+.plan .slots { display: flex; flex-wrap: wrap; gap: 4px }
+.plan .slot { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 3px 7px; font: inherit; font-size: 12px; color: var(--fg); text-align: left;
+  background: var(--card); border: 1px solid var(--line); border-bottom: 3px solid var(--o); border-radius: 4px; cursor: pointer }
+.plan .slot.picked { box-shadow: 0 0 0 2px var(--acc) }
+.plan .slot.on { background: color-mix(in srgb, var(--acc) 14%, var(--card)) }
+.plan .slot .tag { font-size: 11px; color: var(--acc) }
+.plan .issues { margin: 6px 0 0; padding-left: 18px; color: var(--bad); font-size: 12px }
+.plan p { margin: 4px 0 0 }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; align-items: start; margin-top: 10px }
+figure.lineage { margin: 0 }
+figure.lineage > svg { width: 100%; height: auto; display: block }
+.lineage-key { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: center; margin-bottom: 2px }
+.lineage-key span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap }
+.lineage-key .glyph { fill: var(--mut); stroke: none }
+.lineage-key .edge { stroke: var(--acc); stroke-width: 1.4 } .lineage-key .edge.planned { stroke-dasharray: 4 3 }
+.lineage .column rect { fill: transparent; pointer-events: none } .lineage .column.on rect { fill: color-mix(in srgb, var(--acc) 9%, transparent) }
+.lineage .column text { fill: var(--mut); font-size: 11px; cursor: pointer } .lineage .column.on text { fill: var(--acc); font-weight: 600 }
+.lineage .node { fill: var(--o); stroke: var(--card); stroke-width: 1; cursor: pointer; pointer-events: all }
+.lineage .node.o-failed { fill: var(--card); stroke: var(--fail); stroke-width: 1.5 }
+.lineage .node.o-pending { fill: none; stroke: var(--mut); stroke-dasharray: 2 2 }
+.lineage .node.selected { stroke: var(--fg); stroke-width: 2.5 }
+.lineage .node.faint { opacity: .35 }
+.lineage .arrow { color: var(--acc); pointer-events: none }
+.lineage .arrow line { stroke: currentColor; stroke-width: 1.2 }
+.lineage .arrow.planned line { stroke-dasharray: 4 3 }
+.lineage .arrow polygon { fill: currentColor }
+.lineage .arrow.dim { opacity: .15 }
+.lineage .arrow.now line { stroke-width: 2.2 }
+.pick-ring { fill: none; stroke: var(--gold); stroke-width: 1 }
+.lineage .picks { cursor: pointer }
+.lineage .picks.dim { opacity: .3 }
+.lineage .pick-now { fill: none; stroke: var(--acc); stroke-width: 1.6 }
+.lineage .ring-hit { fill: none; stroke: transparent; stroke-width: 2.5; pointer-events: stroke }
+.lineage-reader { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); margin: 8px 0; padding-bottom: 6px }
+.lineage-reader .counts { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 12px; color: var(--mut) }
+.lineage-reader .counts b { color: var(--fg) }
+.lineage-reader .counts .good b { color: var(--good) }
+.lineage-reader .tbars { display: grid; grid-template-columns: auto 1fr auto; gap: 3px 6px; align-items: center; margin: 8px 0 4px; font-variant-numeric: tabular-nums }
+.lineage-reader .tbars i { height: 6px; background: var(--mut); border-radius: 3px; min-width: 1px }
+.lineage-reader .tbars i.best { background: var(--acc) }
+.lineage-reader ul.children { list-style: none; margin: 4px 0 0; padding: 0 }
+.stepper button.on { border-color: var(--acc); color: var(--acc) }
+section.propagation { border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 8px 12px; margin-top: 12px }
+section.propagation > .close { float: right; color: var(--mut) }
+section.propagation > .close:hover { color: var(--fg) }
+section.propagation h4 { margin: 0 0 8px; font-size: 13px; font-weight: 600 }
+.propagation-row { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start }
+.propagation .mixes { display: grid; gap: 10px; min-width: 0; flex: 1 1 420px; max-width: 560px }
+.propagation .mix { display: grid; grid-template-columns: 70px minmax(0, 1fr); gap: 8px; align-items: center; font-size: 12px; color: var(--mut) }
+.propagation .mix svg { width: 100%; height: auto; display: block }
+.propagation .axis { stroke: var(--line) }
+.propagation .tick { stroke: var(--mut); stroke-opacity: .45; stroke-width: 1 }
+.propagation .span { stroke: var(--acc); stroke-opacity: .35; stroke-width: 3 }
+.propagation .own { fill: var(--card); stroke: var(--fg); stroke-width: 1.5 }
+.propagation .neighbours { fill: var(--mut); stroke: var(--card); cursor: help }
+.propagation .result { fill: var(--acc) }
+.propagation .heaviest { grid-column: 2; justify-self: start; display: grid; gap: 2px; padding: 6px 8px; background: var(--card);
+  border: 1px solid var(--line); border-radius: 6px; box-shadow: 0 4px 14px rgba(0, 0, 0, .18); font-size: 11px; white-space: nowrap }
+.propagation .heaviest button { font: inherit; background: none; border: 0; padding: 1px 0; color: var(--fg); text-align: left; cursor: pointer }
+.propagation .heaviest button b { color: var(--acc) } .propagation .heaviest button span { color: var(--mut); margin-left: 6px }
+.propagation .mix-key { display: flex; flex-wrap: wrap; gap: 4px 16px; font-size: 12px; color: var(--mut) }
+.propagation .mix-key span { display: inline-flex; align-items: center; gap: 4px } .propagation .mix-key svg { overflow: visible }
+.propagation svg.ladder { width: 100%; height: auto; display: block; flex: 0 1 200px }
+.propagation .label { fill: var(--mut); font-size: 11px }
+.propagation .rank { fill: var(--mut); font-size: 10px; font-variant-numeric: tabular-nums }
+.propagation .rank-id { fill: var(--mut); font-size: 10px; font-family: ui-monospace, monospace; cursor: pointer }
+.propagation .rank-id.picked { fill: var(--fg); font-weight: 600 } .propagation .rank-id.self { fill: var(--acc) }
+.propagation .pick-line { stroke: var(--fg); stroke-width: 1.5; stroke-dasharray: 6 3 }
+.propagation .rank-arrow { stroke-width: 2 } .propagation .rank-arrow.up { stroke: var(--good) } .propagation .rank-arrow.down { stroke: var(--bad) }
+.propagation .rank-dot { fill: var(--card); stroke: var(--mut); stroke-width: 1.5 }
+.propagation .rank-dot.after { fill: var(--acc); stroke: var(--acc) } .propagation .rank-dot.after.picked { stroke: var(--fg); stroke-width: 2.5 }
+.propagation .picked-list { display: flex; flex-wrap: wrap; gap: 6px 18px }
+.propagation .picked-list button { font: inherit; font-size: 13px; background: none; border: 0; color: var(--fg); cursor: pointer; padding: 2px 0 }
+.propagation .rank-move { margin-left: 4px; color: var(--mut); font-variant-numeric: tabular-nums }
+.propagation .rank-move.up { color: var(--good) } .propagation .rank-move.down { color: var(--bad) }
 figure.admission { margin: 0 }
 figure.admission svg { width: 100%; max-width: 760px; height: auto; display: block }
 .admission .zone { fill: color-mix(in srgb, var(--good) 9%, transparent) }

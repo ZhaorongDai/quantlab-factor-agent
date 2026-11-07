@@ -12,8 +12,9 @@ A child's outcome is 0 when it stopped before evaluation and otherwise the
 amount its residual t in its direction exceeds the admission threshold it
 was judged against (``_admission.t_threshold`` at the evaluated-trial
 count after its round: admission judges every candidate of a round at that
-count, whatever its place in the round), floored at 0. The fertility is the mean of the
-three best outcomes, padded with zeros, so a parent is rewarded for
+count, whatever its place in the round), floored at 0. The fertility is the
+mean of the ``fertile_children`` (``context.fertile_children``, 3 by
+default) best outcomes, padded with zeros, so a parent is rewarded for
 children that pass, not for many attempts.
 """
 
@@ -24,10 +25,6 @@ from factor_agent._admission import directional_t, t_threshold
 from factor_agent._feedback import signed
 from factor_agent.config import AdmissionConfig
 from factor_agent.ledger import TrialRecord
-
-#: The best child outcomes the fertility is the mean of.
-FERTILE_CHILDREN = 3
-
 
 @dataclass(frozen=True)
 class Lineage:
@@ -64,8 +61,13 @@ class Lineage:
         )
 
 
-def lineages(trials: list[tuple[str, TrialRecord]], admission: AdmissionConfig) -> dict[str, Lineage]:
-    """The Lineage of every trial of ``trials`` (``_feedback.named``, in the ledger's order), by id."""
+def lineages(
+    trials: list[tuple[str, TrialRecord]], admission: AdmissionConfig, fertile_children: int,
+) -> dict[str, Lineage]:
+    """The Lineage of every trial of ``trials`` (``_feedback.named``, in the ledger's order), by id.
+
+    ``fertile_children`` is the count of best child outcomes the fertility is the mean of.
+    """
     evaluated_through: dict[int, int] = {}
     for _, r in trials:
         evaluated_through[r.round] = evaluated_through.get(r.round, 0) + r.evaluated
@@ -93,7 +95,7 @@ def lineages(trials: list[tuple[str, TrialRecord]], admission: AdmissionConfig) 
             attempts=len(built), refinements=actions.count("refinement"), mutations=actions.count("mutation"),
             unevaluated=len(built) - len(scored), accepted=tuple(child for child, c in built if c.status == "accepted"),
             best_child=best[1], best_child_t=best[0], own_t=directional_t(r.metrics) if r.evaluated else float("nan"),
-            fertility=sum(outcomes[:FERTILE_CHILDREN]) / FERTILE_CHILDREN,
+            fertility=sum(outcomes[:fertile_children]) / fertile_children,
         )
     return result
 
