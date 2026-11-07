@@ -60,6 +60,11 @@ alone know them, and read them while a campaign may be writing them:
   built for it holds a session aggregation: an operator of the run's
   snapshotted operator file whose class is a ``SessionAggregation``. A run
   whose snapshot records no intraday dataset has none.
+- A round's plan is its latest Plan event, unless a resume dropped the
+  round since (``_plans``); a run without events reads a written round's
+  slots from the ledger and has no Picked parents. A trial's Lineage is
+  computed from the ledger with the admission settings the run was last
+  opened with, the defaults without events.
 - The memory's versions are the distiller's files ``memory/round_NN.md``,
   each written before round ``NN``, so after round ``NN - 1``. A version
   after the first is compared with the one before it line by line.
@@ -67,7 +72,7 @@ alone know them, and read them while a campaign may be writing them:
 
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -84,6 +89,9 @@ from factor_agent.web._ledger import (
     Collision, Neighbour, Trial, aggregations, correlation_limit, read_trials, statuses,
 )
 from factor_agent.web._memory import MemoryLine, MemoryVersion, memory
+from factor_agent.web._plans import (
+    PlanSlot, RoundPlan, TrialLineage, fertile_children, lineage_of, read_round, trial_id,
+)
 from factor_agent.web._results import Factor, factors
 from factor_agent.web._round import Check, LLMCall, PendingTrial, RoundCall, RunningRound, read_call, running
 from factor_agent.web._trials import Placed, Refusal, TrialRef, trials_page
@@ -92,8 +100,9 @@ __all__ = [
     "RECENT_ROUNDS", "STALL_ASKING", "AcceptanceReports", "AdmissionLimits", "Check", "Collision", "Comparison",
     "ConfigCopy", "Contribution", "Factor", "Finding", "Health", "HoldoutOpen", "LLMCall", "LineChange", "MemoryLine",
     "MemoryVersion", "Neighbour",
-    "PendingTrial", "Placed", "Refusal", "RoundCall", "RoundTokens", "RunFiles", "RunSummary", "RunView", "RunningRound", "SnapshotFile", "Stop",
-    "Tokens", "Trial", "TrialIC", "TrialRef", "find_run", "list_runs", "read_call", "read_files", "read_ic", "run_version",
+    "PendingTrial", "Placed", "PlanSlot", "Refusal", "RoundPlan", "RoundCall", "RoundTokens", "RunFiles", "RunSummary", "RunView", "RunningRound", "SnapshotFile", "Stop",
+    "Tokens", "Trial", "TrialIC", "TrialLineage", "TrialRef", "find_run", "list_runs", "read_call", "read_files",
+    "read_ic", "read_round", "run_version",
 ]
 
 
@@ -209,6 +218,10 @@ class RunView:
         trials = read_trials(run_dir / "ledger.jsonl", state.get("rounds", 0), aggregations(run_dir))
         replayed = Replayed.read(run_dir)
         summary = _summary(run_dir, name or run_dir.name, state, replayed, [t.status for t in trials])
+        found = lineage_of(trials, replayed, summary.rounds + (0 if summary.stop else 1), fertile_children(run_dir))
+        ids = [trial_id(t.round, t.slot) for t in trials]
+        trials = tuple(replace(t, lineage=found.lineage[i], picked_in=found.picked_in.get(i, ()),
+                               parent_picked=i in found.parent_picked) for t, i in zip(trials, ids))
         page = trials_page(trials, replayed)
         return cls(
             summary=summary, trials=trials, factors=factors(trials, replayed),

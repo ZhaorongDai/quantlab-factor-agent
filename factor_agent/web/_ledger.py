@@ -5,11 +5,15 @@ import re
 from dataclasses import dataclass
 from functools import lru_cache
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import yaml
 
 from factor_agent import events
 from factor_agent.web._files import Replayed, loads, read_json
+
+if TYPE_CHECKING:
+    from factor_agent.web._plans import TrialLineage
 
 
 @dataclass(frozen=True)
@@ -44,6 +48,11 @@ class Trial:
     every collision of the trial's versions, each factor and kind once.
     ``intraday`` is true when the graph the Gate built holds a session
     aggregation, false for a daily graph and a trial the Gate built none for.
+    ``lineage`` is its Lineage (``_plans``), ``None`` until the view adds it;
+    ``picked_in`` the rounds whose plans picked it as a Picked parent, the
+    round in progress included, the earliest first; ``parent_picked`` is
+    true when the code picked its parent, false when the planner chose it
+    or it has none.
     """
 
     round: int
@@ -58,6 +67,9 @@ class Trial:
     metrics: dict | None
     collisions: tuple[Collision, ...] = ()
     intraday: bool = False
+    lineage: "TrialLineage | None" = None
+    picked_in: tuple[int, ...] = ()
+    parent_picked: bool = False
 
 
 @dataclass(frozen=True)

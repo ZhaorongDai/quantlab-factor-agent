@@ -1,0 +1,237 @@
+{
+  "round": {
+    "round": 2,
+    "slots": [
+      {
+        "slot": 0,
+        "mechanism_type": "behavioural_bias",
+        "action": "new",
+        "parent": "",
+        "direction": "a behavioural_bias direction",
+        "picked": false,
+        "outcome": "<outcome>"
+      },
+      {
+        "slot": 1,
+        "mechanism_type": "risk_compensation",
+        "action": "new",
+        "parent": "",
+        "direction": "a risk_compensation direction",
+        "picked": false,
+        "outcome": "<outcome>"
+      },
+      {
+        "slot": 2,
+        "mechanism_type": "liquidity",
+        "action": "new",
+        "parent": "",
+        "direction": "a liquidity direction",
+        "picked": false,
+        "outcome": "<outcome>"
+      },
+      {
+        "slot": 3,
+        "mechanism_type": "microstructure",
+        "action": "mutation",
+        "parent": "T1-04",
+        "direction": "another channel",
+        "picked": true,
+        "outcome": "<outcome>"
+      },
+      {
+        "slot": 4,
+        "mechanism_type": "information_diffusion",
+        "action": "mutation",
+        "parent": "T1-05",
+        "direction": "another channel",
+        "picked": true,
+        "outcome": "<outcome>"
+      }
+    ],
+    "quota": {
+      "behavioural_bias": 1,
+      "risk_compensation": 1,
+      "liquidity": 1,
+      "microstructure": 1,
+      "information_diffusion": 1
+    },
+    "issues": [],
+    "graph": null
+  },
+  "trials": [
+    {
+      "round": 1,
+      "slot": 0,
+      "lineage": {
+        "attempts": 0,
+        "refinements": 0,
+        "mutations": 0,
+        "unevaluated": 0,
+        "accepted": [],
+        "best_child": null,
+        "best_child_t": null,
+        "own_t": "<number>",
+        "fertility": "<number>"
+      },
+      "picked_in": [],
+      "parent_picked": false
+    },
+    {
+      "round": 1,
+      "slot": 1,
+      "lineage": {
+        "attempts": 0,
+        "refinements": 0,
+        "mutations": 0,
+        "unevaluated": 0,
+        "accepted": [],
+        "best_child": null,
+        "best_child_t": null,
+        "own_t": "<number>",
+        "fertility": "<number>"
+      },
+      "picked_in": [],
+      "parent_picked": false
+    },
+    {
+      "round": 1,
+      "slot": 2,
+      "lineage": {
+        "attempts": 0,
+        "refinements": 0,
+        "mutations": 0,
+        "unevaluated": 0,
+        "accepted": [],
+        "best_child": null,
+        "best_child_t": null,
+        "own_t": "<number>",
+        "fertility": "<number>"
+      },
+      "picked_in": [],
+      "parent_picked": false
+    },
+    {
+      "round": 1,
+      "slot": 3,
+      "lineage": {
+        "attempts": 1,
+        "refinements": 0,
+        "mutations": 1,
+        "unevaluated": 0,
+        "accepted": [],
+        "best_child": "T2-04",
+        "best_child_t": "<number>",
+        "own_t": "<number>",
+        "fertility": "<number>"
+      },
+      "picked_in": [
+        2
+      ],
+      "parent_picked": false
+    },
+    {
+      "round": 1,
+      "slot": 4,
+      "lineage": {
+        "attempts": 1,
+        "refinements": 0,
+        "mutations": 1,
+        "unevaluated": 0,
+        "accepted": [],
+        "best_child": "T2-05",
+        "best_child_t": "<number>",
+        "own_t": "<number>",
+        "fertility": "<number>"
+      },
+      "picked_in": [
+        2
+      ],
+      "parent_picked": false
+    },
+    {
+      "round": 2,
+      "slot": 0,
+      "lineage": {
+        "attempts": 0,
+        "refinements": 0,
+        "mutations": 0,
+        "unevaluated": 0,
+        "accepted": [],
+        "best_child": null,
+        "best_child_t": null,
+        "own_t": "<number>",
+        "fertility": "<number>"
+      },
+      "picked_in": [],
+      "parent_picked": false
+    },
+    {
+      "round": 2,
+      "slot": 1,
+      "lineage": {
+        "attempts": 0,
+        "refinements": 0,
+        "mutations": 0,
+        "unevaluated": 0,
+        "accepted": [],
+        "best_child": null,
+        "best_child_t": null,
+        "own_t": "<number>",
+        "fertility": "<number>"
+      },
+      "picked_in": [],
+      "parent_picked": false
+    },
+    {
+      "round": 2,
+      "slot": 2,
+      "lineage": {
+        "attempts": 0,
+        "refinements": 0,
+        "mutations": 0,
+        "unevaluated": 0,
+        "accepted": [],
+        "best_child": null,
+        "best_child_t": null,
+        "own_t": "<number>",
+        "fertility": "<number>"
+      },
+      "picked_in": [],
+      "parent_picked": false
+    },
+    {
+      "round": 2,
+      "slot": 3,
+      "lineage": {
+        "attempts": 0,
+        "refinements": 0,
+        "mutations": 0,
+        "unevaluated": 0,
+        "accepted": [],
+        "best_child": null,
+        "best_child_t": null,
+        "own_t": "<number>",
+        "fertility": "<number>"
+      },
+      "picked_in": [],
+      "parent_picked": true
+    },
+    {
+      "round": 2,
+      "slot": 4,
+      "lineage": {
+        "attempts": 0,
+        "refinements": 0,
+        "mutations": 0,
+        "unevaluated": 0,
+        "accepted": [],
+        "best_child": null,
+        "best_child_t": null,
+        "own_t": "<number>",
+        "fertility": "<number>"
+      },
+      "picked_in": [],
+      "parent_picked": true
+    }
+  ]
+}
