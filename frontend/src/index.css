@@ -120,17 +120,34 @@ dl.contribution dd { margin: 0 }
 .trials-page { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); gap: 16px; align-items: start }
 @media (max-width: 900px) { .trials-page { grid-template-columns: minmax(0, 1fr) } }
 .trials-page.closed { grid-template-columns: minmax(0, 1fr) }
-aside.reader > .close { float: right; margin-left: 8px; color: var(--mut) }
+aside.reader > .close { float: right; margin-left: 8px; color: var(--mut); font-size: 22px; line-height: 1; padding: 0 2px }
 aside.reader > .close:hover { color: var(--fg) }
 .o-accepted { --o: var(--good) } .o-rejected { --o: var(--bad) } .o-failed { --o: var(--fail) } .o-pending { --o: var(--line) }
 .stepper { display: flex; align-items: center; gap: 10px; margin-bottom: 6px }
 .stepper button { font: inherit; font-size: 12px; padding: 2px 10px; border-radius: 9px; border: 1px solid var(--line); background: var(--card); color: var(--fg); cursor: pointer }
 .stepper button:disabled { opacity: .4; cursor: default }
-.plan .slots { display: flex; flex-wrap: wrap; gap: 4px }
+.plan .group { margin-bottom: 3px }
+.plan .group-row { display: flex; flex-wrap: wrap; align-items: center; gap: 2px }
+.plan .fold { padding: 1px 6px 1px 0; margin-right: 4px; border: 0; background: none; color: var(--fg); font: inherit; font-size: 12px; cursor: pointer; text-align: left }
+.plan .group.shown .fold { margin-bottom: 2px }
+.plan .fold .caret { width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; fill: var(--mut); transition: transform .12s }
+.plan .fold .caret.shown { transform: rotate(90deg) }
+.plan .fold:hover .caret { fill: var(--fg) }
+.plan .mark { display: inline-flex; padding: 1px; border: 0; border-radius: 50%; background: none; cursor: pointer }
+.plan .mark svg { display: block; overflow: visible }
+.plan .mark.picked { box-shadow: 0 0 0 1.5px var(--acc) }
+.plan .mark.on { background: color-mix(in srgb, var(--acc) 22%, transparent) }
+.plan .mark.on .node { stroke: var(--fg); stroke-width: 2 }
+.plan .mark.hovered { background: color-mix(in srgb, var(--acc) 30%, transparent) }
+.plan .node { fill: var(--o); stroke: var(--card); stroke-width: 1 }
+.plan .node.o-failed { fill: var(--card); stroke: var(--fail); stroke-width: 1.5 }
+.plan .node.o-pending { fill: none; stroke: var(--mut); stroke-dasharray: 2 2 }
+.plan .slots { display: flex; flex-wrap: wrap; gap: 4px; margin: 0 0 4px 14px }
 .plan .slot { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 3px 7px; font: inherit; font-size: 12px; color: var(--fg); text-align: left;
   background: var(--card); border: 1px solid var(--line); border-bottom: 3px solid var(--o); border-radius: 4px; cursor: pointer }
 .plan .slot.picked { box-shadow: 0 0 0 2px var(--acc) }
 .plan .slot.on { background: color-mix(in srgb, var(--acc) 14%, var(--card)) }
+.plan .slot.hovered { border-color: var(--acc); border-bottom-color: var(--o); background: color-mix(in srgb, var(--acc) 22%, var(--card)) }
 .plan .slot .tag { font-size: 11px; color: var(--acc) }
 .plan .issues { margin: 6px 0 0; padding-left: 18px; color: var(--bad); font-size: 12px }
 .plan p { margin: 4px 0 0 }
@@ -148,6 +165,7 @@ figure.lineage > svg { width: 100%; height: auto; display: block }
 .lineage .node.o-pending { fill: none; stroke: var(--mut); stroke-dasharray: 2 2 }
 .lineage .node.selected { stroke: var(--fg); stroke-width: 2.5 }
 .lineage .node.faint { opacity: .35 }
+.hover-ring { fill: none; stroke: var(--acc); stroke-width: 2; pointer-events: none }
 .lineage .arrow { color: var(--acc); pointer-events: none }
 .lineage .arrow line { stroke: currentColor; stroke-width: 1.2 }
 .lineage .arrow.planned line { stroke-dasharray: 4 3 }
@@ -169,7 +187,7 @@ figure.lineage > svg { width: 100%; height: auto; display: block }
 .lineage-reader ul.children { list-style: none; margin: 4px 0 0; padding: 0 }
 .stepper button.on { border-color: var(--acc); color: var(--acc) }
 section.propagation { border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 8px 12px; margin-top: 12px }
-section.propagation > .close { float: right; color: var(--mut) }
+section.propagation > .close { float: right; color: var(--mut); font-size: 22px; line-height: 1; padding: 0 2px }
 section.propagation > .close:hover { color: var(--fg) }
 section.propagation h4 { margin: 0 0 8px; font-size: 13px; font-weight: 600 }
 .propagation-row { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start }

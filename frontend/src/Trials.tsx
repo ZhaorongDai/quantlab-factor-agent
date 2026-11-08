@@ -57,7 +57,9 @@ function Numbers({ run }: { run: Run }) {
   )
 }
 
-function AdmissionMap({ run, picked, fresh, pick }: { run: Run; picked: string | null; fresh: Set<string>; pick: (k: string) => void }) {
+function AdmissionMap({ run, picked, fresh, pick, hovered, hover }: {
+  run: Run; picked: string | null; fresh: Set<string>; pick: (k: string) => void; hovered: string | null; hover: (k: string | null) => void
+}) {
   const points = run.evaluated.filter(p => p.partial_ic_t != null)
   const limit = run.correlation_limit, threshold = run.threshold
   const ts = points.map(p => p.partial_ic_t!)
@@ -69,7 +71,8 @@ function AdmissionMap({ run, picked, fresh, pick }: { run: Run; picked: string |
   const X = (v: number) => P + (v / x1) * (W - 2 * P)
   const Y = (v: number) => H - P - ((v - y0) / (y1 - y0)) * (H - 2 * P)
   const failed = run.trials.filter(t => t.status === 'failed').length
-  const size = (p: Placed) => (picked === key(p) || fresh.has(key(p)) ? 7 : p.status === 'accepted' ? 5 : 3.5)
+  const size = (p: Placed) => (picked === key(p) || fresh.has(key(p)) || hovered === key(p) ? 7 : p.status === 'accepted' ? 5 : 3.5)
+  const lifted = points.find(p => key(p) === hovered)
   return (
     <figure className="admission">
       <svg viewBox={`0 0 ${W} ${H}`} role="img"
@@ -100,10 +103,11 @@ function AdmissionMap({ run, picked, fresh, pick }: { run: Run; picked: string |
         {points.map(p => (
           <circle key={key(p)} cx={X(p.largest_correlation ?? 0)} cy={Y(p.partial_ic_t!)} r={size(p)}
                   className={`point ${p.status}${fresh.has(key(p)) ? ' fresh' : ''}${picked === key(p) ? ' picked' : ''}`}
-                  onClick={() => pick(key(p))}>
+                  onClick={() => pick(key(p))} onMouseEnter={() => hover(key(p))} onMouseLeave={() => hover(null)}>
             <title>{`round ${p.round}, slot ${p.slot + 1}: ${p.status}, t ${fmt(p.partial_ic_t)}, |ρ| ${fmt(p.largest_correlation)}`}</title>
           </circle>
         ))}
+        {lifted && <circle cx={X(lifted.largest_correlation ?? 0)} cy={Y(lifted.partial_ic_t!)} r={10} className="hover-ring" />}
       </svg>
       <figcaption className="muted small">
         <span className="key accepted">●</span> accepted <span className="key rejected">●</span> rejected{' '}
@@ -239,6 +243,7 @@ function Reader({ t, placed, run, name, all, pick }: {
 
 export default function Trials({ run, name, clock }: { run: Run; name: string; clock: number }) {
   const [picked, setPicked] = useState<Picked>(null)
+  const [hovered, setHovered] = useState<string | null>(null)
   const fresh = useFresh(run.trials)
   const trials = new Map(run.trials.map(t => [key(t), t]))
   const placed = new Map(run.evaluated.map(p => [key(p), p]))
@@ -270,12 +275,14 @@ export default function Trials({ run, name, clock }: { run: Run; name: string; c
             <StepperBar stepper={stepper}>
               {graph && <button className={why ? 'on' : ''} onClick={() => setWhy(!why)}>why these parents</button>}
             </StepperBar>
-            <RoundPlanView run={run} round={stepper.round} plan={plan} error={error} picked={picked} pick={setPicked} />
+            <RoundPlanView run={run} round={stepper.round} plan={plan} error={error} picked={picked} pick={setPicked}
+                           hovered={hovered} hover={setHovered} />
           </>}
           <div className="pair">
-            <LineageGraph run={run} stepper={stepper} selected={picked} pick={setPicked} onPicks={() => setWhy(true)} />
+            <LineageGraph run={run} stepper={stepper} selected={picked} pick={setPicked} onPicks={() => setWhy(true)}
+                          hovered={hovered} hover={setHovered} />
             {run.evaluated.length
-              ? <AdmissionMap run={run} picked={pickedTrial} fresh={fresh} pick={pick} />
+              ? <AdmissionMap run={run} picked={pickedTrial} fresh={fresh} pick={pick} hovered={hovered} hover={setHovered} />
               : <p className="muted">No trial evaluated yet.</p>}
           </div>
           {why && graph && <Propagation graph={graph} selected={selectedId} pick={pickId} close={() => setWhy(false)} />}
@@ -283,7 +290,7 @@ export default function Trials({ run, name, clock }: { run: Run; name: string; c
         </div>
         {reader && (
           <aside className="reader">
-            <button className="link close small" onClick={() => setPicked(null)}>close</button>
+            <button className="link close small" onClick={() => setPicked(null)} aria-label="close">×</button>
             {reader}
           </aside>
         )}
