@@ -128,7 +128,7 @@ admission 图上的每个 trial、进行中那一轮的大模型调用、memory 
 最好的那个走了多远。打开 `context.lineage` 后，planner 和 proposer 会读到它。设置 `round.picked_parents: k`
 后，每轮有 k 个名额的 parent 由代码而不是 planner 选择，即 **Picked parents**：代码按质量、繁殖力和新颖性
 给已评估的 trial 排序，每项都在 **Trial graph**（按生成关系、代码结构和相关性连接的 trial）上与相关的 trial
-共享，所以亲属表现好的 trial 会跟着上升。`trial_graph` 配置段决定共享多少以及图如何构建。web 面板的
+共享，所以亲属表现好的 trial 会跟着上升。`trial_graph` 配置段决定共享多少以及图如何构建。两者默认关闭。web 面板的
 “why these parents”按轮展示传播如何改变每个 trial 的效用和排名：
 
 <p align="center">

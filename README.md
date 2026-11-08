@@ -144,7 +144,8 @@ got. With `context.lineage` the planner and the proposer read it. With
 round, the **Picked parents**: it ranks the evaluated trials by quality, fertility and
 novelty, each shared over the **Trial graph** of trials related by generation, code
 structure and correlation, so a trial whose relatives did well rises with them. The
-`trial_graph` section sets how much is shared and how the graph is built. The web panel's
+`trial_graph` section sets how much is shared and how the graph is built. Both are off by
+default. The web panel's
 "why these parents" shows, for each round, how propagation moved each trial's utilities
 and rank:
 
