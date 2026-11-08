@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "quantlab-factor-agent"
-version = "0.1.0"
+version = "0.2.0"
 description = "LLM-driven, mechanism-first formulaic factor research on quantlab, evaluated with KunQuant."
 readme = "README.md"
 license = "MIT AND Apache-2.0"

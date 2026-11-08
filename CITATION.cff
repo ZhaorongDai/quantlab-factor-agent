@@ -6,8 +6,8 @@ abstract: >-
   LLM-driven, mechanism-first mining of stock factors on quantlab: language models
   propose economic mechanisms and the KunQuant code they imply, and fixed checks and
   training-segment statistics decide which factors are new and add to the existing set.
-version: 0.1.0
-date-released: 2026-11-06
+version: 0.2.0
+date-released: 2026-11-07
 authors:
   - family-names: Dai
     given-names: Zhaorong
