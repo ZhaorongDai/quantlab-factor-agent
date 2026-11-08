@@ -113,14 +113,55 @@ print(report.markdown())
 
 Point the config's data paths at your own quantlab stores first. A campaign runs for hours,
 mostly waiting on the model, and needs no GPU; `Acceptance` uses CUDA when it is available.
-Watch a run in the browser with `factor-agent-web` ([web frontend](https://github.com/ZhaorongDai/quantlab-factor-agent/blob/main/docs/user-guide/web.md)).
+Before a long run, `factor-agent check <config>` reports everything `run()` would refuse
+(a store that does not exist, an unset API key variable, a resume that changed the
+config) in seconds, without writing anything; `--ping` also sends each backend one short
+request.
+
+## Watch a run in the browser
+
+```bash
+factor-agent-web runs/    # then open http://127.0.0.1:8000
+```
+
+The web panel lists your runs and opens each one: whether its accepted factors improve
+your model, a card per factor, every trial on a Lineage graph and the admission map, the
+LLM calls of the round in progress, the memory and the config. It only reads the run
+directory, listens on localhost only, and on a server you reach it through an SSH tunnel.
+See [the web frontend](https://github.com/ZhaorongDai/quantlab-factor-agent/blob/main/docs/user-guide/web.md).
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ZhaorongDai/quantlab-factor-agent/main/docs/_static/web/trials-lineage.png" alt="The trials page: a round's plan with its Picked parents outlined in blue, the Lineage graph of every trial by round with arrows from parent to child, and the admission map of partial-IC t against the largest correlation with an existing factor" width="100%">
+</p>
+
+## Building on earlier trials
+
+Every trial after the first round either starts a new direction or builds on an earlier
+one, its parent, as a refinement or a mutation. A trial's **Lineage** sums up the trials
+built on it: how many, how many stopped early, which were accepted and how far the best
+got. With `context.lineage` the planner and the proposer read it. With
+`round.picked_parents: k` the code, not the planner, chooses the parents of k slots each
+round, the **Picked parents**: it ranks the evaluated trials by quality, fertility and
+novelty, each shared over the **Trial graph** of trials related by generation, code
+structure and correlation, so a trial whose relatives did well rises with them. The
+`trial_graph` section sets how much is shared and how the graph is built. The web panel's
+"why these parents" shows, for each round, how propagation moved each trial's utilities
+and rank:
+
+<p align="center">
+  <img src="https://raw.githubusercontent.com/ZhaorongDai/quantlab-factor-agent/main/docs/_static/web/propagation.png" alt="The propagation view: per utility a trial's own value, its neighbours' average with the heaviest neighbours listed, and its value after propagation; beside it the rank ladder, where the trial rises from rank 15 to rank 10" width="100%">
+</p>
+
+See [building on earlier trials](https://github.com/ZhaorongDai/quantlab-factor-agent/blob/main/docs/user-guide/concepts.md#building-on-earlier-trials)
+and [the campaign config](https://github.com/ZhaorongDai/quantlab-factor-agent/blob/main/docs/user-guide/campaign.md#settings-with-defaults).
 
 ## Documentation
 
 - [How the agent mines factors](https://github.com/ZhaorongDai/quantlab-factor-agent/blob/main/docs/user-guide/mechanism.md): the search, the judges, the learning loop and what the models may see, in one diagram
 - [First campaign](https://github.com/ZhaorongDai/quantlab-factor-agent/blob/main/docs/getting-started/quickstart.md): run one and read its outcome
 - [Concepts](https://github.com/ZhaorongDai/quantlab-factor-agent/blob/main/docs/user-guide/concepts.md): roles, factor sets, segments, what "accepted" means
-- [The campaign config](https://github.com/ZhaorongDai/quantlab-factor-agent/blob/main/docs/user-guide/campaign.md): every section, stopping and resuming
+- [The campaign config](https://github.com/ZhaorongDai/quantlab-factor-agent/blob/main/docs/user-guide/campaign.md): every section, checking a config, stopping and resuming
+- [The web frontend](https://github.com/ZhaorongDai/quantlab-factor-agent/blob/main/docs/user-guide/web.md): every page of the panel, and how to reach it on a server
 - [The vocabulary](https://github.com/ZhaorongDai/quantlab-factor-agent/blob/main/docs/user-guide/vocabulary.md) and [prompts](https://github.com/ZhaorongDai/quantlab-factor-agent/blob/main/docs/user-guide/prompts.md): what candidates may read and write, and what the models are told
 - [LLM backends](https://github.com/ZhaorongDai/quantlab-factor-agent/blob/main/docs/user-guide/llm-backends.md): providers, the LLM log, replay, cost
 - [Gate, review and evaluation](https://github.com/ZhaorongDai/quantlab-factor-agent/blob/main/docs/user-guide/evaluation.md) and [acceptance](https://github.com/ZhaorongDai/quantlab-factor-agent/blob/main/docs/user-guide/acceptance.md): how a factor is judged

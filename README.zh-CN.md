@@ -103,8 +103,40 @@ print(report.markdown())
 ```
 
 先把配置里的数据路径改成你自己的 quantlab 数据。一次 campaign 要跑几个小时，大部分时间在等模型
-返回，不需要 GPU；`Acceptance` 在有 CUDA 时会使用它。可以用 `factor-agent-web` 在浏览器里查看运行
-（[web 前端](docs/user-guide/web.md)，英文）。
+返回，不需要 GPU；`Acceptance` 在有 CUDA 时会使用它。长时间运行之前，`factor-agent check <config>`
+会在几秒内报告 `run()` 会拒绝的所有问题（不存在的数据存储、未设置的 API 密钥变量、续跑时改动了配置等），
+不写入任何文件；加上 `--ping` 还会向每个后端发一次简短请求。
+
+## 在浏览器里查看运行
+
+```bash
+factor-agent-web runs/    # 然后打开 http://127.0.0.1:8000
+```
+
+web 面板列出你的所有运行并逐个打开：已接受的因子能否改进你的模型、每个因子一张卡片、Lineage 图和
+admission 图上的每个 trial、进行中那一轮的大模型调用、memory 和配置。它只读取运行目录，只监听本机；
+在服务器上运行时通过 SSH 隧道访问。详见 [The web frontend](docs/user-guide/web.md)（英文）。
+
+<p align="center">
+  <img src="docs/_static/web/trials-lineage.png" alt="trials 页面：一轮的计划，Picked parent 用蓝框标出；按轮排列的所有 trial 的 Lineage 图，箭头从父 trial 指向子 trial；以及 admission 图，纵轴为 partial-IC t，横轴为与已有因子的最大相关" width="100%">
+</p>
+
+## 在已有 trial 的基础上继续
+
+第一轮之后，每个 trial 要么开启新方向，要么建立在更早的某个 trial（它的 parent）之上，作为 refinement
+或 mutation。一个 trial 的 **Lineage** 概括了建立在它之上的 trial：有多少个、多少个提前终止、哪些被接受、
+最好的那个走了多远。打开 `context.lineage` 后，planner 和 proposer 会读到它。设置 `round.picked_parents: k`
+后，每轮有 k 个名额的 parent 由代码而不是 planner 选择，即 **Picked parents**：代码按质量、繁殖力和新颖性
+给已评估的 trial 排序，每项都在 **Trial graph**（按生成关系、代码结构和相关性连接的 trial）上与相关的 trial
+共享，所以亲属表现好的 trial 会跟着上升。`trial_graph` 配置段决定共享多少以及图如何构建。web 面板的
+“why these parents”按轮展示传播如何改变每个 trial 的效用和排名：
+
+<p align="center">
+  <img src="docs/_static/web/propagation.png" alt="传播视图：每项效用上一个 trial 自身的值、邻居的平均值（列出权重最大的邻居）和传播后的值；旁边是排名阶梯，该 trial 从第 15 名升到第 10 名" width="100%">
+</p>
+
+详见 [Building on earlier trials](docs/user-guide/concepts.md#building-on-earlier-trials) 和
+[the campaign config](docs/user-guide/campaign.md#settings-with-defaults)（英文）。
 
 ## 文档
 
@@ -113,7 +145,8 @@ print(report.markdown())
 - [How the agent mines factors](docs/user-guide/mechanism.md)：用一张图讲清搜索、评判、学习闭环，以及模型能看到哪些数据
 - [First campaign](docs/getting-started/quickstart.md)：跑一次 campaign 并解读结果
 - [Concepts](docs/user-guide/concepts.md)：角色、因子集合、数据段，以及什么叫“被接受”
-- [The campaign config](docs/user-guide/campaign.md)：配置的每个部分、停止与续跑
+- [The campaign config](docs/user-guide/campaign.md)：配置的每个部分、检查配置、停止与续跑
+- [The web frontend](docs/user-guide/web.md)：面板的每个页面，以及如何在服务器上访问
 - [The vocabulary](docs/user-guide/vocabulary.md) 和 [prompts](docs/user-guide/prompts.md)：候选能读写什么，模型被告知什么
 - [LLM backends](docs/user-guide/llm-backends.md)：模型提供方、调用日志、重放、成本
 - [Gate, review and evaluation](docs/user-guide/evaluation.md) 和 [acceptance](docs/user-guide/acceptance.md)：因子如何被评判
