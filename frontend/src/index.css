@@ -130,6 +130,9 @@ aside.reader > .close:hover { color: var(--fg) }
 .plan .group-row { display: flex; flex-wrap: wrap; align-items: center; gap: 2px }
 .plan .fold { padding: 1px 6px 1px 0; margin-right: 4px; border: 0; background: none; color: var(--fg); font: inherit; font-size: 12px; cursor: pointer; text-align: left }
 .plan .group.shown .fold { margin-bottom: 2px }
+.plan .fold .caret { width: 12px; height: 12px; margin-right: 6px; vertical-align: -1px; fill: var(--mut); transition: transform .12s }
+.plan .fold .caret.shown { transform: rotate(90deg) }
+.plan .fold:hover .caret { fill: var(--fg) }
 .plan .mark { display: inline-flex; padding: 1px; border: 0; border-radius: 50%; background: none; cursor: pointer }
 .plan .mark svg { display: block; overflow: visible }
 .plan .mark.picked { box-shadow: 0 0 0 1.5px var(--acc) }

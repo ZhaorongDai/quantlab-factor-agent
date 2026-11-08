@@ -124,7 +124,7 @@ export function RoundPlanView({ run, round, plan, error, picked, pick, hovered, 
           <div key={g.type} className={`group${shown ? ' shown' : ''}`}>
             <div className="group-row">
               <button className="fold" aria-expanded={shown} aria-label={g.type || 'no mechanism type'} onClick={() => toggle(g.type)}>
-                {shown ? '▾' : '▸'} {g.type || 'no mechanism type'}
+                <svg className={`caret${shown ? ' shown' : ''}`} viewBox="0 0 10 10" aria-hidden="true"><polygon points="2,1 9,5 2,9" /></svg>{g.type || 'no mechanism type'}
               </button>
               {!shown && g.slots.map(s => (
                 <button key={s.slot} className={`mark${marks(s)}`} title={s.direction} aria-label={s.trial || `slot ${s.slot + 1}`}
@@ -138,7 +138,6 @@ export function RoundPlanView({ run, round, plan, error, picked, pick, hovered, 
                 {g.slots.map(s => (
                   <button key={s.slot} className={`slot o-${s.outcome ?? 'pending'}${marks(s)}`}
                           title={s.direction} onClick={() => select(s)} {...handlers(s)}>
-                    <span className="muted">{s.mechanism_type}</span>
                     <span>{s.action}{s.parent && <> of <span className="mono">{s.parent}</span></>}</span>
                     {s.picked && <span className="tag">picked parent</span>}
                   </button>
