@@ -1,11 +1,12 @@
-// The run's Lineage on the trials page: a round stepper with the stepped round's plan, the Lineage graph (every trial
+// The run's Lineage on the trials page: a round stepper with the stepped round's plan grouped by mechanism type, the Lineage graph (every trial
 // in a column of its round, its action as the node's shape, its outcome as the colour, an arrow from each parent, a
 // ring per round a trial was a Picked parent) and the side reader's Lineage of a trial.
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as api from './api'
 import type { PendingTrial, Placed, PlanSlot, RoundPlan, Run, Trial } from './api'
 import { family, idOf, keyOf, layout, rings, steppedRounds } from './lineage'
 import type { LineageNode } from './lineage'
+import { groupOf, groupSlots } from './slots'
 import type { Picked } from './Round'
 
 const fmt = (v: number | null | undefined, digits = 2) => (v == null ? '–' : (v > 0 ? '+' : '') + v.toFixed(digits))
@@ -73,33 +74,89 @@ export function useRoundPlan(name: string, run: Run, round: number | null) {
   return { plan: plan && plan.round === round ? plan : null, error }
 }
 
-// The stepped round's plan.
-export function RoundPlanView({ run, round, plan, error, picked, pick }: {
+// The stepped round's plan, its slots grouped by mechanism type in plan order, each group folded to one glyph per
+// slot until it is opened. Selecting a trial of the round elsewhere opens its group; stepping folds them again.
+// Hovering a written slot sets `hovered`, and the slot of the `hovered` trial stands out.
+export function RoundPlanView({ run, round, plan, error, picked, pick, hovered, hover }: {
   run: Run; round: number; plan: RoundPlan | null; error: string; picked: Picked; pick: (p: Picked) => void
+  hovered: string | null; hover: (key: string | null) => void
 }) {
-  const written = run.summary.rounds
-  if (error) return <p className="error small">{error}</p>
-  if (!plan) return <p className="muted small">Reading round {round}'s plan…</p>
-  const pending = round > written
-  const quota = Object.entries(plan.quota).filter(([, n]) => n > 0)
+  const [opened, setOpened] = useState<{ round: number; types: Set<string> }>({ round, types: new Set() })
+  const types = opened.round === round ? opened.types : new Set<string>()
+  const fromPlan = useRef<string | null>(null)
+  const pending = round > run.summary.rounds
   const on = (s: PlanSlot) => picked != null && (pending
     ? 'slot' in picked && picked.slot === s.slot : 'trial' in picked && picked.trial === keyOf(s.trial))
+  const pickedKey = JSON.stringify(picked)
+  const holding = plan ? groupOf(plan.slots, on) : null
+  useEffect(() => setOpened({ round, types: new Set() }), [round])
+  useEffect(() => {
+    const own = fromPlan.current === pickedKey
+    fromPlan.current = null
+    if (own || holding == null) return
+    setOpened(o => ({ round, types: new Set([...(o.round === round ? o.types : []), holding]) }))
+  }, [pickedKey, round, holding])
+  if (error) return <p className="error small">{error}</p>
+  if (!plan) return <p className="muted small">Reading round {round}'s plan…</p>
+  const quota = Object.entries(plan.quota).filter(([, n]) => n > 0)
+  const toggle = (type: string) => setOpened(o => {
+    const after = new Set(o.round === round ? o.types : [])
+    if (after.has(type)) after.delete(type); else after.add(type)
+    return { round, types: after }
+  })
+  const select = (s: PlanSlot) => {
+    const next: Picked = pending ? { slot: s.slot } : { trial: keyOf(s.trial)! }
+    fromPlan.current = JSON.stringify(next)
+    pick(next)
+  }
+  const linked = (s: PlanSlot) => (pending ? null : keyOf(s.trial))
+  const handlers = (s: PlanSlot) => {
+    const k = linked(s)
+    return k ? { onMouseEnter: () => hover(k), onMouseLeave: () => hover(null), onFocus: () => hover(k), onBlur: () => hover(null) } : {}
+  }
+  const marks = (s: PlanSlot) =>
+    `${s.picked ? ' picked' : ''}${on(s) ? ' on' : ''}${hovered != null && linked(s) === hovered ? ' hovered' : ''}`
   return (
     <section className="plan">
-      <div className="slots">
-        {plan.slots.map(s => (
-          <button key={s.slot} className={`slot o-${s.outcome ?? 'pending'}${s.picked ? ' picked' : ''}${on(s) ? ' on' : ''}`}
-                  title={s.direction} onClick={() => pick(pending ? { slot: s.slot } : { trial: keyOf(s.trial)! })}>
-            <span className="muted">{s.mechanism_type}</span>
-            <span>{s.action}{s.parent && <> of <span className="mono">{s.parent}</span></>}</span>
-            {s.picked && <span className="tag">picked parent</span>}
-          </button>
-        ))}
-      </div>
+      {groupSlots(plan.slots).map(g => {
+        const shown = types.has(g.type)
+        return (
+          <div key={g.type} className={`group${shown ? ' shown' : ''}`}>
+            <div className="group-row">
+              <button className="fold" aria-expanded={shown} aria-label={g.type || 'no mechanism type'} onClick={() => toggle(g.type)}>
+                {shown ? '▾' : '▸'} {g.type || 'no mechanism type'}
+              </button>
+              {!shown && g.slots.map(s => (
+                <button key={s.slot} className={`mark${marks(s)}`} title={s.direction} aria-label={s.trial || `slot ${s.slot + 1}`}
+                        onClick={() => select(s)} {...handlers(s)}>
+                  <Glyph action={s.action || 'new'} className={`node o-${s.outcome ?? 'pending'}`} />
+                </button>
+              ))}
+            </div>
+            {shown && (
+              <div className="slots">
+                {g.slots.map(s => (
+                  <button key={s.slot} className={`slot o-${s.outcome ?? 'pending'}${marks(s)}`}
+                          title={s.direction} onClick={() => select(s)} {...handlers(s)}>
+                    <span className="muted">{s.mechanism_type}</span>
+                    <span>{s.action}{s.parent && <> of <span className="mono">{s.parent}</span></>}</span>
+                    {s.picked && <span className="tag">picked parent</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })}
       {quota.length > 0 && <p className="muted small">Quota: {quota.map(([kind, n]) => `${kind} ${n}`).join(' · ')}</p>}
       {plan.issues.length > 0 && <ul className="issues">{plan.issues.map((x, i) => <li key={i}>{x}</li>)}</ul>}
     </section>
   )
+}
+
+// A trial's mark on its own, as the Lineage graph draws it.
+function Glyph({ action, className }: { action: string; className: string }) {
+  return <svg viewBox="-7 -7 14 14" width={14} height={14} aria-hidden="true"><Shape x={0} y={0} action={action} className={className} /></svg>
 }
 
 function Arrow({ from, to, className }: { from: [number, number]; to: [number, number]; className: string }) {
@@ -114,15 +171,17 @@ function Arrow({ from, to, className }: { from: [number, number]; to: [number, n
   )
 }
 
-function Shape({ x, y, action, className, onClick, title }: {
-  x: number; y: number; action: string; className: string; onClick: () => void; title: string
+function Shape({ x, y, action, className, title, ...on }: {
+  x: number; y: number; action: string; className: string; title?: string
+  onClick?: () => void; onMouseEnter?: () => void; onMouseLeave?: () => void
 }) {
-  const props = { className, onClick }
-  if (action === 'refinement') return <rect x={x - 4} y={y - 4} width={8} height={8} {...props}><title>{title}</title></rect>
+  const props = { className, ...on }
+  const named = title != null && <title>{title}</title>
+  if (action === 'refinement') return <rect x={x - 4} y={y - 4} width={8} height={8} {...props}>{named}</rect>
   if (action === 'mutation') {
-    return <polygon points={`${x},${y - 5.5} ${x + 5.5},${y} ${x},${y + 5.5} ${x - 5.5},${y}`} {...props}><title>{title}</title></polygon>
+    return <polygon points={`${x},${y - 5.5} ${x + 5.5},${y} ${x},${y + 5.5} ${x - 5.5},${y}`} {...props}>{named}</polygon>
   }
-  return <circle cx={x} cy={y} r={4.5} {...props}><title>{title}</title></circle>
+  return <circle cx={x} cy={y} r={4.5} {...props}>{named}</circle>
 }
 
 function Key({ picks }: { picks: boolean }) {
@@ -142,8 +201,9 @@ function Key({ picks }: { picks: boolean }) {
 // Every trial of the run in a column of its round. With a trial selected its family is lit; otherwise the stepped
 // round's trials and the parents they built on are. Clicking a Picked parent's ring of a round steps to that round,
 // selects the trial and calls `onPicks`, which opens the propagation view.
-export function LineageGraph({ run, stepper, selected, pick, onPicks }: {
+export function LineageGraph({ run, stepper, selected, pick, onPicks, hovered, hover }: {
   run: Run; stepper: Stepper; selected: Picked; pick: (p: Picked) => void; onPicks?: () => void
+  hovered: string | null; hover: (key: string | null) => void
 }) {
   const all = useMemo(() => nodes(run), [run])
   const at = useMemo(() => layout(all, stepper.rounds), [all, stepper.rounds.join()])
@@ -164,6 +224,7 @@ export function LineageGraph({ run, stepper, selected, pick, onPicks }: {
   const lit = (id: string) => (selectedId ? kin.has(id) : inRound.has(id) || parents.has(id))
   const pickedNow = (n: DrawnTrial) => n.pickedIn.includes(round)
   const byId = new Map(all.map(n => [n.id, n]))
+  const hoveredAt = hovered ? (() => { const [r, s] = hovered.split('.').map(Number); return xy(idOf(r, s)) })() : null
   return (
     <figure className="lineage">
       <Key picks={all.some(n => n.pickedIn.length > 0)} />
@@ -202,10 +263,13 @@ export function LineageGraph({ run, stepper, selected, pick, onPicks }: {
         {all.map(n => {
           const p = xy(n.id)
           if (!p) return null
+          const k = n.open && 'trial' in n.open ? n.open.trial : null
           return <Shape key={n.id} x={p[0]} y={p[1]} action={n.action} title={n.title}
-                        className={`node o-${n.outcome}${n.id === selectedId ? ' selected' : ''}${lit(n.id) || pickedNow(n) ? '' : ' faint'}`}
-                        onClick={() => pick(n.open)} />
+                        className={`node o-${n.outcome}${n.id === selectedId ? ' selected' : ''}${lit(n.id) || pickedNow(n) || (k != null && k === hovered) ? '' : ' faint'}`}
+                        onClick={() => pick(n.open)}
+                        {...(k ? { onMouseEnter: () => hover(k), onMouseLeave: () => hover(null) } : {})} />
         })}
+        {hoveredAt && <circle cx={hoveredAt[0]} cy={hoveredAt[1]} r={7.5} className="hover-ring" />}
       </svg>
     </figure>
   )
