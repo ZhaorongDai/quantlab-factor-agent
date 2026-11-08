@@ -167,7 +167,7 @@ reason, one row per reason with its count and rounds; click a row to list its tr
 ![A trial selected: it is marked on the graph and the map, and the side panel shows its Lineage and statistics](../_static/web/trial-reader.png)
 
 Clicking a node, a point or a slot opens the trial in the side panel and marks it on the
-graph and the map; "close" gives the width back. The panel shows the round, mechanism type
+graph and the map; × closes it and gives the width back. The panel shows the round, mechanism type
 and direction; its **Lineage**: the parent it builds on (a link) and who chose it, the
 rounds it was a Picked parent in, how many trials were built on it (refinements, mutations,
 stopped before evaluation, accepted), its fertility over the run's

@@ -120,7 +120,7 @@ dl.contribution dd { margin: 0 }
 .trials-page { display: grid; grid-template-columns: minmax(0, 1fr) minmax(280px, 380px); gap: 16px; align-items: start }
 @media (max-width: 900px) { .trials-page { grid-template-columns: minmax(0, 1fr) } }
 .trials-page.closed { grid-template-columns: minmax(0, 1fr) }
-aside.reader > .close { float: right; margin-left: 8px; color: var(--mut) }
+aside.reader > .close { float: right; margin-left: 8px; color: var(--mut); font-size: 22px; line-height: 1; padding: 0 2px }
 aside.reader > .close:hover { color: var(--fg) }
 .o-accepted { --o: var(--good) } .o-rejected { --o: var(--bad) } .o-failed { --o: var(--fail) } .o-pending { --o: var(--line) }
 .stepper { display: flex; align-items: center; gap: 10px; margin-bottom: 6px }
@@ -187,7 +187,7 @@ figure.lineage > svg { width: 100%; height: auto; display: block }
 .lineage-reader ul.children { list-style: none; margin: 4px 0 0; padding: 0 }
 .stepper button.on { border-color: var(--acc); color: var(--acc) }
 section.propagation { border: 1px solid var(--line); background: var(--card); border-radius: 6px; padding: 8px 12px; margin-top: 12px }
-section.propagation > .close { float: right; color: var(--mut) }
+section.propagation > .close { float: right; color: var(--mut); font-size: 22px; line-height: 1; padding: 0 2px }
 section.propagation > .close:hover { color: var(--fg) }
 section.propagation h4 { margin: 0 0 8px; font-size: 13px; font-weight: 600 }
 .propagation-row { display: flex; flex-wrap: wrap; gap: 24px; align-items: flex-start }

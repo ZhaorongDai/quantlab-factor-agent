@@ -290,7 +290,7 @@ export default function Trials({ run, name, clock }: { run: Run; name: string; c
         </div>
         {reader && (
           <aside className="reader">
-            <button className="link close small" onClick={() => setPicked(null)}>close</button>
+            <button className="link close small" onClick={() => setPicked(null)} aria-label="close">×</button>
             {reader}
           </aside>
         )}
