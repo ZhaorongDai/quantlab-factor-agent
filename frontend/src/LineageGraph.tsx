@@ -49,9 +49,9 @@ function nodes(run: Run): DrawnTrial[] {
 export function StepperBar({ stepper, children }: { stepper: Stepper; children?: React.ReactNode }) {
   return (
     <div className="stepper">
-      <button disabled={stepper.previous == null} onClick={() => stepper.go(stepper.previous!)}>previous</button>
+      <button disabled={stepper.previous == null} onClick={() => stepper.go(stepper.previous!)} aria-label="previous round">&lt;</button>
       <b>Round {stepper.round}</b>
-      <button disabled={stepper.next == null} onClick={() => stepper.go(stepper.next!)}>next</button>
+      <button disabled={stepper.next == null} onClick={() => stepper.go(stepper.next!)} aria-label="next round">&gt;</button>
       {children}
     </div>
   )

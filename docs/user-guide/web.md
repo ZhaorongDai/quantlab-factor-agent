@@ -128,7 +128,7 @@ so a pasted block never reopens it. The page runs none of these calls.
 
 The bar at the top counts the run's rounds, trials, evaluated, accepted and failed trials.
 
-**The round stepper** shows one round's plan, the latest by default; *previous* and *next*
+**The round stepper** shows one round's plan, the latest by default; the `<` and `>` arrows
 step through the rounds, the round in progress included. Each slot shows its mechanism
 type and action (new, refinement or mutation of a parent), its outcome as the colour of its
 lower edge (grey while pending), and "picked parent" with a blue outline when the code
