@@ -5,7 +5,8 @@ Newey-West t, its residual (partial) IC, what the pool explains of it and the
 pool factors most correlated with it, the order of its deciles' returns (as
 ranks), the nearest existing factor and the correlation with it, the nearest
 known factor and its sampled correlation, the rejection reasons, and each
-accepted factor's marginal weight and residual IC in the accepted pool. It
+accepted factor's marginal weight and residual IC in the accepted pool, and,
+when given, each accepted factor's and each parent's Lineage (``_lineage``). It
 never shows a return, a date, or advice to change windows or parameters. The first round
 has no history; it sees the data, the seed directions and the existing
 factor families (the reference set's, then the known factors', marked as
@@ -17,11 +18,15 @@ research direction names the trial it builds on (``parent``).
 
 import math
 import re
+from typing import TYPE_CHECKING
 
-from factor_agent._admission import direction, reason_kind
+from factor_agent._admission import direction, directional_t, reason_kind
 from factor_agent.evaluator import Contribution
 from factor_agent.ledger import TrialRecord
 from factor_agent.zoo import owner
+
+if TYPE_CHECKING:  # _lineage imports ``signed`` from here, so its Lineage is imported for the annotations only
+    from factor_agent._lineage import Lineage
 
 _DECIMAL = re.compile(r"[-+]?\d+\.\d+")
 _TRIAL_ID = re.compile(r"T(\d+)-(\d+)")
@@ -103,8 +108,8 @@ def history(
         if statistics and r.evaluated:
             m = r.metrics
             line += (
-                f"; training IC {_num(m['ic_mean'], 4)} (t {_num(m['ic_t'], 2)}), "
-                f"residual IC {_num(m['partial_ic_mean'], 4)} (t {_num(m['partial_ic_t'], 2)})"
+                f"; training IC {signed(m['ic_mean'], 4)} (t {signed(m['ic_t'], 2)}), "
+                f"residual IC {signed(m['partial_ic_mean'], 4)} (t {signed(m['partial_ic_t'], 2)})"
             )
             share = m.get("pool_share", float("nan"))
             if share is not None and math.isfinite(share) and share > 0:
@@ -162,7 +167,7 @@ def theme_groups(names: list[str], matrix, threshold: float) -> list[list[str]]:
     opens a group of its own otherwise. The groups are in the order they
     were opened, each in the order its trials were tried.
     """
-    order = sorted(range(len(names)), key=lambda k: _trial_order(names[k]))
+    order = sorted(range(len(names)), key=lambda k: trial_order(names[k]))
     group_of: dict[int, int] = {}
     groups: list[list[str]] = []
     for position, j in enumerate(order):
@@ -177,7 +182,7 @@ def theme_groups(names: list[str], matrix, threshold: float) -> list[list[str]]:
     return groups
 
 
-def _trial_order(trial: str) -> tuple[int, int]:
+def trial_order(trial: str) -> tuple[int, int]:
     """The round and the slot of a trial id (``trial_id``)."""
     number, slot = _TRIAL_ID.fullmatch(trial).groups()
     return int(number), int(slot)
@@ -217,7 +222,7 @@ def themes(
         first = records[0]
         accepted = [t for t in group if by_id[t].status == "accepted"]
         best_t, best_id = max(
-            ((direction(r.metrics["ic_mean"]) * r.metrics["partial_ic_t"], t) for t, r in zip(group, records)
+            ((directional_t(r.metrics), t) for t, r in zip(group, records)
              if math.isfinite(r.metrics["partial_ic_t"])),
             default=(float("nan"), ""),
         )
@@ -230,7 +235,7 @@ def themes(
             f"({', '.join(group)}), {len(accepted)} accepted{' (' + ', '.join(accepted) + ')' if accepted else ''}"
         )
         if best_id:
-            line += f"; largest residual t in its direction {_num(best_t, 2)} ({best_id})"
+            line += f"; largest residual t in its direction {signed(best_t, 2)} ({best_id})"
         line += f"; last tried in round {max(r.round for r in records)}"
         if refused:
             line += "; refused: " + ", ".join(f"{label} {count}" for label, count in refused.items())
@@ -267,8 +272,11 @@ def last_round(trials: list[tuple[str, TrialRecord]], earlier: list[tuple[str, T
     return "\n".join(blocks)
 
 
-def parent(trial: str, r: TrialRecord, earlier: list[tuple[str, TrialRecord]] = ()) -> str:
-    """The trial a research direction builds on, as its proposer reads it: what it computed, its code, statistics and reasons."""
+def parent(trial: str, r: TrialRecord, earlier: list[tuple[str, TrialRecord]] = (), lineage: "Lineage | None" = None) -> str:
+    """The trial a research direction builds on, as its proposer reads it: what it computed, its code, statistics and reasons.
+
+    With its ``lineage`` the block ends with how the trials built on it did.
+    """
     code = "\n".join("     " + line for line in r.candidate.get("code", "").splitlines())
     lines = [
         f"{trial}, round {r.round}, {r.candidate.get('mechanism_type', '?')}: {r.candidate.get('description', '')}",
@@ -276,7 +284,7 @@ def parent(trial: str, r: TrialRecord, earlier: list[tuple[str, TrialRecord]] = 
         f"   outcome: {outcome(r)}",
         "   code:", code,
     ]
-    return "\n".join(lines + _statistics(r, earlier))
+    return "\n".join(lines + _statistics(r, earlier) + ([f"   {lineage.text()}"] if lineage is not None else []))
 
 
 def _statistics(r: TrialRecord, earlier: list[tuple[str, TrialRecord]] = ()) -> list[str]:
@@ -288,17 +296,17 @@ def _statistics(r: TrialRecord, earlier: list[tuple[str, TrialRecord]] = ()) -> 
     if r.evaluated:
         m = r.metrics
         nearest = (
-            f"nearest existing factor {m['nearest']}, correlation {_num(m['nearest_correlation'], 2)}"
+            f"nearest existing factor {m['nearest']}, correlation {signed(m['nearest_correlation'], 2)}"
             if m["nearest"] else "no existing factor to compare with"
         )
         if m["nearest_known"]:
             nearest += (
                 f"; nearest known factor {m['nearest_known']}, "
-                f"sampled correlation {_num(m['nearest_known_correlation'], 2)}"
+                f"sampled correlation {signed(m['nearest_known_correlation'], 2)}"
             )
         lines.append(
-            f"   training IC {_num(m['ic_mean'], 4)} (Newey-West t {_num(m['ic_t'], 2)}); "
-            f"residual IC {_num(m['partial_ic_mean'], 4)} (Newey-West t {_num(m['partial_ic_t'], 2)}); {nearest}"
+            f"   training IC {signed(m['ic_mean'], 4)} (Newey-West t {signed(m['ic_t'], 2)}); "
+            f"residual IC {signed(m['partial_ic_mean'], 4)} (Newey-West t {signed(m['partial_ic_t'], 2)}); {nearest}"
         )
         overlap = _overlap(m, {accepted_label(e): t for t, e in earlier if e.status == "accepted"})
         if overlap:
@@ -324,8 +332,13 @@ def accepted(records: list[TrialRecord]) -> str:
     )
 
 
-def best(trials: list[tuple[str, TrialRecord]], contributions: dict[str, Contribution]) -> str:
-    """The accepted factors (of ``named`` trials): id, name, mechanism, code, and marginal weight and residual IC in the accepted pool."""
+def best(
+    trials: list[tuple[str, TrialRecord]], contributions: dict[str, Contribution], lineage: "dict[str, Lineage] | None" = None,
+) -> str:
+    """The accepted factors (of ``named`` trials): id, name, mechanism, code, and marginal weight and residual IC in the accepted pool.
+
+    With ``lineage`` (by trial id, ``_lineage.lineages``) each also carries its Lineage.
+    """
     blocks = []
     for trial, r in trials:
         if r.status != "accepted":
@@ -339,8 +352,10 @@ def best(trials: list[tuple[str, TrialRecord]], contributions: dict[str, Contrib
         ]
         if part is not None:
             lines.append(
-                f"  in the accepted pool: marginal weight {_num(part.weight, 3)}, residual IC {_num(part.residual_ic, 4)}"
+                f"  in the accepted pool: marginal weight {signed(part.weight, 3)}, residual IC {signed(part.residual_ic, 4)}"
             )
+        if lineage and trial in lineage:
+            lines.append(f"  {lineage[trial].text()}")
         blocks.append("\n".join(lines))
     return "\n".join(blocks)
 
@@ -370,7 +385,7 @@ def _overlap(metrics: dict, ids: dict[str, str]) -> str:
     share, overlaps = metrics.get("pool_share"), metrics.get("overlaps") or []
     if share is None or not math.isfinite(share) or not overlaps:
         return ""
-    named = ", ".join(f"{ids.get(name, name)} {_num(correlation, 2)}" for name, correlation in overlaps)
+    named = ", ".join(f"{ids.get(name, name)} {signed(correlation, 2)}" for name, correlation in overlaps)
     return (
         f"   {max(share, 0):.0%} of its daily cross-section is explained by the reference set and the accepted "
         f"factors (the part the residual IC leaves out); most correlated: {named}"
@@ -386,7 +401,7 @@ def _direction(r: TrialRecord, by_id: dict[str, TrialRecord] | None = None) -> s
     earlier = (by_id or {}).get(d["parent"])
     if earlier is None or not earlier.evaluated:
         return f"{text} of {d['parent']}"
-    return f"{text} of {d['parent']} (whose residual t was {_num(earlier.metrics['partial_ic_t'], 2)})"
+    return f"{text} of {d['parent']} (whose residual t was {signed(earlier.metrics['partial_ic_t'], 2)})"
 
 
 def outcome(r: TrialRecord) -> str:
@@ -395,5 +410,6 @@ def outcome(r: TrialRecord) -> str:
 
 
 
-def _num(value: float, digits: int) -> str:
+def signed(value: float, digits: int) -> str:
+    """``value`` with its sign and ``digits`` decimals, or ``n/a`` when it is not a number."""
     return f"{value:+.{digits}f}" if math.isfinite(value) else "n/a"

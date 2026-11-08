@@ -316,3 +316,67 @@ def test_the_threshold_grows_with_the_whole_trial_count_by_default_and_with_a_po
 def test_a_trial_exponent_outside_zero_to_one_is_refused(tmp_path, exponent):
     with pytest.raises(ValueError, match=f"admission: trial_exponent is {exponent}"):
         CampaignConfig.from_file(_minimal(tmp_path, admission={"trial_exponent": exponent}))
+
+
+@pytest.mark.parametrize("role, misspelt, options", [
+    ("planner", {"backend": "openai_compatible", "base_url": "http://127.0.0.1:1/v1", "timeout": 60},
+     "api_key_env, base_url, max_completion_tokens, max_tokens, reasoning_effort, timeout_seconds"),
+    ("proposer", {"backend": "anthropic", "max_token": 100}, "base_url, effort, max_tokens, timeout_seconds"),
+    ("reviewer", {"backend": "claude_code", "reasoning_effort": "low"}, "effort, executable, timeout_seconds"),
+    ("distiller", {"backend": "replay", "logs": "llm_log"}, "log"),
+    ("planner", {"backend": "scripted", "reply": "r.json"}, "replies"),
+])
+def test_an_option_a_roles_backend_does_not_take_is_refused_naming_the_options_it_does(tmp_path, role, misspelt, options):
+    llm = {name: {"backend": "scripted", "model": "m", "replies": "r.json"} for name in ROLES}
+    llm[role] = {"model": "m", **misspelt}
+    unknown = next(key for key in misspelt if key not in ("backend", "base_url"))
+    message = rf"llm\.{role}: .*{misspelt['backend']}.* does not take \['{unknown}'\]; it takes {options}"
+    with pytest.raises(TypeError, match=message):
+        CampaignConfig.from_file(_minimal(tmp_path, llm=llm))
+
+
+def test_a_role_naming_an_unknown_backend_is_refused_when_the_config_is_read(tmp_path):
+    llm = {name: {"backend": "scripted", "model": "m", "replies": "r.json"} for name in ROLES}
+    llm["reviewer"] = {"backend": "openai", "model": "m"}
+    with pytest.raises(ValueError, match=r"llm\.reviewer: unknown LLM backend 'openai'"):
+        CampaignConfig.from_file(_minimal(tmp_path, llm=llm))
+
+
+@pytest.mark.parametrize("segment", ["training", "confirmation", "validation", "holdout"])
+def test_a_segment_entry_with_another_key_than_start_and_end_is_refused(tmp_path, segment):
+    segments = {
+        "training": {"start": "2020-01-01", "end": "2020-12-31"},
+        "confirmation": {"start": "2021-01-01", "end": "2021-06-30"},
+        "validation": {"start": "2021-07-01", "end": "2021-12-31"},
+        "holdout": {"start": "2022-01-01", "end": "2022-12-31"},
+    }
+    segments[segment]["purge_bars"] = 5
+    with pytest.raises(TypeError, match=rf"segments\.{segment}: unknown key\(s\) \['purge_bars'\]; it takes start and end"):
+        CampaignConfig.from_file(_minimal(tmp_path, segments=segments))
+
+
+@pytest.mark.parametrize("option", ["api_key", "token", "ANTHROPIC_API_KEY"])
+def test_a_key_in_a_role_is_refused_when_the_config_is_read_saying_to_name_an_environment_variable(tmp_path, option):
+    llm = {name: {"backend": "scripted", "model": "m", "replies": "r.json"} for name in ROLES}
+    llm["planner"] = {"backend": "openai_compatible", "model": "m", "base_url": "http://127.0.0.1:1/v1",
+                      option: "sk-secret-sentinel"}
+    with pytest.raises(ValueError, match=r"llm\.planner: .*environment variable \(name it with api_key_env\)") as raised:
+        CampaignConfig.from_file(_minimal(tmp_path, llm=llm))
+    assert "sk-secret-sentinel" not in str(raised.value)
+
+
+def test_every_factor_entry_that_cannot_be_rebuilt_is_named_with_its_cause(store, tmp_path):
+    unimportable = tmp_path / "unimportable"
+    unimportable.mkdir()
+    recorded = json.loads((store / "component.json").read_text())
+    recorded["name"] = "no_such_research_package.factor.Alpha"
+    (unimportable / "component.json").write_text(json.dumps(recorded))
+    config = CampaignConfig.from_file(_minimal(
+        tmp_path, reference=[str(store), str(unimportable)], known=[{"store": str(unimportable)}],
+    ))
+    with pytest.raises(ValueError) as raised:
+        config.load_factors()
+    assert raised.value.problems == (
+        f"reference[1] {unimportable}: No module named 'no_such_research_package'",
+        f"known[0] {unimportable}: No module named 'no_such_research_package'",
+    )

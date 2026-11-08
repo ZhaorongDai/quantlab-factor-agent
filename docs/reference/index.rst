@@ -17,6 +17,9 @@ see the :doc:`../user-guide/index`; to run a campaign, see the
    * - Configure and run a campaign
      - ``CampaignConfig``, ``Campaign``, ``CampaignResult``
      - :doc:`campaign`
+   * - Check a config before a run
+     - ``Campaign.check``, ``CheckReport``, ``factor-agent check``
+     - :doc:`campaign`
    * - Check candidate code
      - ``Gate``, ``Graph``, ``Vocabulary``, ``Zoo``, ``stages.split``
      - :doc:`gate`

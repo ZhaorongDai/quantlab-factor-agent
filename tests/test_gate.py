@@ -141,8 +141,9 @@ def _slow_start(monkeypatch, seconds: float) -> None:
 
 
 def test_the_timeout_leaves_out_the_sandbox_start(monkeypatch):
-    _slow_start(monkeypatch, 2.0)
-    gate = Gate(GateConfig(timeout_seconds=1.0), price_volume())
+    # The start outlasts the timeout by 3 s; the build itself has 5 s, so a loaded machine does not fail it.
+    _slow_start(monkeypatch, 8.0)
+    gate = Gate(GateConfig(timeout_seconds=5.0), price_volume())
     result = gate.check(_candidate("alpha = close / open"), Zoo())
     assert isinstance(result, Passed), getattr(result, "reasons", None)
 

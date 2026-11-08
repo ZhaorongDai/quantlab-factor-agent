@@ -25,7 +25,7 @@ import dataclasses
 import json
 import re
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict, dataclass
 
@@ -33,7 +33,7 @@ from factor_agent.candidate import Candidate
 from factor_agent.events import CallEnd, CallStart, Event, Events, GateOutcome, GateStep, ReviewVerdict, reply_facts
 from factor_agent.gate import Gate, Passed
 from factor_agent.llm.base import LLMBackend, ProviderQuotaExhausted, Request
-from factor_agent.prompts import ACTION_RULES, MEMORY_ITEMS, MEMORY_PARTS, ONLY_NEW, SECTIONS, Prompts
+from factor_agent.prompts import ACTION_RULES, MEMORY_ITEMS, MEMORY_PARTS, ONLY_NEW, PICKED, SECTIONS, Prompts
 from factor_agent.zoo import Zoo
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
@@ -163,6 +163,7 @@ class Researcher:
 
     def plan(
         self, number: int, quota: dict[str, int], context: dict[str, str], parents: list[str] | None,
+        picked: Sequence[tuple[str, str]] = (),
     ) -> tuple[list[Direction], list[str]]:
         """Return round ``number``'s directions, ``quota[type]`` of each type in type order, and the plan's issues.
 
@@ -170,12 +171,19 @@ class Researcher:
         name, or None when the planner reads no earlier trial and every
         direction is new. A direction naming another parent is kept as a new
         direction; one the planner leaves out, or writes with an unknown type
-        or action, is replaced by a new direction of its type. Each such
+        or action, is replaced by a new direction of its type. ``picked`` are
+        the picked slots, ``(mechanism type, parent)`` in pick order, each
+        one of its type's slots in ``quota``: the planner is told them, the
+        first direction of that type naming that parent fills the slot, and
+        a picked slot it leaves out is planned as a refinement of its
+        parent. A type's picked slots come first among its directions. Each
         repair is one issue.
         """
+        slots = [{"mechanism_type": kind, "parent": parent} for kind, parent in picked]
         prompt = self.prompts.render(
             "plan", round=number, context=render_context(context, PLANNER_SECTIONS), quota=json.dumps(quota),
             actions=ONLY_NEW if parents is None else ACTION_RULES,
+            picked=PICKED.format(slots=json.dumps(slots, indent=2)) if slots else "",
         )
         parents = parents or []
         issues, by_type = [], {kind: [] for kind in self._types}
@@ -192,21 +200,40 @@ class Researcher:
                 item = {**item, "parent": ""}
             elif item["parent"] not in parents:
                 issues.append(
-                    f"planner: direction {i} names {item['parent']!r}, which is not an evaluated trial; "
+                    f"planner: direction {i} names {item['parent']!r}, which is not a trial a direction may build on; "
                     f"it is planned as a new direction"
                 )
                 item = {**item, "action": "new", "parent": ""}
             by_type[item["mechanism_type"]].append(Direction(**{k: item[k] for k in Direction.__annotations__}))
         directions = []
         for kind in self._types:
-            if len(by_type[kind]) > quota[kind]:
-                issues.append(f"planner: {len(by_type[kind])} {kind} directions for {quota[kind]} slots; the first are kept")
-            planned = by_type[kind][:quota[kind]]
-            if len(planned) < quota[kind]:
-                issues.append(f"planner: {len(planned)} of {quota[kind]} {kind} directions; the rest are new directions")
-            planned += [
+            planned, free = [], list(by_type[kind])
+            for parent in [parent for of, parent in picked if of == kind]:
+                filling = next((d for d in free if d.parent == parent), None)
+                if filling is None:
+                    issues.append(
+                        f"planner: the picked {kind} slot of {parent} is not planned; "
+                        f"it is planned as a refinement of {parent}"
+                    )
+                    filling = Direction(kind, "refinement", parent, f"the mechanism of {parent} measured another way")
+                else:
+                    free.remove(filling)
+                planned.append(filling)
+            slots = quota[kind] - len(planned)
+            if len(free) > slots:
+                issues.append(
+                    f"planner: {len(by_type[kind])} {kind} directions for {quota[kind]} slots; the first are kept"
+                    if not planned else
+                    f"planner: {len(free)} {kind} directions besides the picked ones for {slots} slots; the first are kept"
+                )
+            kept = free[:slots]
+            if len(kept) < slots:
+                issues.append(
+                    f"planner: {len(planned) + len(kept)} of {quota[kind]} {kind} directions; the rest are new directions"
+                )
+            planned += kept + [
                 Direction(kind, "new", "", f"a {kind} mechanism not tried before")
-                for _ in range(quota[kind] - len(planned))
+                for _ in range(slots - len(kept))
             ]
             directions += planned
         return directions, issues
