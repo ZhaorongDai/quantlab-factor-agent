@@ -6,6 +6,11 @@ layout; there are no compatibility shims or config migrations.
 
 ## Unreleased
 
+## 0.2.0 (2026-11-07)
+
+Each trial's Lineage, Picked parents over a configurable Trial graph, a preflight check, and
+the web panel's Lineage graph and propagation view.
+
 ### Added
 
 - `Campaign.check()` reports what `run()` would refuse before its first LLM call, every
