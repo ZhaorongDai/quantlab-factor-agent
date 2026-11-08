@@ -194,7 +194,7 @@ section.propagation h4 { margin: 0 0 8px; font-size: 13px; font-weight: 600 }
 .propagation .rank-id { fill: var(--mut); font-size: 10px; font-family: ui-monospace, monospace; cursor: pointer }
 .propagation .rank-id.picked { fill: var(--fg); font-weight: 600 } .propagation .rank-id.self { fill: var(--acc) }
 .propagation .pick-line { stroke: var(--fg); stroke-width: 1.5; stroke-dasharray: 6 3 }
-.propagation .rank-arrow { stroke-width: 2 } .propagation .rank-arrow.up { stroke: var(--good) } .propagation .rank-arrow.down { stroke: var(--bad) }
+.propagation .rank-arrow { stroke-width: 2; stroke: var(--mut) } .propagation .rank-arrow.up { stroke: var(--good) } .propagation .rank-arrow.down { stroke: var(--bad) }
 .propagation .rank-dot { fill: var(--card); stroke: var(--mut); stroke-width: 1.5 }
 .propagation .rank-dot.after { fill: var(--acc); stroke: var(--acc) } .propagation .rank-dot.after.picked { stroke: var(--fg); stroke-width: 2.5 }
 .propagation .picked-list { display: flex; flex-wrap: wrap; gap: 6px 18px }

@@ -4,7 +4,7 @@
 // With nothing selected, the round's Picked parents with their rank before and after propagation.
 import { useState } from 'react'
 import type { NodeView, Relation, RoundGraph } from './api'
-import { axisRow, ladder, pickLine } from './propagation'
+import { axisRow, ladder, pickLine, rankMove } from './propagation'
 import type { Utility } from './propagation'
 
 const UTILITIES: Utility[] = ['quality', 'fertility', 'novelty']
@@ -13,8 +13,8 @@ const RELATIONS: Record<Relation, string> = { generation: 'parent or child', str
 const fmt = (v: number) => v.toFixed(2)
 
 function Rank({ from, to }: { from: number | null; to: number | null }) {
-  const way = from == null || to == null || from === to ? '' : to < from ? ' up' : ' down'
-  return <span className={`rank-move${way}`}>{from ?? '–'} → {to ?? '–'}</span>
+  const way = rankMove(from, to)
+  return <span className={`rank-move${way && ` ${way}`}`}>{from ?? '–'} → {to ?? '–'}</span>
 }
 
 function Row({ graph, node, utility, open, setOpen, pick }: {
@@ -76,7 +76,7 @@ function Ladder({ graph, node, pick }: { graph: RoundGraph; node: NodeView; pick
   const H = below + 8
   const yOf = (p: { row: number | null; below: number | null }) => (p.row != null ? y(p.row) : p.below != null ? below - 12 : null)
   const yb = yOf(at.before), ya = yOf(at.after)
-  const rose = node.rank_own != null && node.rank_propagated != null && node.rank_propagated < node.rank_own
+  const way = rankMove(node.rank_own, node.rank_propagated)
   return (
     <svg viewBox={`0 0 ${W} ${H}`} className="ladder" style={{ maxWidth: W }}>
       <text x={XB} y={10} textAnchor="middle" className="label">before</text>
@@ -96,7 +96,7 @@ function Ladder({ graph, node, pick }: { graph: RoundGraph; node: NodeView; pick
         )
       })}
       {line > 0 && <line x1={4} x2={W - 4} y1={TOP + line * RH} y2={TOP + line * RH} className="pick-line" />}
-      {yb != null && ya != null && <line x1={XB + 6} y1={yb} x2={XA - 38} y2={ya} className={`rank-arrow${rose ? ' up' : ' down'}`} />}
+      {yb != null && ya != null && <line x1={XB + 6} y1={yb} x2={XA - 38} y2={ya} className={`rank-arrow${way && ` ${way}`}`} />}
       {yb != null && <circle cx={XB} cy={yb} r={5} className="rank-dot" />}
       {at.before.below != null && <text x={XB} y={below + 4} textAnchor="middle" className="rank">{at.before.below}</text>}
       {ya != null && <circle cx={XA - 32} cy={ya} r={5} className={`rank-dot after${graph.picked.includes(node.trial) ? ' picked' : ''}`} />}

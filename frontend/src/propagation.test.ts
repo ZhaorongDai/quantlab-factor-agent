@@ -1,7 +1,7 @@
 // The propagation view's axes and rank ladder, run with `npm test`.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { axisRow, ladder, pickLine } from './propagation.ts'
+import { axisRow, ladder, pickLine, rankMove } from './propagation.ts'
 
 const node = (trial: string, own: number, neighbourhood: number, propagated: number, rank: number | null = null) => {
   const u = (v: number) => ({ quality: v, fertility: 0, novelty: 0 })
@@ -49,4 +49,11 @@ test('a rank past the ladder shows as its number below it, a rank on it as its r
   const found = ladder(23, 4, 2, 15)
   assert.deepEqual(found.before, { row: null, below: 23 })
   assert.deepEqual(found.after, { row: 4, below: null })
+})
+
+test('a rank that rose, fell or stayed after propagation moves up, down or not at all', () => {
+  assert.equal(rankMove(5, 2), 'up')
+  assert.equal(rankMove(2, 5), 'down')
+  assert.equal(rankMove(1, 1), '')
+  assert.equal(rankMove(null, 3), '')
 })

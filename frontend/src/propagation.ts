@@ -26,6 +26,11 @@ export function pickLine(nodes: AxisNode[], picked: string[]): number {
 
 // The ladder's rows, at least `rows` and one past the pick line, and where the trial's ranks before and after
 // propagation sit: on a row, or below the ladder with their number when they are past it; neither for a rank of none.
+// Which way a trial's rank moved with propagation: up when it rose, down when it fell, '' when it stayed or is unknown.
+export function rankMove(before: number | null, after: number | null): '' | 'up' | 'down' {
+  return before == null || after == null || before === after ? '' : after < before ? 'up' : 'down'
+}
+
 export function ladder(before: number | null, after: number | null, line: number, rows = 15) {
   const shown = Math.max(rows, line + 1)
   const place = (rank: number | null) => ({
