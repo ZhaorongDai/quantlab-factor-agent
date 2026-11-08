@@ -112,7 +112,7 @@ export function Propagation({ graph, selected, pick, close }: {
   const node = graph.nodes.find(n => n.trial === selected)
   return (
     <section className="propagation">
-      <button className="link close small" onClick={close}>close</button>
+      <button className="link close small" onClick={close} aria-label="close">×</button>
       {node ? <>
         <h4><span className="mono">{node.trial}</span>{node.reason && <span className="muted"> {REASONS[node.reason]}</span>}</h4>
         <div className="propagation-row">

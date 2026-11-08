@@ -123,7 +123,7 @@ export default function Verdict({ run }: { run: Run }) {
       <section className="verdict unjudged">
         <h2>Not judged against your model yet</h2>
         <pre className="code">{HOW}</pre>
-        <p className="muted small">Per-factor contribution: <code>acceptance.contribution: both</code></p>
+        <p className="muted small">Each factor's add-one and drop-one: set <code>acceptance.contribution: both</code> before validating.</p>
       </section>
     )
   }
@@ -145,7 +145,7 @@ export default function Verdict({ run }: { run: Run }) {
           <p className="muted small">No per-factor contribution (older report).</p>
         )}
         {v.contribution?.length === 0 && (
-          <p className="muted small">Per-factor contribution: <code>acceptance.contribution: both</code></p>
+          <p className="muted small">Each factor's add-one and drop-one: set <code>acceptance.contribution: both</code> and validate again.</p>
         )}
       </div>
       {holdout ? <Holdout c={holdout} opens={opens} /> : opens.length > 0 ? (
