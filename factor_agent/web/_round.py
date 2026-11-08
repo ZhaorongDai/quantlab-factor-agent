@@ -17,6 +17,7 @@ from factor_agent.llm._raw import raw_facts
 from factor_agent.llm.base import Reply
 from factor_agent.web._files import Replayed, loads, utc
 from factor_agent.web._health import Tokens
+from factor_agent.web._plans import picked_slots
 
 
 @dataclass(frozen=True)
@@ -53,7 +54,9 @@ class PendingTrial:
     ``direction`` is its research direction as the plan gives it. ``latest``
     is its latest version as the proposer wrote it, ``None`` before the
     first. ``checks`` are the Gate's outcomes and the reviewer's verdicts
-    so far, the earliest first. It becomes a trial when its round is written.
+    so far, the earliest first. ``parent_picked`` is true when the code
+    picked its parent (a Picked parent). It becomes a trial when its round
+    is written.
     """
 
     slot: int
@@ -61,6 +64,7 @@ class PendingTrial:
     direction: dict
     latest: object
     checks: tuple[Check, ...]
+    parent_picked: bool = False
 
 
 @dataclass(frozen=True)
@@ -140,6 +144,7 @@ def running(number: int, replayed: Replayed) -> RunningRound | None:
     calls: dict[int, RoundCall] = {}
     evaluation = None
     directions: list[dict] = []
+    picked: set[int] = set()
     stages: dict[int, str] = {}
     latest: dict[int, object] = {}
     checks: dict[int, list[Check]] = {}
@@ -160,7 +165,7 @@ def running(number: int, replayed: Replayed) -> RunningRound | None:
         elif isinstance(event, events.EvaluationStart):
             evaluation = event.time
         elif isinstance(event, events.Plan):
-            directions = event.directions
+            directions, picked = event.directions, picked_slots(event)
             stages = dict.fromkeys(range(len(directions)), "planned")
         elif isinstance(event, events.GateOutcome):
             stages[event.slot], latest[event.slot] = event.step, event.item
@@ -176,7 +181,7 @@ def running(number: int, replayed: Replayed) -> RunningRound | None:
             ))
     pending = tuple(
         PendingTrial(slot=slot, stage=stages[slot], direction=direction, latest=latest.get(slot),
-                     checks=tuple(checks.get(slot, ())))
+                     checks=tuple(checks.get(slot, ())), parent_picked=slot in picked)
         for slot, direction in enumerate(directions)
     )
     return RunningRound(round=number, started=started, calls=tuple(calls.values()), evaluation=evaluation,

@@ -40,6 +40,63 @@ export type Trial = {
   collisions: Collision[]
   // Whether the graph the Gate built holds a session aggregation; false without a graph.
   intraday: boolean
+  lineage: TrialLineage | null
+  // The rounds whose plans picked it as a Picked parent, the round in progress included.
+  picked_in: number[]
+  // Whether the code picked its parent (false when the planner chose it, or it has none).
+  parent_picked: boolean
+}
+
+// The trials built on a trial, and how they did; trials are named by their ids (T<round>-<slot from 1>).
+export type TrialLineage = {
+  attempts: number
+  refinements: number
+  mutations: number
+  unevaluated: number
+  accepted: string[]
+  best_child: string | null
+  best_child_t: number | null
+  own_t: number | null
+  fertility: number
+}
+
+// One slot of a round's plan and its trial's id; outcome is its trial's status, null while it is pending.
+export type PlanSlot = {
+  slot: number
+  trial: string
+  mechanism_type: string
+  action: string
+  parent: string
+  direction: string
+  picked: boolean
+  outcome: 'accepted' | 'rejected' | 'failed' | null
+}
+
+export type Utilities = { quality: number; fertility: number; novelty: number }
+export type Relation = 'generation' | 'structure' | 'correlation'
+
+// A trial in a round's Trial graph: its utilities, its ranks in the pick order on its own and on its propagated
+// utilities (null when it may not be picked, reason saying why) and its heaviest neighbours, each with the total weight
+// of its edges to it and the relations joining them.
+export type NodeView = {
+  trial: string
+  own: Utilities
+  propagated: Utilities
+  neighbourhood: Utilities
+  rank_own: number | null
+  rank_propagated: number | null
+  eligible: boolean
+  reason: 'expansion_cap' | 'max_children' | null
+  heaviest: { trial: string; weight: number; relations: Relation[] }[]
+}
+
+// A round's Trial graph: gamma, the round's Picked parents in pick order and every node.
+export type RoundGraph = { gamma: number; picked: string[]; nodes: NodeView[] }
+
+// One round's plan; quota and issues are empty for a run whose events do not hold it, graph null for a round whose
+// Trial graph the run directory does not hold.
+export type RoundPlan = {
+  round: number; slots: PlanSlot[]; quota: Record<string, number>; issues: string[]; graph: RoundGraph | null
 }
 
 export type LineChange = { change: 'kept' | 'added' | 'removed'; line: string }
@@ -121,6 +178,7 @@ export type PendingTrial = {
   direction: Record<string, string>
   latest: unknown
   checks: Check[]
+  parent_picked: boolean
 }
 
 // An LLM call of the round in progress: `number` (its call file's) is null while it is out, or when it failed.
@@ -252,5 +310,7 @@ export const call = (name: string, number: number) =>
   get<LLMCall>(`/api/run/call?name=${encodeURIComponent(name)}&number=${number}`)
 export const ic = (name: string, round: number, slot: number) =>
   get<TrialIC>(`/api/run/ic?name=${encodeURIComponent(name)}&round=${round}&slot=${slot}`)
+export const plan = (name: string, round: number) =>
+  get<RoundPlan>(`/api/run/round?name=${encodeURIComponent(name)}&round=${round}`)
 export const files = (name: string) => get<RunFiles>(`/api/run/files?name=${encodeURIComponent(name)}`)
 export const version = (name: string) => get<string>(`/api/run/version?name=${encodeURIComponent(name)}`)

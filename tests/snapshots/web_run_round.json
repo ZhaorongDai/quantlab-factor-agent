@@ -1,0 +1,34 @@
+{
+  "round": 1,
+  "slots": [
+    {
+      "slot": 0,
+      "trial": "T1-01",
+      "mechanism_type": "risk_compensation",
+      "action": "new",
+      "parent": "",
+      "direction": "a risk_compensation direction",
+      "picked": false,
+      "outcome": "accepted"
+    },
+    {
+      "slot": 1,
+      "trial": "T1-02",
+      "mechanism_type": "liquidity",
+      "action": "new",
+      "parent": "",
+      "direction": "a liquidity direction",
+      "picked": false,
+      "outcome": "failed"
+    }
+  ],
+  "quota": {
+    "behavioural_bias": 0,
+    "risk_compensation": 1,
+    "liquidity": 1,
+    "microstructure": 0,
+    "information_diffusion": 0
+  },
+  "issues": [],
+  "graph": null
+}
