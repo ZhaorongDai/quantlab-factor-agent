@@ -164,6 +164,43 @@ def test_a_sandbox_that_does_not_start_is_a_broken_environment_not_a_refusal(mon
         gate.check(_candidate("alpha = close / open"), Zoo())
 
 
+def test_the_sandbox_sees_the_interpreter_through_a_symlinked_directory(tmp_path, monkeypatch):
+    # uv 0.13 points a virtual environment at a minor-version directory, a symlink to the patch
+    # release (cpython-3.13 -> cpython-3.13.18): the sandbox binds the real directory at the
+    # symlink's path too, or the interpreter is not found inside it.
+    real = tmp_path / "python" / "cpython-3.13.18"
+    (real / "bin").mkdir(parents=True)
+    (real / "bin" / "python3.13").write_text("")
+    minor = tmp_path / "python" / "cpython-3.13"
+    minor.symlink_to(real, target_is_directory=True)
+    venv = tmp_path / "venv" / "bin"
+    venv.mkdir(parents=True)
+    (venv / "python").symlink_to(minor / "bin" / "python3.13")
+    monkeypatch.setattr(sys, "executable", str(venv / "python"))
+    monkeypatch.setattr(sys, "base_prefix", str(real))
+    command = gate_module._bubblewrap(["python"])
+    bind = ["--ro-bind-try", str(real.resolve()), str(minor)]
+    assert any(command[i:i + 3] == bind for i in range(len(command))), command
+
+
+def test_a_symlinked_directory_outside_the_python_installation_is_not_bound(tmp_path, monkeypatch):
+    # A link to a directory above the installation (a home directory, say) would show the
+    # sandbox everything beside it, credentials included.
+    home = tmp_path / "home"
+    real = home / "python-dist"
+    (real / "bin").mkdir(parents=True)
+    (real / "bin" / "python3.13").write_text("")
+    (home / ".ssh").mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(home, target_is_directory=True)
+    monkeypatch.setattr(sys, "executable", str(link / "python-dist" / "bin" / "python3.13"))
+    monkeypatch.setattr(sys, "prefix", str(real))
+    monkeypatch.setattr(sys, "base_prefix", str(real))
+    monkeypatch.setattr(sys, "exec_prefix", str(real))
+    command = gate_module._bubblewrap(["python"])
+    assert str(home.resolve()) not in command, command
+
+
 def test_code_that_allocates_past_the_memory_limit_is_rejected():
     gate = Gate(GateConfig(timeout_seconds=30.0, memory_mb=256), price_volume())
     result = gate.check(_candidate("x = list(range(10 ** 8))\nalpha = close / open"), Zoo())

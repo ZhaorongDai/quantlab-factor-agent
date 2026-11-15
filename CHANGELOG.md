@@ -15,6 +15,15 @@ layout; there are no compatibility shims or config migrations.
   after the box changes width. The graph and the admission map stack below 340 px instead of
   making a narrow page scroll sideways.
 
+### Fixed
+
+- The Gate's bubblewrap sandbox starts where the interpreter is reached through a symlinked
+  directory, as in a virtual environment made by uv 0.13 or newer (it points at a
+  minor-version directory, `cpython-3.13`, that links to the patch release): the real
+  directory is also bound at the symlink's path. Before, every build failed with
+  `bwrap: execvp .../.venv/bin/python: No such file or directory`, on GitHub's ubuntu-26.04
+  runners among others.
+
 ## 0.2.0 (2026-11-07)
 
 Each trial's Lineage, Picked parents over a configurable Trial graph, a preflight check, and
