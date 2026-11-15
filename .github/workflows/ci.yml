@@ -27,7 +27,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        # ubuntu-22.04 beside ubuntu-latest: the Gate's bubblewrap sandbox differs between
+        # releases (merged /usr, the uv that setup-uv installs), and users run both.
+        os: [ubuntu-latest, ubuntu-22.04, macos-latest]
     defaults:
       run:
         working-directory: quantlab-factor-agent
