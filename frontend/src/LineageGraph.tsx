@@ -208,16 +208,24 @@ export function LineageGraph({ run, stepper, selected, pick, onPicks, hovered, h
   const at = useMemo(() => layout(all, stepper.rounds), [all, stepper.rounds.join()])
   const round = stepper.round
   const CW = 92, RH = 15, PX = 22, PY = 28
-  const columns = stepper.rounds.length, column = round == null ? -1 : stepper.rounds.indexOf(round)
-  // The graph keeps its scale as rounds are added and scrolls sideways instead; stepping to a round out of view
-  // scrolls its column into view.
+  const columns = stepper.rounds.length
+  const selectedId = selected && 'trial' in selected ? (() => { const [r, s] = selected.trial.split('.'); return idOf(Number(r), Number(s)) })()
+    : selected && 'slot' in selected && run.running ? idOf(run.running.round, selected.slot) : null
+  const hoveredId = hovered ? (() => { const [r, s] = hovered.split('.').map(Number); return idOf(r, s) })() : null
+  // The graph keeps its scale as rounds are added and scrolls sideways instead. Whatever the page points at, the
+  // stepped round, the selected trial or the trial hovered on the plan or the admission map, has its column scrolled
+  // into view when it changes; a column already in view leaves the scroll alone.
   const scroller = useRef<HTMLDivElement>(null)
-  useEffect(() => {
+  const reveal = (column: number | undefined) => {
     const view = scroller.current, svg = view?.firstElementChild
-    if (!view || !svg || column < 0) return
+    if (!view || !svg || column == null || column < 0) return
     const scale = svg.getBoundingClientRect().width / (PX * 2 + (columns - 1) * CW)
-    view.scrollLeft = revealColumn((PX + column * CW) * scale, view.clientWidth, view.scrollLeft)
-  }, [column, columns])
+    const left = revealColumn((PX + column * CW) * scale, view.clientWidth, view.scrollLeft)
+    if (left !== view.scrollLeft) view.scrollTo({ left, behavior: 'smooth' })
+  }
+  useEffect(() => reveal(round == null ? -1 : stepper.rounds.indexOf(round)), [round, columns])
+  useEffect(() => reveal(selectedId ? at.get(selectedId)?.[0] : undefined), [selectedId])
+  useEffect(() => reveal(hoveredId ? at.get(hoveredId)?.[0] : undefined), [hoveredId])
   if (!columns || round == null) return null
   const xy = (id: string): [number, number] | null => {
     const p = at.get(id)
@@ -225,15 +233,13 @@ export function LineageGraph({ run, stepper, selected, pick, onPicks, hovered, h
   }
   const rows = Math.max(1, ...[...at.values()].map(p => p[1] + 1))
   const W = PX * 2 + (stepper.rounds.length - 1) * CW, H = PY + (rows - 1) * RH + 14
-  const selectedId = selected && 'trial' in selected ? (() => { const [r, s] = selected.trial.split('.'); return idOf(Number(r), Number(s)) })()
-    : selected && 'slot' in selected && run.running ? idOf(run.running.round, selected.slot) : null
   const kin = family(all, selectedId)
   const inRound = new Set(all.filter(n => n.round === round).map(n => n.id))
   const parents = new Set(all.filter(n => inRound.has(n.id)).map(n => n.parent))
   const lit = (id: string) => (selectedId ? kin.has(id) : inRound.has(id) || parents.has(id))
   const pickedNow = (n: DrawnTrial) => n.pickedIn.includes(round)
   const byId = new Map(all.map(n => [n.id, n]))
-  const hoveredAt = hovered ? (() => { const [r, s] = hovered.split('.').map(Number); return xy(idOf(r, s)) })() : null
+  const hoveredAt = hoveredId ? xy(hoveredId) : null
   return (
     <figure className="lineage">
       <Key picks={all.some(n => n.pickedIn.length > 0)} />
