@@ -1,5 +1,5 @@
 // The Lineage graph's pure parts, run with `npm test`: trial ids, the column layout, a trial's family, a Picked
-// parent's rings and the rounds the stepper steps through.
+// parent's rings, the rounds the stepper steps through and the scroll that keeps the stepped round in view.
 
 // A trial as the graph lays it out: its id (T<round>-<slot from 1, two digits>), its round and its parent's id.
 export type LineageNode = { id: string; round: number; parent: string }
@@ -53,4 +53,11 @@ export function steppedRounds(written: number, running: { round: number; planned
 export function rings(pickedIn: number[], round: number | null, inner = 8, outer = 14, gap = 2.5) {
   const step = pickedIn.length > 1 ? Math.min(gap, (outer - inner) / (pickedIn.length - 1)) : 0
   return pickedIn.map((r, i) => ({ round: r, r: inner + i * step, now: r === round }))
+}
+
+// The graph's scroll offset that shows a column centred at `x` in a view `view` wide now scrolled to `left` (all in
+// pixels): `left` itself while the column and `margin` on either side are in view, else the offset that centres it.
+export function revealColumn(x: number, view: number, left: number, margin = 40): number {
+  if (x - margin >= left && x + margin <= left + view) return left
+  return Math.max(0, Math.round(x - view / 2))
 }

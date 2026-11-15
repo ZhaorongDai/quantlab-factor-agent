@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as api from './api'
 import type { PendingTrial, Placed, PlanSlot, RoundPlan, Run, Trial } from './api'
-import { family, idOf, keyOf, layout, rings, steppedRounds } from './lineage'
+import { family, idOf, keyOf, layout, revealColumn, rings, steppedRounds } from './lineage'
 import type { LineageNode } from './lineage'
 import { groupOf, groupSlots } from './slots'
 import type { Picked } from './Round'
@@ -207,8 +207,18 @@ export function LineageGraph({ run, stepper, selected, pick, onPicks, hovered, h
   const all = useMemo(() => nodes(run), [run])
   const at = useMemo(() => layout(all, stepper.rounds), [all, stepper.rounds.join()])
   const round = stepper.round
-  if (!stepper.rounds.length || round == null) return null
   const CW = 92, RH = 15, PX = 22, PY = 28
+  const columns = stepper.rounds.length, column = round == null ? -1 : stepper.rounds.indexOf(round)
+  // The graph keeps its scale as rounds are added and scrolls sideways instead; stepping to a round out of view
+  // scrolls its column into view.
+  const scroller = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const view = scroller.current, svg = view?.firstElementChild
+    if (!view || !svg || column < 0) return
+    const scale = svg.getBoundingClientRect().width / (PX * 2 + (columns - 1) * CW)
+    view.scrollLeft = revealColumn((PX + column * CW) * scale, view.clientWidth, view.scrollLeft)
+  }, [column, columns])
+  if (!columns || round == null) return null
   const xy = (id: string): [number, number] | null => {
     const p = at.get(id)
     return p ? [PX + p[0] * CW, PY + p[1] * RH] : null
@@ -227,7 +237,8 @@ export function LineageGraph({ run, stepper, selected, pick, onPicks, hovered, h
   return (
     <figure className="lineage">
       <Key picks={all.some(n => n.pickedIn.length > 0)} />
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ maxWidth: W * 1.4 }} role="img"
+      <div className="lineage-scroll" ref={scroller}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ minWidth: W, maxWidth: W * 1.4 }} role="img"
            aria-label="every trial in a column of its round, with an arrow from each parent to each child">
         {stepper.rounds.map((r, c) => (
           <g key={r} className={`column${r === round ? ' on' : ''}`}>
@@ -270,6 +281,7 @@ export function LineageGraph({ run, stepper, selected, pick, onPicks, hovered, h
         })}
         {hoveredAt && <circle cx={hoveredAt[0]} cy={hoveredAt[1]} r={7.5} className="hover-ring" />}
       </svg>
+      </div>
     </figure>
   )
 }
