@@ -375,8 +375,12 @@ def _bubblewrap(command: list[str], modules=()) -> list[str]:
     binds = []
     for path in sorted(visible):
         binds += ["--ro-bind-try", str(path), str(path)]
+    # A symlinked directory the interpreter is reached through is bound at its own path too, but
+    # only when it is (inside) the Python installation: a link to a home directory would
+    # otherwise show the sandbox everything in it.
     for real, apparent in _linked_directories(Path(sys.executable)):
-        binds += ["--ro-bind-try", str(real), str(apparent)]
+        if any(real.is_relative_to(prefix) for prefix in prefixes):
+            binds += ["--ro-bind-try", str(real), str(apparent)]
     return [
         "bwrap", "--unshare-all", "--die-with-parent", "--new-session",
         *binds, "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--chdir", "/tmp",
