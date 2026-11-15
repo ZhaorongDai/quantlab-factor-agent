@@ -6,6 +6,15 @@ layout; there are no compatibility shims or config migrations.
 
 ## Unreleased
 
+### Changed
+
+- The web panel's Lineage graph keeps its size as rounds are added and scrolls sideways in
+  its own box, instead of shrinking to fit its half of the trials page (a node was about 5 px
+  across at 13 rounds). It follows the page: the column of the stepped round, the selected
+  trial or the trial hovered on the plan or the admission map is brought into view, also
+  after the box changes width. The graph and the admission map stack below 340 px instead of
+  making a narrow page scroll sideways.
+
 ### Fixed
 
 - The Gate's bubblewrap sandbox starts where the interpreter is reached through a symlinked

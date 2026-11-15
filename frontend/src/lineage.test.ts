@@ -1,7 +1,7 @@
 // The Lineage graph's layout and its nodes' kin, run with `npm test`.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { family, idOf, keyOf, layout, rings, steppedRounds } from './lineage.ts'
+import { family, idOf, keyOf, layout, revealColumn, rings, steppedRounds } from './lineage.ts'
 
 const node = (id: string, parent = '') => ({ id, round: Number(id.slice(1, id.indexOf('-'))), parent })
 
@@ -54,4 +54,17 @@ test('the rings are concentric from the inner radius, as far apart as fits insid
   assert.deepEqual(rings([1, 2, 3], 1).map(r => r.r), [8, 10.5, 13])
   assert.deepEqual(rings([1, 2, 3, 4, 5], 1).map(r => r.r), [8, 9.5, 11, 12.5, 14])
   assert.deepEqual(rings([3], 1).map(r => r.r), [8])
+})
+
+test('the scroll stays where it is while the stepped column is in view, even at an edge', () => {
+  assert.equal(revealColumn(300, 700, 0, 13), 0)
+  assert.equal(revealColumn(1200, 700, 800, 13), 800)
+  assert.equal(revealColumn(680, 700, 0, 13), 0)
+  assert.equal(revealColumn(814, 700, 800, 13), 800)
+})
+
+test('a stepped column out of view, even partly, is centred, and never past the start', () => {
+  assert.equal(revealColumn(2000, 700, 0, 13), 1650)
+  assert.equal(revealColumn(100, 700, 1650, 13), 0)
+  assert.equal(revealColumn(690, 700, 0, 13), 340)
 })

@@ -151,9 +151,11 @@ aside.reader > .close:hover { color: var(--fg) }
 .plan .slot .tag { font-size: 11px; color: var(--acc) }
 .plan .issues { margin: 6px 0 0; padding-left: 18px; color: var(--bad); font-size: 12px }
 .plan p { margin: 4px 0 0 }
-.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 12px; align-items: start; margin-top: 10px }
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(340px, 100%), 1fr)); gap: 12px; align-items: start; margin-top: 10px }
 figure.lineage { margin: 0 }
-figure.lineage > svg { width: 100%; height: auto; display: block }
+figure.lineage { min-width: 0 }
+.lineage-scroll { overflow-x: auto; overscroll-behavior-x: contain }
+.lineage-scroll > svg { width: 100%; height: auto; display: block }
 .lineage-key { display: flex; flex-wrap: wrap; gap: 2px 12px; align-items: center; margin-bottom: 2px }
 .lineage-key span { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap }
 .lineage-key .glyph { fill: var(--mut); stroke: none }

@@ -148,7 +148,10 @@ ring per round it was picked in, the innermost for the first; the stepped round'
 blue and its Picked parents' arrows bold. With nothing selected the stepped round and its
 parents stand out; with a trial selected, its ancestors and descendants do. Click a
 round's number to step to it, a node to read it, or a ring to open
-[why these parents](#why-these-parents) on that round.
+[why these parents](#why-these-parents) on that round. The graph keeps its size as rounds
+are added: when they no longer fit, it scrolls sideways, and it follows the page: stepping
+to a round, selecting a trial or hovering one on the plan or the admission map scrolls its
+column into view.
 
 **The admission map** places every evaluated trial by its largest absolute correlation
 with an existing factor (across) and its partial-IC t in its direction (up), as admission

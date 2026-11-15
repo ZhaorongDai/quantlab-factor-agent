@@ -4,7 +4,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as api from './api'
 import type { PendingTrial, Placed, PlanSlot, RoundPlan, Run, Trial } from './api'
-import { family, idOf, keyOf, layout, rings, steppedRounds } from './lineage'
+import { family, idOf, keyOf, layout, revealColumn, rings, steppedRounds } from './lineage'
 import type { LineageNode } from './lineage'
 import { groupOf, groupSlots } from './slots'
 import type { Picked } from './Round'
@@ -207,27 +207,61 @@ export function LineageGraph({ run, stepper, selected, pick, onPicks, hovered, h
   const all = useMemo(() => nodes(run), [run])
   const at = useMemo(() => layout(all, stepper.rounds), [all, stepper.rounds.join()])
   const round = stepper.round
-  if (!stepper.rounds.length || round == null) return null
   const CW = 92, RH = 15, PX = 22, PY = 28
+  const columns = stepper.rounds.length
+  const selectedId = selected && 'trial' in selected ? (() => { const [r, s] = selected.trial.split('.'); return idOf(Number(r), Number(s)) })()
+    : selected && 'slot' in selected && run.running ? idOf(run.running.round, selected.slot) : null
+  const hoveredId = hovered ? (() => { const [r, s] = hovered.split('.').map(Number); return idOf(r, s) })() : null
+  // The graph keeps its scale as rounds are added and scrolls sideways instead. Whatever the page points at, the
+  // stepped round, the selected trial or the trial hovered on the plan or the admission map, has its column brought
+  // into view when it changes, and again when the graph's box changes width; a column already in view leaves the
+  // scroll alone.
+  const scroller = useRef<HTMLDivElement>(null)
+  const target = useRef(-1)
+  const reveal = (column: number | undefined, behavior: ScrollBehavior = 'smooth') => {
+    const view = scroller.current, svg = view?.firstElementChild
+    if (!view || !svg || column == null || column < 0) return
+    target.current = column
+    const scale = svg.getBoundingClientRect().width / (PX * 2 + (columns - 1) * CW)
+    const left = revealColumn((PX + column * CW) * scale, view.clientWidth, view.scrollLeft, 13 * scale)
+    if (left !== view.scrollLeft) view.scrollTo({ left, behavior })
+  }
+  useEffect(() => reveal(round == null ? -1 : stepper.rounds.indexOf(round)), [round, columns])
+  useEffect(() => reveal(selectedId ? at.get(selectedId)?.[0] : undefined), [selectedId])
+  useEffect(() => reveal(hoveredId ? at.get(hoveredId)?.[0] : undefined), [hoveredId])
+  const revealAgain = useRef(reveal)
+  revealAgain.current = reveal
+  useEffect(() => {
+    const view = scroller.current
+    if (!view) return
+    let width = view.clientWidth
+    const watch = new ResizeObserver(() => {
+      if (view.clientWidth === width) return
+      width = view.clientWidth
+      revealAgain.current(target.current, 'auto')
+    })
+    watch.observe(view)
+    return () => watch.disconnect()
+  }, [columns > 0])
+  if (!columns || round == null) return null
   const xy = (id: string): [number, number] | null => {
     const p = at.get(id)
     return p ? [PX + p[0] * CW, PY + p[1] * RH] : null
   }
   const rows = Math.max(1, ...[...at.values()].map(p => p[1] + 1))
   const W = PX * 2 + (stepper.rounds.length - 1) * CW, H = PY + (rows - 1) * RH + 14
-  const selectedId = selected && 'trial' in selected ? (() => { const [r, s] = selected.trial.split('.'); return idOf(Number(r), Number(s)) })()
-    : selected && 'slot' in selected && run.running ? idOf(run.running.round, selected.slot) : null
   const kin = family(all, selectedId)
   const inRound = new Set(all.filter(n => n.round === round).map(n => n.id))
   const parents = new Set(all.filter(n => inRound.has(n.id)).map(n => n.parent))
   const lit = (id: string) => (selectedId ? kin.has(id) : inRound.has(id) || parents.has(id))
   const pickedNow = (n: DrawnTrial) => n.pickedIn.includes(round)
   const byId = new Map(all.map(n => [n.id, n]))
-  const hoveredAt = hovered ? (() => { const [r, s] = hovered.split('.').map(Number); return xy(idOf(r, s)) })() : null
+  const hoveredAt = hoveredId ? xy(hoveredId) : null
   return (
     <figure className="lineage">
       <Key picks={all.some(n => n.pickedIn.length > 0)} />
-      <svg viewBox={`0 0 ${W} ${H}`} style={{ maxWidth: W * 1.4 }} role="img"
+      <div className="lineage-scroll" ref={scroller}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{ minWidth: W, maxWidth: W * 1.4 }} role="img"
            aria-label="every trial in a column of its round, with an arrow from each parent to each child">
         {stepper.rounds.map((r, c) => (
           <g key={r} className={`column${r === round ? ' on' : ''}`}>
@@ -270,6 +304,7 @@ export function LineageGraph({ run, stepper, selected, pick, onPicks, hovered, h
         })}
         {hoveredAt && <circle cx={hoveredAt[0]} cy={hoveredAt[1]} r={7.5} className="hover-ring" />}
       </svg>
+      </div>
     </figure>
   )
 }
