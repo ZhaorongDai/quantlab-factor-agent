@@ -56,13 +56,15 @@ test('the rings are concentric from the inner radius, as far apart as fits insid
   assert.deepEqual(rings([3], 1).map(r => r.r), [8])
 })
 
-test('the scroll stays where it is while the stepped column is in view', () => {
-  assert.equal(revealColumn(300, 700, 0), 0)
-  assert.equal(revealColumn(1200, 700, 800), 800)
+test('the scroll stays where it is while the stepped column is in view, even at an edge', () => {
+  assert.equal(revealColumn(300, 700, 0, 13), 0)
+  assert.equal(revealColumn(1200, 700, 800, 13), 800)
+  assert.equal(revealColumn(680, 700, 0, 13), 0)
+  assert.equal(revealColumn(814, 700, 800, 13), 800)
 })
 
-test('a stepped column out of view is centred, and never past the start', () => {
-  assert.equal(revealColumn(2000, 700, 0), 1650)
-  assert.equal(revealColumn(100, 700, 1650), 0)
-  assert.equal(revealColumn(680, 700, 0), 330)
+test('a stepped column out of view, even partly, is centred, and never past the start', () => {
+  assert.equal(revealColumn(2000, 700, 0, 13), 1650)
+  assert.equal(revealColumn(100, 700, 1650, 13), 0)
+  assert.equal(revealColumn(690, 700, 0, 13), 340)
 })

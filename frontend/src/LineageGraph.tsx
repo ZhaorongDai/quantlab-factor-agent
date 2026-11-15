@@ -213,19 +213,36 @@ export function LineageGraph({ run, stepper, selected, pick, onPicks, hovered, h
     : selected && 'slot' in selected && run.running ? idOf(run.running.round, selected.slot) : null
   const hoveredId = hovered ? (() => { const [r, s] = hovered.split('.').map(Number); return idOf(r, s) })() : null
   // The graph keeps its scale as rounds are added and scrolls sideways instead. Whatever the page points at, the
-  // stepped round, the selected trial or the trial hovered on the plan or the admission map, has its column scrolled
-  // into view when it changes; a column already in view leaves the scroll alone.
+  // stepped round, the selected trial or the trial hovered on the plan or the admission map, has its column brought
+  // into view when it changes, and again when the graph's box changes width; a column already in view leaves the
+  // scroll alone.
   const scroller = useRef<HTMLDivElement>(null)
-  const reveal = (column: number | undefined) => {
+  const target = useRef(-1)
+  const reveal = (column: number | undefined, behavior: ScrollBehavior = 'smooth') => {
     const view = scroller.current, svg = view?.firstElementChild
     if (!view || !svg || column == null || column < 0) return
+    target.current = column
     const scale = svg.getBoundingClientRect().width / (PX * 2 + (columns - 1) * CW)
-    const left = revealColumn((PX + column * CW) * scale, view.clientWidth, view.scrollLeft)
-    if (left !== view.scrollLeft) view.scrollTo({ left, behavior: 'smooth' })
+    const left = revealColumn((PX + column * CW) * scale, view.clientWidth, view.scrollLeft, 13 * scale)
+    if (left !== view.scrollLeft) view.scrollTo({ left, behavior })
   }
   useEffect(() => reveal(round == null ? -1 : stepper.rounds.indexOf(round)), [round, columns])
   useEffect(() => reveal(selectedId ? at.get(selectedId)?.[0] : undefined), [selectedId])
   useEffect(() => reveal(hoveredId ? at.get(hoveredId)?.[0] : undefined), [hoveredId])
+  const revealAgain = useRef(reveal)
+  revealAgain.current = reveal
+  useEffect(() => {
+    const view = scroller.current
+    if (!view) return
+    let width = view.clientWidth
+    const watch = new ResizeObserver(() => {
+      if (view.clientWidth === width) return
+      width = view.clientWidth
+      revealAgain.current(target.current, 'auto')
+    })
+    watch.observe(view)
+    return () => watch.disconnect()
+  }, [columns > 0])
   if (!columns || round == null) return null
   const xy = (id: string): [number, number] | null => {
     const p = at.get(id)

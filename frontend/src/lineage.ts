@@ -55,9 +55,10 @@ export function rings(pickedIn: number[], round: number | null, inner = 8, outer
   return pickedIn.map((r, i) => ({ round: r, r: inner + i * step, now: r === round }))
 }
 
-// The graph's scroll offset that shows a column centred at `x` in a view `view` wide now scrolled to `left` (all in
-// pixels): `left` itself while the column and `margin` on either side are in view, else the offset that centres it.
-export function revealColumn(x: number, view: number, left: number, margin = 40): number {
-  if (x - margin >= left && x + margin <= left + view) return left
+// The graph's scroll offset that brings a column centred at `x`, `half` wide on either side, into a view `view` wide
+// now scrolled to `left` (all in pixels): `left` itself while the column's bounds are in view, else the offset that
+// centres it (the browser stops it at the ends, so a first or last column comes to an edge instead).
+export function revealColumn(x: number, view: number, left: number, half: number): number {
+  if (x - half >= left && x + half <= left + view) return left
   return Math.max(0, Math.round(x - view / 2))
 }
