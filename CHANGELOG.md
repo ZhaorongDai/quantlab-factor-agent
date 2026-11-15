@@ -6,6 +6,11 @@ layout; there are no compatibility shims or config migrations.
 
 ## Unreleased
 
+## 0.2.1 (2026-11-15)
+
+The Gate's sandbox starts in a virtual environment made by uv 0.13 or newer, and the web
+panel's Lineage graph scrolls instead of shrinking.
+
 ### Changed
 
 - The web panel's Lineage graph keeps its size as rounds are added and scrolls sideways in
