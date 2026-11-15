@@ -332,6 +332,29 @@ def _bubblewrap_works() -> bool:
     return True
 
 
+def _linked_directories(path: Path) -> list[tuple[Path, Path]]:
+    """The symlinked directories the interpreter is reached through, as (real, apparent) pairs.
+
+    Each link from ``path`` to the file it finally names is followed; for each
+    hop the nearest symlinked directory above it is listed. uv points a
+    virtual environment at a minor-version directory that links to the patch
+    release, so the interpreter's path passes through a directory the sandbox
+    would otherwise only see under its real name.
+    """
+    found: list[tuple[Path, Path]] = []
+    seen: set[Path] = set()
+    while path not in seen:
+        seen.add(path)
+        link = next((d for d in path.parents if d.is_symlink()), None)
+        if link is not None and (link.resolve(), link) not in found:
+            found.append((link.resolve(), link))
+        if not path.is_symlink():
+            break
+        target = Path(os.readlink(path))
+        path = target if target.is_absolute() else path.parent / target
+    return found
+
+
 def _bubblewrap(command: list[str], modules=()) -> list[str]:
     """Wrap ``command`` in bubblewrap.
 
@@ -352,6 +375,8 @@ def _bubblewrap(command: list[str], modules=()) -> list[str]:
     binds = []
     for path in sorted(visible):
         binds += ["--ro-bind-try", str(path), str(path)]
+    for real, apparent in _linked_directories(Path(sys.executable)):
+        binds += ["--ro-bind-try", str(real), str(apparent)]
     return [
         "bwrap", "--unshare-all", "--die-with-parent", "--new-session",
         *binds, "--proc", "/proc", "--dev", "/dev", "--tmpfs", "/tmp", "--chdir", "/tmp",
