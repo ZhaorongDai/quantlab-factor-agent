@@ -79,7 +79,7 @@ function AdmissionMap({ run, picked, fresh, pick, hovered, hover }: {
   return (
     <figure className="admission">
       <svg viewBox={`0 0 ${W} ${H}`} role="img"
-           aria-label={`every evaluated trial by its largest correlation with an existing factor and its ${axis.label}`}>
+           aria-label={`every evaluated trial by its largest absolute correlation with an existing factor and its ${axis.label} in its direction`}>
         {threshold != null && (
           <rect x={X(0)} y={Y(y1)} width={X(limit ?? x1) - X(0)} height={Y(threshold) - Y(y1)} className="zone">
             <title>Admitted here if coverage and monotonicity also pass</title>
@@ -101,7 +101,7 @@ function AdmissionMap({ run, picked, fresh, pick, hovered, hover }: {
         {ticks.map(v => (
           <text key={v} x={P - 4} y={Y(v) + 4} textAnchor="end" className="label">{v}</text>
         ))}
-        <text x={W / 2} y={H - 8} textAnchor="middle" className="label">largest |ρ| with an existing factor</text>
+        <text x={W / 2} y={H - 8} textAnchor="middle" className="label">max |ρ|</text>
         <text x={12} y={H / 2} transform={`rotate(-90 12 ${H / 2})`} textAnchor="middle" className="label">{axis.label}</text>
         {points.map(p => (
           <circle key={key(p)} cx={X(p.largest_correlation ?? 0)} cy={Y(axis.value(p)!)} r={size(p)}

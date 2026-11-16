@@ -80,7 +80,7 @@ export type Axis = {
 
 export function admissionAxis(tOff: boolean, threshold: number | null, minIc: number | null): Axis {
   if (tOff) {
-    return { label: 'IC in its direction', value: p => p.ic_mean, threshold: minIc, thresholdLabel: `min IC ${minIc}`, floor: 0 }
+    return { label: 'IC', value: p => p.ic_mean, threshold: minIc, thresholdLabel: `min IC ${minIc}`, floor: 0 }
   }
   return {
     label: 'partial-IC t', value: p => p.partial_ic_t, threshold,

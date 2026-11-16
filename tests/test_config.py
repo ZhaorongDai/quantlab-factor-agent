@@ -455,9 +455,11 @@ def test_the_confirmation_does_not_count_as_a_signal_check_without_a_confirmatio
 
 
 @pytest.mark.parametrize(("key", "value", "message"), [
-    ("min_ic", -0.001, "admission: min_ic is -0.001; it is at least 0"),
-    ("min_partial_ic", -0.5, "admission: min_partial_ic is -0.5; it is at least 0"),
-    ("min_year_share", 1.2, r"admission: min_year_share is 1.2; it lies in \[0, 1\]"),
+    ("min_ic", -0.001, "admission: min_ic is -0.001; it is above 0"),
+    ("min_ic", 0, "admission: min_ic is 0; it is above 0"),
+    ("min_partial_ic", -0.5, "admission: min_partial_ic is -0.5; it is above 0"),
+    ("min_year_share", 1.2, r"admission: min_year_share is 1.2; it lies in \(0, 1\]"),
+    ("min_year_share", 0, r"admission: min_year_share is 0; it lies in \(0, 1\]"),
 ])
 def test_a_size_or_stability_threshold_out_of_its_range_is_refused(tmp_path, key, value, message):
     with pytest.raises(ValueError, match=message):

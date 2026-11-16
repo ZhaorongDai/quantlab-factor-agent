@@ -243,17 +243,18 @@ class AdmissionConfig:
 
     def __post_init__(self):
         if isinstance(self.confirm_t, bool) or not isinstance(self.confirm_t, (int, float, type(None))):
-            raise TypeError(f"admission: confirm_t is {self.confirm_t!r}; it is a number")
+            raise TypeError(f"admission: confirm_t is {self.confirm_t!r}; it is a number, or null to switch the check off")
         if not 0 < self.trial_exponent <= 1:
             raise ValueError(f"admission: trial_exponent is {self.trial_exponent}; it lies in (0, 1]")
         if self.t_threshold is None and self.trial_exponent != 1.0:
             raise ValueError(TRIAL_EXPONENT_WITHOUT_T)
+        # Above 0, so that a check switched on refuses something: at 0 it would pass every factor with a direction.
         for name in ("min_ic", "min_partial_ic"):
             value = getattr(self, name)
-            if value is not None and not value >= 0:
-                raise ValueError(f"admission: {name} is {value}; it is at least 0")
-        if self.min_year_share is not None and not 0 <= self.min_year_share <= 1:
-            raise ValueError(f"admission: min_year_share is {self.min_year_share}; it lies in [0, 1]")
+            if value is not None and not value > 0:
+                raise ValueError(f"admission: {name} is {value}; it is above 0")
+        if self.min_year_share is not None and not 0 < self.min_year_share <= 1:
+            raise ValueError(f"admission: min_year_share is {self.min_year_share}; it lies in (0, 1]")
 
     def signal_checks(self, confirmation: bool) -> tuple[str, ...]:
         """The signal checks switched on, by their thresholds' names; ``confirm_t`` only with a ``confirmation`` segment."""

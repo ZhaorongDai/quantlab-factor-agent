@@ -41,7 +41,7 @@ test('the admission map plots the partial-IC t against its threshold, or the IC 
   const t = admissionAxis(false, 3.8, 0.004)
   assert.deepEqual([t.label, t.value(p), t.threshold, t.thresholdLabel], ['partial-IC t', 5.2, 3.8, 't threshold 3.80'])
   const ic = admissionAxis(true, null, 0.004)
-  assert.deepEqual([ic.label, ic.value(p), ic.threshold, ic.thresholdLabel], ['IC in its direction', 0.012, 0.004, 'min IC 0.004'])
+  assert.deepEqual([ic.label, ic.value(p), ic.threshold, ic.thresholdLabel], ['IC', 0.012, 0.004, 'min IC 0.004'])
   assert.equal(admissionAxis(true, null, null).threshold, null)
 })
 

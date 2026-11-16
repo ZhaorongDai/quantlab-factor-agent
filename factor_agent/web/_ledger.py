@@ -203,12 +203,12 @@ def thresholds(trials: tuple[Trial, ...], replayed: Replayed) -> dict[int, tuple
         for reason in trial.reasons:
             if found := THRESHOLD.search(reason):
                 given[trial.round] = (float(found.group(1)), "refusals")
-    off = False
+    t_off = False  # whether the latest opening switched the t check off
     for event in replayed.all:
         if isinstance(event, events.Start):
-            off = event.t_threshold is None
+            t_off = event.t_threshold is None
         elif isinstance(event, events.AdmissionOutcome) and event.stage == "admission":
-            given[event.round] = (None, "off") if off else (event.threshold, "admission")
+            given[event.round] = (None, "off") if t_off else (event.threshold, "admission")
     found, last = {}, None
     for number in sorted({trial.round for trial in trials}):
         if number in given:

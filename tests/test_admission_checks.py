@@ -67,6 +67,11 @@ def test_a_factor_whose_ic_went_its_way_in_too_few_full_years_is_refused_countin
     assert reasons(metrics(daily=history), 1, AdmissionConfig(min_year_share=0.6)) == []
 
 
+def test_without_a_full_training_year_the_yearly_stability_fails_whatever_its_threshold():
+    history = daily({2001: (100, -0.01), 2002: (119, -0.01)})
+    [reason] = reasons(metrics(daily=history), 1, AdmissionConfig(min_year_share=0.01))
+    assert reason.startswith("the training IC went in the factor's direction in 0 of 0 full years")
+
 def test_the_confirmation_is_the_last_check_and_holds_only_in_the_factors_direction():
     config = AdmissionConfig(min_ic=0.008)
     held, reversed_ = metrics(partial_ic_t=-2.5), metrics(partial_ic_t=2.5)

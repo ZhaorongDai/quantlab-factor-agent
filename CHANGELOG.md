@@ -12,8 +12,8 @@ layout; there are no compatibility shims or config migrations.
   smallest training IC and partial IC in the factor's direction, and `admission.min_year_share`,
   the yearly stability, the smallest share of the full training years (120 scored days or more)
   whose mean IC went the factor's way. They run after the monotonicity and before the
-  confirmation, and a refusal gives the statistic and its threshold. The run's opening records
-  them with `confirm_t`.
+  confirmation, and a refusal gives the statistic and its threshold. Each threshold is above 0, so
+  a check switched on refuses something. The run's opening records them with `confirm_t`.
 
 ### Changed
 
@@ -23,7 +23,8 @@ layout; there are no compatibility shims or config migrations.
   `confirm_t` counts only with a confirmation segment), and so is one that switches
   `confirm_t` off while it has a confirmation segment, or sets `trial_exponent` with
   `t_threshold` off. With the t check off, a child's outcome in a Lineage is its residual t
-  above 0, and the web panel shows the check as off instead of its threshold as unknown.
+  above 0, and the web panel shows the check as off instead of its threshold as unknown; its
+  admission map then plots each trial's IC, in its direction, against `min_ic`.
 - `_admission.reasons` takes the candidate's confirmation and decides it as the last check,
   instead of the campaign deciding it afterwards.
 

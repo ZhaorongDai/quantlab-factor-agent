@@ -109,9 +109,9 @@ known factor at a time.
 | `admission.min_monotonicity` | 0.6 | smallest Spearman correlation of the deciles with the decile number; `null` switches the check off |
 | `admission.min_coverage` | 0.5 | smallest mean daily share of the members with a value; `null` switches the check off |
 | `admission.confirm_t` | 2.0 | partial-IC t needed on the confirmation segment; `null` only without one |
-| `admission.min_ic` | null | smallest training IC in the factor's direction |
-| `admission.min_partial_ic` | null | smallest training partial IC in the factor's direction |
-| `admission.min_year_share` | null | smallest share of the full training years whose mean IC went the factor's way |
+| `admission.min_ic` | null | smallest training IC in the factor's direction, above 0 |
+| `admission.min_partial_ic` | null | smallest training partial IC in the factor's direction, above 0 |
+| `admission.min_year_share` | null | smallest share of the full training years whose mean IC went the factor's way, in (0, 1] |
 | `round.candidates` | 20 | candidates per round |
 | `round.min_per_type` | 3 | slots of every mechanism type per round |
 | `round.retries` | 2 | times a refused candidate goes back to the proposer |

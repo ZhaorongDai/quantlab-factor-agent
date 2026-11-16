@@ -123,7 +123,7 @@ def yearly_stability(daily: DailyIC, sign: int) -> tuple[int, int]:
 
 
 def reason_kind(reason: str) -> str:
-    """The kind of an admission reason ``reasons`` wrote: coverage, no direction, correlation, partial IC or monotonicity."""
+    """The kind of an admission reason ``reasons`` wrote, one per admission check (``_KINDS``), or ``"other"``."""
     return next((kind for pattern, kind in _KINDS if pattern.match(reason)), "other")
 
 
@@ -219,7 +219,7 @@ def reasons(
             raise ValueError("admission: min_year_share needs the candidate's daily ICs (Metrics.daily)")
         held, years = yearly_stability(metrics.daily, sign)
         share = held / years if years else 0.0
-        if not share >= config.min_year_share:
+        if not years or not share >= config.min_year_share:
             return [
                 f"the training IC went in the factor's direction in {held} of {years} full years ({share:.2f}, "
                 f"years with at least {FULL_YEAR_DAYS} scored days), below min_year_share {config.min_year_share:g}"
