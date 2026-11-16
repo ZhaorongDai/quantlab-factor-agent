@@ -67,3 +67,32 @@ export function checks(s: {
   if (rising != null) out.push(check('monotonicity', num(rising), s.min_monotonicity, b => `≥ ${num(b)}`, b => rising >= b))
   return out
 }
+
+// What the admission map's vertical axis plots: the partial-IC t against its threshold, or, with the t check
+// switched off, the IC in the factor's direction against min_ic (none when the run set no IC floor).
+export type Axis = {
+  label: string
+  value: (p: { partial_ic_t: number | null; ic_mean: number | null }) => number | null
+  threshold: number | null
+  thresholdLabel: string
+  floor: number
+}
+
+export function admissionAxis(tOff: boolean, threshold: number | null, minIc: number | null): Axis {
+  if (tOff) {
+    return { label: 'IC in its direction', value: p => p.ic_mean, threshold: minIc, thresholdLabel: `min IC ${minIc}`, floor: 0 }
+  }
+  return {
+    label: 'partial-IC t', value: p => p.partial_ic_t, threshold,
+    thresholdLabel: threshold == null ? '' : `t threshold ${num(threshold)}`, floor: -2,
+  }
+}
+
+// Ticks from lo to hi on a step of 1, 2 or 5 times a power of ten, the smallest that leaves at most `most` steps.
+export function niceTicks(lo: number, hi: number, most = 8): number[] {
+  const rough = (hi - lo) / most
+  const power = 10 ** Math.floor(Math.log10(rough))
+  const step = [1, 2, 5, 10].map(m => m * power).find(s => s >= rough) ?? 10 * power
+  const first = Math.ceil(lo / step), last = Math.floor(hi / step)
+  return Array.from({ length: last - first + 1 }, (_, i) => Number(((first + i) * step).toPrecision(12)))
+}

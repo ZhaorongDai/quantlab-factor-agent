@@ -123,6 +123,7 @@ def test_with_the_t_check_off_a_rounds_threshold_is_off_and_the_opening_records_
     view = RunView.read(runs / "t_off" / "run")
     assert view.factors and {(f.threshold, f.threshold_source) for f in view.factors} == {(None, "off")}
     assert (view.threshold, view.threshold_source) == (None, "off")
+    assert view.admission.min_ic == 0.0001
     [start] = [json.loads(line) for line in (runs / "t_off" / "run" / "events.jsonl").read_text().splitlines()][:1]
     assert (start["t_threshold"], start["min_ic"], start["confirm_t"]) == (None, 0.0001, 2.0)
 
