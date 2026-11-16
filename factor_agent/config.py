@@ -200,32 +200,67 @@ class GateConfig:
     max_common_subtree_nodes: int = 5
 
 
+#: The thresholds of the signal checks, the admission checks that judge whether a factor predicts
+#: returns (coverage and correlation do not); a campaign keeps at least one on.
+SIGNAL_CHECKS = ("t_threshold", "min_ic", "min_partial_ic", "min_year_share", "min_monotonicity", "confirm_t")
+
+TRIAL_EXPONENT_WITHOUT_T = "admission: trial_exponent is set while t_threshold is off; it shapes only that threshold"
+
+
 @dataclass(frozen=True)
 class AdmissionConfig:
-    """What an evaluated candidate needs to be accepted."""
+    """What an evaluated candidate needs to be accepted: the admission checks' thresholds.
+
+    Each check is off when its threshold is None. A check off cannot be the only safeguard:
+    at least one signal check (the partial IC's t, the IC and partial IC size, the yearly
+    stability, the monotonicity or the confirmation) stays on.
+    """
 
     #: Newey-West t of the partial IC the first evaluated trial needs; the
     #: threshold rises with the trial count (Bonferroni, see ``_admission``).
-    t_threshold: float = 3.0
+    t_threshold: float | None = 3.0
     #: Largest absolute cross-sectional correlation with a reference or accepted factor.
-    max_correlation: float = 0.7
+    max_correlation: float | None = 0.7
     #: Smallest Spearman correlation of the decile returns with the decile number.
-    min_monotonicity: float = 0.6
+    min_monotonicity: float | None = 0.6
     #: Smallest mean daily share of the members on which the candidate has a value.
-    min_coverage: float = 0.5
+    min_coverage: float | None = 0.5
     #: Power of the trial count the anchor's p-value is divided by: 1 is Bonferroni, a smaller
-    #: one lets the threshold rise more slowly (0.5 counts 100 trials as 10).
+    #: one lets the threshold rise more slowly (0.5 counts 100 trials as 10). Read only with
+    #: ``t_threshold``; a config may not set it without one.
     trial_exponent: float = 1.0
     #: Newey-West t of the partial IC, in the factor's direction, a candidate needs on the
     #: confirmation segment (``segments.confirmation``), whose statistics no prompt shows; read
     #: only when there is one.
-    confirm_t: float = 2.0
+    confirm_t: float | None = 2.0
+    #: Smallest training IC, in the factor's direction.
+    min_ic: float | None = None
+    #: Smallest training partial IC, in the factor's direction.
+    min_partial_ic: float | None = None
+    #: Smallest share of the full training years (``_admission.FULL_YEAR_DAYS`` scored days or more)
+    #: whose mean IC goes in the factor's direction.
+    min_year_share: float | None = None
 
     def __post_init__(self):
-        if isinstance(self.confirm_t, bool) or not isinstance(self.confirm_t, (int, float)):
+        if isinstance(self.confirm_t, bool) or not isinstance(self.confirm_t, (int, float, type(None))):
             raise TypeError(f"admission: confirm_t is {self.confirm_t!r}; it is a number")
         if not 0 < self.trial_exponent <= 1:
             raise ValueError(f"admission: trial_exponent is {self.trial_exponent}; it lies in (0, 1]")
+        if self.t_threshold is None and self.trial_exponent != 1.0:
+            raise ValueError(TRIAL_EXPONENT_WITHOUT_T)
+        for name in ("min_ic", "min_partial_ic"):
+            value = getattr(self, name)
+            if value is not None and not value >= 0:
+                raise ValueError(f"admission: {name} is {value}; it is at least 0")
+        if self.min_year_share is not None and not 0 <= self.min_year_share <= 1:
+            raise ValueError(f"admission: min_year_share is {self.min_year_share}; it lies in [0, 1]")
+
+    def signal_checks(self, confirmation: bool) -> tuple[str, ...]:
+        """The signal checks switched on, by their thresholds' names; ``confirm_t`` only with a ``confirmation`` segment."""
+        return tuple(
+            name for name in SIGNAL_CHECKS
+            if getattr(self, name) is not None and (name != "confirm_t" or confirmation)
+        )
 
 
 @dataclass(frozen=True)
@@ -598,6 +633,15 @@ class CampaignConfig:
                 f"round: {self.round.candidates} candidates cannot hold {self.round.min_per_type} of each of "
                 f"{len(names)} mechanism types"
             )
+        confirmation = self.segments.confirmation is not None
+        if confirmation and self.admission.confirm_t is None:
+            raise ValueError(
+                "admission: confirm_t is off but segments has a confirmation segment; set confirm_t or drop the segment"
+            )
+        if not self.admission.signal_checks(confirmation):
+            raise ValueError(
+                "admission: every signal check is off; switch on at least one of " + ", ".join(SIGNAL_CHECKS)
+            )
         if self.round.max_children is not None and not self.context.feedback:
             raise ValueError("round: max_children needs feedback, since without it every direction is new")
         if self.round.picked_parents and self.context.theme_correlation is None:
@@ -724,6 +768,9 @@ class CampaignConfig:
         _refuse_money(raw)
         if "market" not in raw:
             raise KeyError("campaign config: market is needed, the data as the prompts describe it")
+        admission = raw.get("admission") or {}
+        if "trial_exponent" in admission and admission.get("t_threshold", AdmissionConfig.t_threshold) is None:
+            raise ValueError(TRIAL_EXPONENT_WITHOUT_T)
         optional = {}
         if raw.get("mechanisms") is not None:
             optional["mechanisms"] = tuple(Mechanism(**m) for m in raw["mechanisms"])

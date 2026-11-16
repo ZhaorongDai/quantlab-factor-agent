@@ -629,7 +629,8 @@ class Campaign:
             candidates=settings.candidates, max_rounds=settings.max_rounds, max_trials=settings.max_trials,
             patience=settings.patience, t_threshold=admission.t_threshold, max_correlation=admission.max_correlation,
             min_coverage=admission.min_coverage, min_monotonicity=admission.min_monotonicity,
-            trial_exponent=admission.trial_exponent,
+            trial_exponent=admission.trial_exponent, min_ic=admission.min_ic, min_partial_ic=admission.min_partial_ic,
+            min_year_share=admission.min_year_share, confirm_t=admission.confirm_t,
         )
         if len(snapshot.versions) == 1:
             return Start(**opened)
@@ -831,21 +832,15 @@ class Campaign:
     ) -> TrialRecord:
         """Decide one evaluated candidate, the ``trials``-th evaluated trial of the campaign.
 
-        With its ``confirmation`` (its evaluation on the confirmation
-        segment) a candidate passing every other check is refused unless it
-        holds there (``_admission.confirmed``); a confirmation that did not
-        compile does not hold. A refusal for coverage goes on with what
-        ``coverage_cause`` says of where the candidate loses its values.
+        Admission decides with its ``confirmation`` (its evaluation on the
+        confirmation segment, ``_admission.reasons``). A refusal for coverage
+        goes on with what ``coverage_cause`` says of where the candidate loses
+        its values.
         """
-        admission = self.config.admission
-        reasons = _admission.reasons(metrics, trials, admission)
+        reasons = _admission.reasons(metrics, trials, self.config.admission, confirmation)
         if reasons and coverage_cause is not None and _admission.reason_kind(reasons[0]) == "coverage":
             reasons = [reasons[0] + coverage_cause()]
         kept = confirmation.to_dict() if isinstance(confirmation, Metrics) else None
-        if not reasons and confirmation is not None and (
-            kept is None or not _admission.confirmed(metrics.ic_mean, confirmation.partial_ic_t, admission)
-        ):
-            reasons = [_admission.NOT_CONFIRMED]
         return TrialRecord(
             status="rejected" if reasons else "accepted", stage="admission", reasons=reasons,
             metrics=metrics.to_dict(), confirmation=kept, **self._common(number, proposal),

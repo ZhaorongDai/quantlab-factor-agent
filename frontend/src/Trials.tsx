@@ -7,7 +7,7 @@
 // out for a while.
 import { useEffect, useRef, useState } from 'react'
 import type { Placed, Refusal, Run, Trial } from './api'
-import { checks } from './charts'
+import { bar, checks } from './charts'
 import { Checks, CumulativeIC, DecileChart } from './FactorCharts'
 import { LineageGraph, LineageSection, RoundPlanView, StepperBar, useRoundPlan, useStepper } from './LineageGraph'
 import { idOf, keyOf } from './lineage'
@@ -112,8 +112,8 @@ function AdmissionMap({ run, picked, fresh, pick, hovered, hover }: {
       <figcaption className="muted small">
         <span className="key accepted">●</span> accepted <span className="key rejected">●</span> rejected{' '}
         <span className="key failed">●</span> failed ({failed}, listed below)
-        {threshold == null && ' · t threshold unknown'}
-        {limit == null && ' · ρ limit unknown'}
+        {threshold == null && (run.threshold_source === 'off' ? ' · t check off' : ' · t threshold unknown')}
+        {limit == null && (bar(run.admission, 'max_correlation') === 'off' ? ' · ρ check off' : ' · ρ limit unknown')}
       </figcaption>
     </figure>
   )
@@ -186,9 +186,10 @@ function Version({ a, n }: { a: Attempt; n: number }) {
 function Statistics({ p, t, run, name }: { p: Placed; t: Trial; run: Run; name: string }) {
   const m = t.metrics ?? {}
   const items = checks({
-    partial_ic_t: p.partial_ic_t, threshold: p.threshold, largest_correlation: p.largest_correlation, limit: run.correlation_limit,
-    coverage: typeof m.coverage === 'number' ? m.coverage : null, min_coverage: run.admission?.min_coverage ?? null,
-    monotonicity: p.monotonicity, min_monotonicity: run.admission?.min_monotonicity ?? null,
+    partial_ic_t: p.partial_ic_t, threshold: p.threshold ?? (run.threshold_source === 'off' ? 'off' : null),
+    largest_correlation: p.largest_correlation, limit: bar(run.admission, 'max_correlation', run.correlation_limit),
+    coverage: typeof m.coverage === 'number' ? m.coverage : null, min_coverage: bar(run.admission, 'min_coverage'),
+    monotonicity: p.monotonicity, min_monotonicity: bar(run.admission, 'min_monotonicity'),
   })
   const raw = (k: string) => (typeof m[k] === 'number' ? `raw (as the ledger records it): ${(m[k] as number).toFixed(4)}` : 'no raw value')
   const nearest = (label: unknown, rho: unknown) => (label ? <>{String(label)} ρ {fmt(rho as number | null)}</> : <span className="muted">none</span>)

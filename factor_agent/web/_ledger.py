@@ -188,10 +188,12 @@ def correlation_limit(trials: tuple[Trial, ...], replayed: Replayed) -> float | 
 
 
 def thresholds(trials: tuple[Trial, ...], replayed: Replayed) -> dict[int, tuple[float | None, str | None]]:
-    """Each round's threshold and where it comes from: ``"admission"``, ``"refusals"`` or ``"carried_over"``.
+    """Each round's threshold and where it comes from: ``"admission"``, ``"refusals"``, ``"carried_over"`` or ``"off"``.
 
     A round's admission events give it; without them its refusals quote it;
-    when neither does it is the round before's, carried over. The admission
+    when neither does it is the round before's, carried over. A round judged
+    while the campaign was opened with the t check off has ``(None, "off")``,
+    and so has a round after it that nothing else gives. The admission
     events of a round a resume dropped come before those of the round run
     again under the same number, so the later ones count. A round before
     any threshold has ``(None, None)``.
@@ -201,15 +203,20 @@ def thresholds(trials: tuple[Trial, ...], replayed: Replayed) -> dict[int, tuple
         for reason in trial.reasons:
             if found := THRESHOLD.search(reason):
                 given[trial.round] = (float(found.group(1)), "refusals")
+    off = False
     for event in replayed.all:
-        if isinstance(event, events.AdmissionOutcome) and event.threshold is not None:
-            given[event.round] = (event.threshold, "admission")
+        if isinstance(event, events.Start):
+            off = event.t_threshold is None
+        elif isinstance(event, events.AdmissionOutcome) and event.stage == "admission":
+            given[event.round] = (None, "off") if off else (event.threshold, "admission")
     found, last = {}, None
     for number in sorted({trial.round for trial in trials}):
         if number in given:
             found[number] = last = given[number]
+        elif last is None or last[1] == "off":
+            found[number] = (None, None) if last is None else last
         else:
-            found[number] = (None, None) if last is None else (last[0], "carried_over")
+            found[number] = (last[0], "carried_over")
     return found
 
 

@@ -12,7 +12,7 @@ A child's outcome is 0 when it stopped before evaluation and otherwise the
 amount its residual t in its direction exceeds the admission threshold it
 was judged against (``_admission.t_threshold`` at the evaluated-trial
 count after its round: admission judges every candidate of a round at that
-count, whatever its place in the round), floored at 0. The fertility is the
+count, whatever its place in the round), or 0 with the t check off, floored at 0. The fertility is the
 mean of the ``fertile_children`` (``context.fertile_children``, 3 by
 default) best outcomes, padded with zeros, so a parent is rewarded for
 children that pass, not for many attempts.
@@ -87,7 +87,7 @@ def lineages(
         scored = [(child, directional_t(c.metrics), c) for child, c in built if c.evaluated]
         best = max(((t, child) for child, t, _ in scored if math.isfinite(t)), default=(float("nan"), ""))
         outcomes = sorted(
-            (max(t - t_threshold(admission, evaluated_through[c.round]), 0.0) if math.isfinite(t) else 0.0
+            (max(t - (t_threshold(admission, evaluated_through[c.round]) or 0.0), 0.0) if math.isfinite(t) else 0.0
              for _, t, c in scored),
             reverse=True,
         )

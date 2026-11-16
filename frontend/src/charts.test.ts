@@ -26,6 +26,16 @@ test('each statistic passes or fails against the bar admission set, and is undec
     [['partial-IC t', true], ['largest |ρ|', false], ['coverage', null], ['monotonicity', false]])
 })
 
+test('a check the run switched off shows as off and neither passes nor fails', () => {
+  const found = checks({
+    partial_ic_t: 1.2, threshold: 'off', largest_correlation: 0.95, limit: 'off',
+    coverage: 0.2, min_coverage: 'off', monotonicity: -0.3, min_monotonicity: 'off',
+  })
+  assert.deepEqual(found.map(c => [c.label, c.bar, c.passed]), [
+    ['partial-IC t', 'off', null], ['largest |ρ|', 'off', null], ['coverage', 'off', null], ['monotonicity', 'off', null],
+  ])
+})
+
 test('a year label too near the next one is left out, the short first year first, its line kept', () => {
   const days = ['2016-10-11', '2016-12-30', ...Array.from({ length: 5 }, (_, k) => ['01-03', '04-01', '07-01', '10-01'].map(d => `${2017 + k}-${d}`)).flat()]
   const ticks = yearTicks(days, 0.15)

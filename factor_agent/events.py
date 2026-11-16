@@ -77,9 +77,11 @@ class Start(Event):
     opening; ``rounds`` the rounds already written. ``max_rounds``,
     ``max_trials`` and ``patience`` are the stop conditions, ``candidates``
     the slots of a round; ``t_threshold``, ``trial_exponent``,
-    ``max_correlation``, ``min_coverage`` and ``min_monotonicity`` the
-    admission settings (``trial_exponent`` is 1 in a record written before it
-    was).
+    ``max_correlation``, ``min_coverage``, ``min_monotonicity``, ``min_ic``,
+    ``min_partial_ic``, ``min_year_share`` and ``confirm_t`` the admission
+    thresholds, each None for a check switched off (a record written before
+    a setting was has its default: ``trial_exponent`` 1, ``confirm_t`` 2, the
+    others None).
     """
 
     type = "start"
@@ -91,11 +93,15 @@ class Start(Event):
     max_rounds: int
     max_trials: int
     patience: int
-    t_threshold: float
-    max_correlation: float
-    min_coverage: float
-    min_monotonicity: float
+    t_threshold: float | None
+    max_correlation: float | None
+    min_coverage: float | None
+    min_monotonicity: float | None
     trial_exponent: float = 1.0
+    min_ic: float | None = None
+    min_partial_ic: float | None = None
+    min_year_share: float | None = None
+    confirm_t: float | None = 2.0
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -226,7 +232,8 @@ class AdmissionOutcome(Event):
 
     ``status`` is ``"accepted"`` or ``"rejected"`` (``stage`` ``"admission"``),
     or ``"failed"`` (``stage`` ``"evaluate"``) when its graph did not
-    compile. ``threshold`` is the partial-IC t it had to reach; ``metrics``
+    compile. ``threshold`` is the partial-IC t it had to reach (None with the
+    t check off, and for a failure); ``metrics``
     are the Evaluator's (``None`` for a failure).
     """
 

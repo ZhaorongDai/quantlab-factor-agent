@@ -115,6 +115,18 @@ def test_without_events_a_rounds_threshold_is_the_one_its_refusals_quote_carried
     assert (factors["planted"].threshold, factors["planted"].threshold_source) == (3.51, "carried_over")
 
 
+def test_with_the_t_check_off_a_rounds_threshold_is_off_and_the_opening_records_it(runs):
+    config = write_config(runs / "t_off", synthetic_market.build(runs / "t_off_data"),
+                          admission={"t_threshold": None, "min_ic": 0.0001},
+                          round={"candidates": 4, "min_per_type": 0, "retries": 0, "max_rounds": 2})
+    run(config, FakeLLM(lambda number, directions: ROUND_1 if number == 1 else ROUND_2), runs / "kunquant_cache")
+    view = RunView.read(runs / "t_off" / "run")
+    assert view.factors and {(f.threshold, f.threshold_source) for f in view.factors} == {(None, "off")}
+    assert (view.threshold, view.threshold_source) == (None, "off")
+    [start] = [json.loads(line) for line in (runs / "t_off" / "run" / "events.jsonl").read_text().splitlines()][:1]
+    assert (start["t_threshold"], start["min_ic"], start["confirm_t"]) == (None, 0.0001, 2.0)
+
+
 def test_decile_monotonicity_is_the_one_admission_judged_in_the_factors_direction(runs):
     for factor in _factors(runs).values():
         expected = _admission.monotonicity(factor.decile_returns, factor.factor_direction)

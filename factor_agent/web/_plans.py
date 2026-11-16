@@ -207,7 +207,8 @@ def admission(replayed: Replayed) -> AdmissionConfig:
     return AdmissionConfig(
         t_threshold=opened.t_threshold, max_correlation=opened.max_correlation,
         min_monotonicity=opened.min_monotonicity, min_coverage=opened.min_coverage,
-        trial_exponent=opened.trial_exponent,
+        trial_exponent=opened.trial_exponent, confirm_t=opened.confirm_t, min_ic=opened.min_ic,
+        min_partial_ic=opened.min_partial_ic, min_year_share=opened.min_year_share,
     )
 
 

@@ -39,27 +39,31 @@ export type Check = { label: string; value: string; bar: string; passed: boolean
 const num = (v: number, digits = 2) => v.toFixed(digits)
 
 // The statistics admission judges a factor by, each against its bar: passed, failed, or null when the bar is unknown.
+// A bar is a number, null when the run did not record it, or 'off' when the run switched the check off.
+export type Bar = number | null | 'off'
+
+// The bar of an admission check: 'off' when the run's opening records the check with no threshold (a run
+// without events records none), else the threshold the run recorded, if any.
+export function bar(opened: Record<string, number | null> | null, key: string, recorded: number | null = opened?.[key] ?? null): Bar {
+  return opened != null && opened[key] == null ? 'off' : recorded
+}
+
+function check(label: string, value: string, bar: Bar, shown: (b: number) => string, passes: (b: number) => boolean): Check {
+  if (bar === 'off') return { label, value, bar: 'off', passed: null }
+  return { label, value, bar: bar == null ? 'bar unknown' : shown(bar), passed: bar == null ? null : passes(bar) }
+}
+
 export function checks(s: {
-  partial_ic_t: number | null; threshold: number | null; largest_correlation: number | null; limit: number | null
-  coverage: number | null; min_coverage: number | null; monotonicity: number | null; min_monotonicity: number | null
+  partial_ic_t: number | null; threshold: Bar; largest_correlation: number | null; limit: Bar
+  coverage: number | null; min_coverage: Bar; monotonicity: number | null; min_monotonicity: Bar
 }): Check[] {
   const out: Check[] = []
-  if (s.partial_ic_t != null) {
-    out.push({ label: 'partial-IC t', value: num(s.partial_ic_t), bar: s.threshold == null ? 'bar unknown' : `≥ ${num(s.threshold)}`,
-      passed: s.threshold == null ? null : s.partial_ic_t >= s.threshold })
+  const t = s.partial_ic_t, rho = s.largest_correlation, coverage = s.coverage, rising = s.monotonicity
+  if (t != null) out.push(check('partial-IC t', num(t), s.threshold, b => `≥ ${num(b)}`, b => t >= b))
+  if (rho != null) out.push(check('largest |ρ|', num(rho), s.limit, b => `≤ ${num(b)}`, b => rho <= b))
+  if (coverage != null) {
+    out.push(check('coverage', `${Math.round(coverage * 100)}%`, s.min_coverage, b => `≥ ${Math.round(b * 100)}%`, b => coverage >= b))
   }
-  if (s.largest_correlation != null) {
-    out.push({ label: 'largest |ρ|', value: num(s.largest_correlation), bar: s.limit == null ? 'bar unknown' : `≤ ${num(s.limit)}`,
-      passed: s.limit == null ? null : s.largest_correlation <= s.limit })
-  }
-  if (s.coverage != null) {
-    out.push({ label: 'coverage', value: `${Math.round(s.coverage * 100)}%`,
-      bar: s.min_coverage == null ? 'bar unknown' : `≥ ${Math.round(s.min_coverage * 100)}%`,
-      passed: s.min_coverage == null ? null : s.coverage >= s.min_coverage })
-  }
-  if (s.monotonicity != null) {
-    out.push({ label: 'monotonicity', value: num(s.monotonicity), bar: s.min_monotonicity == null ? 'bar unknown' : `≥ ${num(s.min_monotonicity)}`,
-      passed: s.min_monotonicity == null ? null : s.monotonicity >= s.min_monotonicity })
-  }
+  if (rising != null) out.push(check('monotonicity', num(rising), s.min_monotonicity, b => `≥ ${num(b)}`, b => rising >= b))
   return out
 }

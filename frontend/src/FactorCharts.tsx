@@ -11,8 +11,9 @@ export function Checks({ items }: { items: Check[] }) {
   return (
     <div className="checks">
       {items.map(c => (
-        <span key={c.label} className={`check ${c.passed == null ? 'unknown' : c.passed ? 'pass' : 'fail'}`} title={c.bar}>
-          {c.passed == null ? '?' : c.passed ? '✓' : '✗'} {c.label} <b>{c.value}</b> <span className="bar">{c.bar}</span>
+        <span key={c.label} className={`check ${c.bar === 'off' ? 'off' : c.passed == null ? 'unknown' : c.passed ? 'pass' : 'fail'}`}
+          title={c.bar === 'off' ? 'the run switched this check off' : c.bar}>
+          {c.bar === 'off' ? '–' : c.passed == null ? '?' : c.passed ? '✓' : '✗'} {c.label} <b>{c.value}</b> <span className="bar">{c.bar}</span>
         </span>
       ))}
     </div>

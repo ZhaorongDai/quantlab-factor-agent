@@ -1,8 +1,10 @@
-"""The admission policy: a pure function of a candidate's metrics and the trial count.
+"""The admission policy: a pure function of a candidate's metrics, its confirmation and the trial count.
 
 A candidate states no direction: its direction is the sign of its training
-IC (``direction``), and the statistics below are read in it. The checks run
-in order and the first that fails is the reason:
+IC (``direction``), and the statistics below are read in it. The admission
+checks run in order and the first that fails is the reason; each is off when
+its threshold in ``AdmissionConfig`` is None, but the direction is always
+needed:
 
 1. on an average training day the candidate has a value on at least
    ``min_coverage`` of the members (its other statistics speak only for
@@ -18,10 +20,17 @@ in order and the first that fails is the reason:
 5. its decile returns, in its direction, rise with the decile: their
    Spearman correlation with the decile number is at least
    ``min_monotonicity``;
-6. with a confirmation segment, its partial IC there, in its direction,
+6. its training IC, in its direction, is at least ``min_ic``;
+7. its training partial IC, in its direction, is at least ``min_partial_ic``;
+8. its yearly stability: of the full training years (``FULL_YEAR_DAYS``
+   scored days or more) at least the share ``min_year_share`` had a mean IC
+   in its direction (``yearly_stability``); without a full year it fails;
+9. with a confirmation segment, its partial IC there, in its direction,
    has a Newey-West t of at least ``confirm_t`` (``confirmed``); the
    reason says so without a number, since no prompt shows a statistic of
    that segment.
+
+The refusals of the other checks give the statistic and its threshold.
 
 The threshold is a Bonferroni correction anchored at ``t_threshold``
 (Harvey, Liu and Zhu 2016). The direction is read from the data, so each
@@ -34,20 +43,27 @@ threshold rising more slowly than Bonferroni's (at 0.5, 3.82 at 100 and
 """
 
 import math
+import re
 from collections.abc import Callable, Sequence
 
 import numpy as np
+import pandas as pd
 from scipy import stats
 
 from factor_agent.config import AdmissionConfig
-from factor_agent.evaluator import KNOWN_SAMPLE_EVERY, Metrics, NodeCoverage
+from factor_agent.evaluator import KNOWN_SAMPLE_EVERY, CompileFailure, DailyIC, Metrics, NodeCoverage
+
+#: Scored days a calendar year of the training segment needs to count in the yearly stability.
+FULL_YEAR_DAYS = 120
 
 #: The dates a known factor's correlation is sampled on, as the reason says.
 _SAMPLED_DATES = f"one training date in {KNOWN_SAMPLE_EVERY}"
 
 
-def t_threshold(config: AdmissionConfig, trials: int) -> float:
-    """The partial-IC Newey-West t a candidate needs as the ``trials``-th evaluated trial."""
+def t_threshold(config: AdmissionConfig, trials: int) -> float | None:
+    """The partial-IC Newey-West t a candidate needs as the ``trials``-th evaluated trial; None when the check is off."""
+    if config.t_threshold is None:
+        return None
     return float(stats.norm.isf(stats.norm.sf(config.t_threshold) / (2 * max(trials, 1) ** config.trial_exponent)))
 
 
@@ -69,14 +85,17 @@ def monotonicity(decile_returns, sign: int) -> float:
     return sign * float(stats.spearmanr(np.arange(len(returns)), returns).statistic)
 
 
-#: What each admission reason starts with, and the kind of refusal it is (``reason_kind``).
+#: What each admission reason matches, from its start, and the kind of refusal it is (``reason_kind``).
 _KINDS = (
-    ("coverage ", "coverage"),
-    ("the training IC ", "no direction"),
-    ("cross-sectional correlation ", "correlation"),
-    ("the partial IC's ", "partial IC"),
-    ("decile monotonicity ", "monotonicity"),
-    ("the factor did not hold on the confirmation period", "confirmation"),
+    (re.compile(r"coverage "), "coverage"),
+    (re.compile(r"the training IC \S+ gives the factor no direction"), "no direction"),
+    (re.compile(r"cross-sectional correlation "), "correlation"),
+    (re.compile(r"the partial IC's "), "partial IC"),
+    (re.compile(r"decile monotonicity "), "monotonicity"),
+    (re.compile(r"the training IC \S+ in the factor's direction is below min_ic "), "IC size"),
+    (re.compile(r"the training partial IC "), "partial IC size"),
+    (re.compile(r"the training IC went in the factor's direction in "), "yearly stability"),
+    (re.compile(r"the factor did not hold on the confirmation period"), "confirmation"),
 )
 
 #: Why a candidate that passed every other check is refused when its partial IC does not hold on the
@@ -92,9 +111,20 @@ def confirmed(ic_mean: float, confirmation_partial_t: float, config: AdmissionCo
     return direction(ic_mean) * confirmation_partial_t >= config.confirm_t
 
 
+def yearly_stability(daily: DailyIC, sign: int) -> tuple[int, int]:
+    """How many full training years had a mean IC in direction ``sign``, and how many full years there were.
+
+    A year is full when it has at least ``FULL_YEAR_DAYS`` scored (finite) daily ICs.
+    """
+    ic = pd.Series(daily.ic, index=pd.DatetimeIndex(daily.days)).dropna()
+    by_year = ic.groupby(ic.index.year).agg(["mean", "size"])
+    full = by_year[by_year["size"] >= FULL_YEAR_DAYS]
+    return int((sign * full["mean"] > 0).sum()), len(full)
+
+
 def reason_kind(reason: str) -> str:
     """The kind of an admission reason ``reasons`` wrote: coverage, no direction, correlation, partial IC or monotonicity."""
-    return next((kind for start, kind in _KINDS if reason.startswith(start)), "other")
+    return next((kind for pattern, kind in _KINDS if pattern.match(reason)), "other")
 
 
 def coverage_cause(trace: Sequence[NodeCoverage], render: Callable[[int], str], min_coverage: float) -> str:
@@ -136,38 +166,66 @@ def _share(fraction: float) -> str:
     return f"{fraction:.1%}" if fraction < 0.01 else f"{fraction:.0%}"
 
 
-def reasons(metrics: Metrics, trials: int, config: AdmissionConfig) -> list[str]:
-    """Why a candidate with ``metrics`` is refused, as one reason, or nothing when it is accepted."""
+def reasons(
+    metrics: Metrics, trials: int, config: AdmissionConfig, confirmation: Metrics | CompileFailure | None = None,
+) -> list[str]:
+    """Why a candidate with ``metrics`` is refused, as one reason, or nothing when it is accepted.
+
+    With its ``confirmation`` (its evaluation on the confirmation segment), a candidate passing every
+    training check is refused unless its partial IC holds there (``confirmed``); a confirmation that
+    did not compile does not hold.
+    """
     sign = direction(metrics.ic_mean)
-    if not metrics.coverage >= config.min_coverage:
+    if config.min_coverage is not None and not metrics.coverage >= config.min_coverage:
         return [
             f"coverage {metrics.coverage:.2f} (the mean daily share of the members with a value) "
             f"is below {config.min_coverage:g}"
         ]
     if sign == 0:
         return [f"the training IC {metrics.ic_mean:+.4f} gives the factor no direction"]
-    if abs(metrics.nearest_correlation) > config.max_correlation:
+    if config.max_correlation is not None and abs(metrics.nearest_correlation) > config.max_correlation:
         return [
             f"cross-sectional correlation {metrics.nearest_correlation:+.2f} with {metrics.nearest} "
             f"is above {config.max_correlation:g} in absolute value"
         ]
-    if abs(metrics.nearest_known_correlation) > config.max_correlation:
+    if config.max_correlation is not None and abs(metrics.nearest_known_correlation) > config.max_correlation:
         return [
             f"cross-sectional correlation {metrics.nearest_known_correlation:+.2f} with {metrics.nearest_known}, "
             f"sampled on {_SAMPLED_DATES}, is above {config.max_correlation:g} in absolute value"
         ]
     threshold = t_threshold(config, trials)
     partial_t = sign * metrics.partial_ic_t
-    if not partial_t >= threshold:
+    if threshold is not None and not partial_t >= threshold:
         return [
             f"the partial IC's Newey-West t {partial_t:.2f} (residualised against the reference set and "
             f"the accepted factors, in the factor's direction) is below the threshold {threshold:.2f} "
             f"at {trials} evaluated trial(s), each counted in both directions"
         ]
     rising = monotonicity(metrics.decile_returns, sign)
-    if not rising >= config.min_monotonicity:
+    if config.min_monotonicity is not None and not rising >= config.min_monotonicity:
         return [
             f"decile monotonicity {rising:.2f} (Spearman correlation of the decile returns with the decile, "
             f"in the factor's direction) is below {config.min_monotonicity:g}"
         ]
+    if config.min_ic is not None and not sign * metrics.ic_mean >= config.min_ic:
+        return [f"the training IC {sign * metrics.ic_mean:.4f} in the factor's direction is below min_ic {config.min_ic:g}"]
+    if config.min_partial_ic is not None and not sign * metrics.partial_ic_mean >= config.min_partial_ic:
+        return [
+            f"the training partial IC {sign * metrics.partial_ic_mean:.4f} (residualised against the reference set "
+            f"and the accepted factors) in the factor's direction is below min_partial_ic {config.min_partial_ic:g}"
+        ]
+    if config.min_year_share is not None:
+        if metrics.daily is None:
+            raise ValueError("admission: min_year_share needs the candidate's daily ICs (Metrics.daily)")
+        held, years = yearly_stability(metrics.daily, sign)
+        share = held / years if years else 0.0
+        if not share >= config.min_year_share:
+            return [
+                f"the training IC went in the factor's direction in {held} of {years} full years ({share:.2f}, "
+                f"years with at least {FULL_YEAR_DAYS} scored days), below min_year_share {config.min_year_share:g}"
+            ]
+    if confirmation is not None and config.confirm_t is not None and not (
+        isinstance(confirmation, Metrics) and confirmed(metrics.ic_mean, confirmation.partial_ic_t, config)
+    ):
+        return [NOT_CONFIRMED]
     return []

@@ -120,6 +120,13 @@ A candidate is accepted when, in order:
 4. its partial IC's Newey-West t clears a threshold that rises with the number of
    evaluated trials (a Bonferroni correction anchored at `admission.t_threshold`);
 5. its decile returns rise with the decile: a Spearman correlation of at least
-   `admission.min_monotonicity`.
+   `admission.min_monotonicity`;
+6. its training IC, in its direction, is at least `admission.min_ic`;
+7. its training partial IC, in its direction, is at least `admission.min_partial_ic`;
+8. its IC went its way in at least the share `admission.min_year_share` of the full
+   training years (its yearly stability);
+9. with a confirmation segment, its partial IC holds there (`admission.confirm_t`).
 
-The first check that fails is the reason recorded. See [evaluation](evaluation.md).
+Each of these admission checks but the direction is off when its threshold is `null`;
+the last three are off unless set. The first check that fails is the reason recorded. See
+[evaluation](evaluation.md).
