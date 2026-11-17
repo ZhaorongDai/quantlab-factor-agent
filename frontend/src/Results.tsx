@@ -10,7 +10,7 @@ import { Checks, CumulativeIC, DecileChart } from './FactorCharts'
 const SORTS = {
   contribution: 'drop-one contribution',
   round: 'round',
-  t: 'partial-IC t',
+  t: 'partial rank-IC t',
   limit: 'ρ margin',
   coverage: 'coverage',
 } as const
@@ -80,7 +80,7 @@ function Margin({ f }: { f: Factor }) {
   const scale = Math.max(t, f.threshold ?? 0) * 1.1 || 1
   return (
     <div className="margin" title={raw(f, 'partial_ic_t')}>
-      <span>partial-IC t <b>{fmt(t)}</b></span>
+      <span>partial rank-IC t <b>{fmt(t)}</b></span>
       <div className="bar"><i style={{ width: `${(Math.max(t, 0) / scale) * 100}%` }} />
         {f.threshold != null && <em style={{ left: `${(f.threshold / scale) * 100}%` }} />}</div>
       <small>{f.threshold != null ? `${fmt(t - f.threshold)} over ${fmt(f.threshold)}`
@@ -139,8 +139,8 @@ function WriteUp({ f, limit, run, name }: { f: Factor; limit: number | null; run
       <DecileChart deciles={f.decile_returns} direction={f.factor_direction} monotonicity={f.monotonicity} />
       <CumulativeIC name={name} round={f.round} slot={f.slot} direction={f.factor_direction} />
       <dl className="trust">
-        <dt>IC, t</dt><dd><span title={raw(f, 'ic_mean')}>{fmt(f.ic_mean, 4)}</span>, <span title={raw(f, 'ic_t')}>{fmt(f.ic_t)}</span></dd>
-        <dt>partial IC, t</dt>
+        <dt>rank IC, t</dt><dd><span title={raw(f, 'ic_mean')}>{fmt(f.ic_mean, 4)}</span>, <span title={raw(f, 'ic_t')}>{fmt(f.ic_t)}</span></dd>
+        <dt>partial rank IC, t</dt>
         <dd><span title={raw(f, 'partial_ic_mean')}>{fmt(f.partial_ic_mean, 4)}</span>, <span title={raw(f, 'partial_ic_t')}>{fmt(f.partial_ic_t)}</span></dd>
       </dl>
       <h4>Hypothesis</h4><p>{f.hypothesis}</p>

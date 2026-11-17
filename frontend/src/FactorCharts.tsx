@@ -1,4 +1,4 @@
-// A factor's statistics against admission's bars, its decile returns and its cumulative IC, for a trial's side panel
+// A factor's statistics against admission's bars, its decile returns and its cumulative rank IC, for a trial's side panel
 // and an accepted factor's write-up alike.
 import { useEffect, useState } from 'react'
 import * as api from './api'
@@ -70,9 +70,9 @@ export function CumulativeIC({ name, round, slot, direction }: { name: string; r
     api.ic(name, round, slot).then(s => live && setSeries(s), () => live && setSeries(null))
     return () => { live = false }
   }, [name, round, slot])
-  if (series === undefined) return <p className="muted small">Loading cumulative IC…</p>
+  if (series === undefined) return <p className="muted small">Loading cumulative rank IC…</p>
   if (series === null) {
-    return <p className="muted small">No cumulative IC (not kept by this run).</p>
+    return <p className="muted small">No cumulative rank IC (not kept by this run).</p>
   }
   const ic = cumulative(series.ic, direction), partial = cumulative(series.partial_ic, direction)
   const all = [...ic, ...partial, 0]
@@ -85,10 +85,10 @@ export function CumulativeIC({ name, round, slot, direction }: { name: string; r
   return (
     <figure className="chart">
       <figcaption>
-        Cumulative IC · <span className="key ic">rank IC</span> <b>{ic[ic.length - 1].toFixed(2)}</b>{' '}
-        <span className="key partial">partial IC</span> <b>{partial[partial.length - 1].toFixed(2)}</b>
+        Cumulative rank IC · <span className="key ic">rank IC</span> <b>{ic[ic.length - 1].toFixed(2)}</b>{' '}
+        <span className="key partial">partial rank IC</span> <b>{partial[partial.length - 1].toFixed(2)}</b>
       </figcaption>
-      <svg viewBox={`0 0 ${w} ${h + 12}`} width="100%" role="img" aria-label="cumulative rank IC and partial IC">
+      <svg viewBox={`0 0 ${w} ${h + 12}`} width="100%" role="img" aria-label="cumulative rank IC and partial rank IC">
         <line x1={0} x2={w} y1={y(0)} y2={y(0)} className="axis" />
         {ticks.map(t => (
           <g key={t.year}>

@@ -6,6 +6,11 @@ layout; there are no compatibility shims or config migrations.
 
 ## Unreleased
 
+### Changed
+
+- The web panel says rank IC wherever it showed an IC: `rank IC`, `partial rank IC` and
+  `partial rank-IC t` (every IC the Evaluator gives is a daily rank IC).
+
 ## 0.3.0 (2026-11-16)
 
 Every admission check can be switched off, and three new ones ask for the size of a factor's

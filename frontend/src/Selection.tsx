@@ -108,7 +108,7 @@ export default function Selection({ run }: { run: Run }) {
         <table className="pick">
           <thead>
             <tr>
-              <th /><th>round</th><th>factor</th><th>dir.</th><th>partial-IC t</th><th>monotonicity</th>
+              <th /><th>round</th><th>factor</th><th>dir.</th><th>partial rank-IC t</th><th>monotonicity</th>
               <th>closest</th><th>closest known</th><th>coverage</th><th>drop-one</th><th>add-one</th>
             </tr>
           </thead>
