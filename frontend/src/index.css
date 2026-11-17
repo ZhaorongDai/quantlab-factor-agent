@@ -336,7 +336,7 @@ span.y-fold { cursor: default }
 .check .bar { color: var(--mut); font-size: 11px }
 .check.pass { color: var(--good); background: color-mix(in srgb, var(--good) 10%, transparent) }
 .check.fail { color: var(--bad); background: color-mix(in srgb, var(--bad) 10%, transparent) }
-.check.unknown { color: var(--mut) }
+.check.unknown, .check.off { color: var(--mut) }
 figure.chart { margin: 6px 0 14px }
 figure.chart figcaption { font-size: 12px; margin-bottom: 4px }
 figure.chart svg { display: block; max-width: 520px; overflow: visible }

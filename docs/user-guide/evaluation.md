@@ -69,8 +69,9 @@ pool before the next is judged, so two near-duplicates of one round cannot both 
 
 ## Admission
 
-The [five checks of admission](concepts.md#accepted) run in order and the first that fails
-is the recorded reason. The t threshold is a Bonferroni correction anchored at
+The [admission checks](concepts.md#accepted) run in order and the first that fails is the
+recorded reason; a refusal gives the statistic and its threshold, except the
+confirmation's. The t threshold is a Bonferroni correction anchored at
 `admission.t_threshold`: since the direction is read from the data, each evaluated trial
 counts as two tests, and the one-sided p-value of the anchor is divided by twice the trial
 count. With the default 3.0 the threshold is about 3.21 at the first trial, 3.82 at 10,
@@ -88,6 +89,29 @@ has a Newey-West t of at least `admission.confirm_t` (2.0). No prompt shows a st
 the confirmation segment: the refusal says the factor did not hold there, without a number,
 and the ledger keeps its statistics as the trial's `confirmation`. The acceptance model is
 then trained up to the end of the confirmation segment.
+
+The t of a long training segment says the IC is not zero, not that it is large or that it
+held through the years: on fifteen years of daily cross sections an IC of 0.005 can have a
+t of 10, and a factor strong in the first years and gone in the last can still clear the
+bar. Three more checks, off by default, judge that:
+
+| Key | Check |
+|---|---|
+| `admission.min_ic` | the training IC, in the factor's direction, is at least this (above 0) |
+| `admission.min_partial_ic` | the training partial IC, in the factor's direction, is at least this (above 0) |
+| `admission.min_year_share` | yearly stability: of the full training years (120 scored days or more), at least this share (above 0) had a mean IC in the factor's direction; a segment without a full year fails |
+
+The ledger records every evaluated trial's count of full years and of those in its direction
+(`full_years`, `years_in_direction`), whether or not the check is on.
+
+Each other check is switched off by setting its threshold to `null`: `t_threshold`,
+`max_correlation`, `min_coverage`, `min_monotonicity` and `confirm_t`. The signal checks,
+those that judge whether the factor predicts returns (all but coverage and correlation),
+are never all off: a config that switches every one off is refused, and so is one that
+switches `confirm_t` off while it has a confirmation segment, or sets `trial_exponent`
+with `t_threshold` off. With the t check off, a child's outcome in a Lineage is its
+residual t above 0, and the web panel shows the check as off and plots the trials' IC
+against `min_ic` on its admission map.
 
 ## Reading the ledger
 

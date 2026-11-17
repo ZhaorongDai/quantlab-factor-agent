@@ -4,7 +4,7 @@ import { useState } from 'react'
 import type { Factor, Neighbour, Run } from './api'
 import Verdict, { ContributionLines, dropOne } from './Verdict'
 import Diagnosis from './Diagnosis'
-import { checks } from './charts'
+import { bar, checks, count } from './charts'
 import { Checks, CumulativeIC, DecileChart } from './FactorCharts'
 
 const SORTS = {
@@ -83,7 +83,8 @@ function Margin({ f }: { f: Factor }) {
       <span>partial-IC t <b>{fmt(t)}</b></span>
       <div className="bar"><i style={{ width: `${(Math.max(t, 0) / scale) * 100}%` }} />
         {f.threshold != null && <em style={{ left: `${(f.threshold / scale) * 100}%` }} />}</div>
-      <small>{f.threshold != null ? `${fmt(t - f.threshold)} over ${fmt(f.threshold)}` : 'threshold unknown'}
+      <small>{f.threshold != null ? `${fmt(t - f.threshold)} over ${fmt(f.threshold)}`
+        : f.threshold_source === 'off' ? 't check off' : 'threshold unknown'}
         {f.threshold_source === 'refusals' && <span className="muted" title={`The threshold, ${SOURCES.refusals}`}> (quoted)</span>}
         {f.threshold_source === 'carried_over' && <span className="muted" title={`The threshold, ${SOURCES.carried_over}`}> (carried over)</span>}</small>
     </div>
@@ -123,9 +124,14 @@ function Card({ run, name, f, limit, open, toggle }: {
 
 function WriteUp({ f, limit, run, name }: { f: Factor; limit: number | null; run: Run; name: string }) {
   const items = checks({
-    partial_ic_t: f.partial_ic_t, threshold: f.threshold, largest_correlation: closest(f), limit,
-    coverage: f.coverage, min_coverage: run.admission?.min_coverage ?? null,
-    monotonicity: f.monotonicity, min_monotonicity: run.admission?.min_monotonicity ?? null,
+    partial_ic_t: f.partial_ic_t, threshold: f.threshold_source === 'off' ? 'off' : f.threshold,
+    largest_correlation: closest(f), limit: bar(run.admission, 'max_correlation', limit),
+    coverage: f.coverage, min_coverage: bar(run.admission, 'min_coverage'),
+    monotonicity: f.monotonicity, min_monotonicity: bar(run.admission, 'min_monotonicity'),
+    ic_mean: f.ic_mean, min_ic: bar(run.admission, 'min_ic'),
+    partial_ic_mean: f.partial_ic_mean, min_partial_ic: bar(run.admission, 'min_partial_ic'),
+    years_in_direction: count(f.metrics, 'years_in_direction'), full_years: count(f.metrics, 'full_years'),
+    min_year_share: bar(run.admission, 'min_year_share'),
   })
   return (
     <div className="write-up">

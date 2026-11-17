@@ -6,6 +6,32 @@ layout; there are no compatibility shims or config migrations.
 
 ## Unreleased
 
+### Added
+
+- Three admission checks, off by default: `admission.min_ic` and `admission.min_partial_ic`, the
+  smallest training IC and partial IC in the factor's direction, and `admission.min_year_share`,
+  the yearly stability, the smallest share of the full training years (120 scored days or more)
+  whose mean IC went the factor's way. They run after the monotonicity and before the
+  confirmation, and a refusal gives the statistic and its threshold. Each threshold is above 0, so
+  a check switched on refuses something. The run's opening records them with `confirm_t`.
+  An admission threshold that is not a number (`true`, a string) is refused. The ledger records
+  each evaluated trial's `full_years` and `years_in_direction`, and the web panel shows the three
+  checks, with their statistics, in a run that switches them on.
+
+### Changed
+
+- Every admission check but the direction can be switched off by setting its threshold to
+  `null` (`t_threshold`, `max_correlation`, `min_coverage`, `min_monotonicity`, `confirm_t`).
+  A config that switches every signal check off is refused (all but coverage and correlation;
+  `confirm_t` counts only with a confirmation segment), and so is one that switches
+  `confirm_t` off while it has a confirmation segment, or sets `trial_exponent` with
+  `t_threshold` off. With the t check off, a child's outcome in a Lineage is its residual t
+  above 0, and the web panel shows the check as off instead of its threshold as unknown; its
+  admission map then plots each trial's IC, in its direction, against `min_ic`. A round is off
+  in the panel when the opening that ran it switched the t check off, even without its admission events.
+- `_admission.reasons` takes the candidate's confirmation and decides it as the last check,
+  instead of the campaign deciding it afterwards.
+
 ## 0.2.1 (2026-11-15)
 
 The Gate's sandbox starts in a virtual environment made by uv 0.13 or newer, and the web

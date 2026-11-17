@@ -66,6 +66,7 @@ class TrialsPage:
     evaluated: tuple[Placed, ...]
     threshold: float | None
     never_evaluated: tuple[Refusal, ...]
+    threshold_source: str | None = None
 
 
 #: The order of the stages that refuse a trial before the Evaluator scores it.
@@ -108,5 +109,6 @@ def trials_page(trials: tuple[Trial, ...], replayed: Replayed) -> TrialsPage:
              for (stage, _), members in groups.items()]
     never.sort(key=lambda g: (_STAGES.index(g.stage) if g.stage in _STAGES else len(_STAGES), g.trials[0].round,
                               g.trials[0].slot))
-    return TrialsPage(evaluated=tuple(evaluated), threshold=by_round[max(by_round)][0] if by_round else None,
-                      never_evaluated=tuple(never))
+    latest = by_round[max(by_round)] if by_round else (None, None)
+    return TrialsPage(evaluated=tuple(evaluated), threshold=latest[0], never_evaluated=tuple(never),
+                      threshold_source=latest[1])

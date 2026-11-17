@@ -103,11 +103,15 @@ known factor at a time.
 | `gate.max_free_parameter_ratio` | 0.5 | hand-set constants (other than 0 and ±1) per operator |
 | `gate.max_base_fields` | 5 | distinct input fields a candidate may read |
 | `gate.max_common_subtree_nodes` | 5 | the largest subtree a candidate may share with a zoo factor |
-| `admission.t_threshold` | 3.0 | partial-IC t the first evaluated trial needs |
-| `admission.trial_exponent` | 1.0 | power of the trial count the threshold's correction divides by; below 1 it rises more slowly |
-| `admission.max_correlation` | 0.7 | largest absolute correlation with a reference, accepted or known factor |
-| `admission.min_monotonicity` | 0.6 | smallest Spearman correlation of the deciles with the decile number |
-| `admission.min_coverage` | 0.5 | smallest mean daily share of the members with a value |
+| `admission.t_threshold` | 3.0 | partial-IC t the first evaluated trial needs; `null` switches the check off |
+| `admission.trial_exponent` | 1.0 | power of the trial count the threshold's correction divides by; below 1 it rises more slowly; only with `t_threshold` |
+| `admission.max_correlation` | 0.7 | largest absolute correlation with a reference, accepted or known factor; `null` switches the check off |
+| `admission.min_monotonicity` | 0.6 | smallest Spearman correlation of the deciles with the decile number; `null` switches the check off |
+| `admission.min_coverage` | 0.5 | smallest mean daily share of the members with a value; `null` switches the check off |
+| `admission.confirm_t` | 2.0 | partial-IC t needed on the confirmation segment; `null` only without one |
+| `admission.min_ic` | null | smallest training IC in the factor's direction, above 0 |
+| `admission.min_partial_ic` | null | smallest training partial IC in the factor's direction, above 0 |
+| `admission.min_year_share` | null | smallest share of the full training years whose mean IC went the factor's way, in (0, 1] |
 | `round.candidates` | 20 | candidates per round |
 | `round.min_per_type` | 3 | slots of every mechanism type per round |
 | `round.retries` | 2 | times a refused candidate goes back to the proposer |

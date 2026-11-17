@@ -109,10 +109,19 @@ __all__ = [
 
 @dataclass(frozen=True)
 class AdmissionLimits:
-    """The least coverage and decile monotonicity admission required, as the run's last start recorded them."""
+    """The thresholds of the admission checks the web panel shows, as the run's last start recorded them.
 
-    min_coverage: float
-    min_monotonicity: float
+    The least coverage, decile monotonicity, IC, partial IC and share of full years in the factor's direction,
+    and the largest correlation. Each is None when the run switched that check off (the last three are off
+    unless set).
+    """
+
+    min_coverage: float | None
+    min_monotonicity: float | None
+    max_correlation: float | None
+    min_ic: float | None = None
+    min_partial_ic: float | None = None
+    min_year_share: float | None = None
 
 
 @dataclass(frozen=True)
@@ -156,11 +165,13 @@ class RunView:
     correlation with an existing factor that admission allows: the one the
     run was last opened with, or for a run without events the one its
     latest refusal for it quotes, ``None`` while nothing gives it.
-    ``admission`` holds the least coverage and monotonicity admission
-    required, from the run's last start; ``None`` for a run without events.
+    ``admission`` holds the least coverage and monotonicity and the largest
+    correlation admission allowed, from the run's last start, each None for a
+    check switched off; ``None`` for a run without events.
     ``evaluated`` places every trial the Evaluator scored, in round and slot
     order, and ``threshold`` is the t threshold of the latest round (see the
-    module's notes), ``None`` while nothing gives it.
+    module's notes), ``None`` while nothing gives it; ``threshold_source`` is
+    where it comes from, ``"off"`` with the t check switched off.
     ``never_evaluated`` groups the trials it never scored, by stage (parse,
     Gate, review, then evaluation) and then by the first round of each reason.
     ``memory`` holds the versions of the memory by the round after which
@@ -180,6 +191,7 @@ class RunView:
     correlation_limit: float | None
     evaluated: tuple[Placed, ...]
     threshold: float | None
+    threshold_source: str | None
     never_evaluated: tuple[Refusal, ...]
     memory: tuple[MemoryVersion, ...]
     acceptance: AcceptanceReports
@@ -227,9 +239,12 @@ class RunView:
         return cls(
             summary=summary, trials=trials, factors=factors(trials, replayed),
             correlation_limit=correlation_limit(trials, replayed), evaluated=page.evaluated, threshold=page.threshold,
+            threshold_source=page.threshold_source,
             never_evaluated=page.never_evaluated, memory=memory(run_dir / "memory"), acceptance=acceptance(run_dir),
             diagnosis=diagnosis(trials),
-            admission=AdmissionLimits(replayed.opened.min_coverage, replayed.opened.min_monotonicity)
+            admission=AdmissionLimits(replayed.opened.min_coverage, replayed.opened.min_monotonicity,
+                                      replayed.opened.max_correlation, replayed.opened.min_ic,
+                                      replayed.opened.min_partial_ic, replayed.opened.min_year_share)
             if replayed.opened else None,
             health=health(run_dir, state, summary.rounds, summary.trials, summary.stop is not None, replayed, now),
             running=None if summary.stop else running(summary.rounds + 1, replayed), now=now,

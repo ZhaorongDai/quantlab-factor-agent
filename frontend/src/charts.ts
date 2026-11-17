@@ -39,27 +39,80 @@ export type Check = { label: string; value: string; bar: string; passed: boolean
 const num = (v: number, digits = 2) => v.toFixed(digits)
 
 // The statistics admission judges a factor by, each against its bar: passed, failed, or null when the bar is unknown.
+// A bar is a number, null when the run did not record it, or 'off' when the run switched the check off.
+export type Bar = number | null | 'off'
+
+// The bar of an admission check: 'off' when the run's opening records the check with no threshold (a run
+// without events records none), else the threshold the run recorded, if any.
+export function bar(opened: Record<string, number | null | undefined> | null, key: string, recorded: number | null = opened?.[key] ?? null): Bar {
+  return opened != null && opened[key] == null ? 'off' : recorded
+}
+
+// A count a trial's metrics record, as the ledger stores it; null when the run predates it.
+export function count(metrics: Record<string, unknown> | null | undefined, key: string): number | null {
+  const value = metrics?.[key]
+  return typeof value === 'number' ? value : null
+}
+
+function check(label: string, value: string, bar: Bar, shown: (b: number) => string, passes: (b: number) => boolean): Check {
+  if (bar === 'off') return { label, value, bar: 'off', passed: null }
+  return { label, value, bar: bar == null ? 'bar unknown' : shown(bar), passed: bar == null ? null : passes(bar) }
+}
+
+// The IC size, partial IC size and yearly stability are off unless a run sets them, so they show only when it did.
 export function checks(s: {
-  partial_ic_t: number | null; threshold: number | null; largest_correlation: number | null; limit: number | null
-  coverage: number | null; min_coverage: number | null; monotonicity: number | null; min_monotonicity: number | null
+  partial_ic_t: number | null; threshold: Bar; largest_correlation: number | null; limit: Bar
+  coverage: number | null; min_coverage: Bar; monotonicity: number | null; min_monotonicity: Bar
+  ic_mean?: number | null; min_ic?: Bar; partial_ic_mean?: number | null; min_partial_ic?: Bar
+  years_in_direction?: number | null; full_years?: number | null; min_year_share?: Bar
 }): Check[] {
   const out: Check[] = []
-  if (s.partial_ic_t != null) {
-    out.push({ label: 'partial-IC t', value: num(s.partial_ic_t), bar: s.threshold == null ? 'bar unknown' : `≥ ${num(s.threshold)}`,
-      passed: s.threshold == null ? null : s.partial_ic_t >= s.threshold })
+  const t = s.partial_ic_t, rho = s.largest_correlation, coverage = s.coverage, rising = s.monotonicity
+  if (t != null) out.push(check('partial-IC t', num(t), s.threshold, b => `≥ ${num(b)}`, b => t >= b))
+  if (rho != null) out.push(check('largest |ρ|', num(rho), s.limit, b => `≤ ${num(b)}`, b => rho <= b))
+  if (coverage != null) {
+    out.push(check('coverage', `${Math.round(coverage * 100)}%`, s.min_coverage, b => `≥ ${Math.round(b * 100)}%`, b => coverage >= b))
   }
-  if (s.largest_correlation != null) {
-    out.push({ label: 'largest |ρ|', value: num(s.largest_correlation), bar: s.limit == null ? 'bar unknown' : `≤ ${num(s.limit)}`,
-      passed: s.limit == null ? null : s.largest_correlation <= s.limit })
+  if (rising != null) out.push(check('monotonicity', num(rising), s.min_monotonicity, b => `≥ ${num(b)}`, b => rising >= b))
+  const ic = s.ic_mean, partial = s.partial_ic_mean, held = s.years_in_direction, years = s.full_years
+  if (typeof s.min_ic === 'number' && ic != null) {
+    out.push(check('IC', num(ic, 4), s.min_ic, b => `≥ ${num(b, 4)}`, b => ic >= b))
   }
-  if (s.coverage != null) {
-    out.push({ label: 'coverage', value: `${Math.round(s.coverage * 100)}%`,
-      bar: s.min_coverage == null ? 'bar unknown' : `≥ ${Math.round(s.min_coverage * 100)}%`,
-      passed: s.min_coverage == null ? null : s.coverage >= s.min_coverage })
+  if (typeof s.min_partial_ic === 'number' && partial != null) {
+    out.push(check('partial IC', num(partial, 4), s.min_partial_ic, b => `≥ ${num(b, 4)}`, b => partial >= b))
   }
-  if (s.monotonicity != null) {
-    out.push({ label: 'monotonicity', value: num(s.monotonicity), bar: s.min_monotonicity == null ? 'bar unknown' : `≥ ${num(s.min_monotonicity)}`,
-      passed: s.min_monotonicity == null ? null : s.monotonicity >= s.min_monotonicity })
+  if (typeof s.min_year_share === 'number' && held != null && years != null) {
+    out.push(check('full years its way', `${held} of ${years}`, s.min_year_share, b => `≥ ${Math.round(b * 100)}%`,
+      b => years > 0 && held / years >= b))
   }
   return out
+}
+
+// What the admission map's vertical axis plots: the partial-IC t against its threshold, or, with the t check
+// switched off, the IC in the factor's direction against min_ic (none when the run set no IC floor).
+export type Axis = {
+  label: string
+  value: (p: { partial_ic_t: number | null; ic_mean: number | null }) => number | null
+  threshold: number | null
+  thresholdLabel: string
+  floor: number
+}
+
+export function admissionAxis(tOff: boolean, threshold: number | null, minIc: number | null): Axis {
+  if (tOff) {
+    return { label: 'IC', value: p => p.ic_mean, threshold: minIc, thresholdLabel: `min IC ${minIc}`, floor: 0 }
+  }
+  return {
+    label: 'partial-IC t', value: p => p.partial_ic_t, threshold,
+    thresholdLabel: threshold == null ? '' : `t threshold ${num(threshold)}`, floor: -2,
+  }
+}
+
+// Ticks from lo to hi on a step of 1, 2 or 5 times a power of ten, the smallest that leaves at most `most` steps.
+export function niceTicks(lo: number, hi: number, most = 8): number[] {
+  const rough = (hi - lo) / most
+  const power = 10 ** Math.floor(Math.log10(rough))
+  const step = [1, 2, 5, 10].map(m => m * power).find(s => s >= rough) ?? 10 * power
+  const first = Math.ceil(lo / step), last = Math.floor(hi / step)
+  return Array.from({ length: last - first + 1 }, (_, i) => Number(((first + i) * step).toPrecision(12)))
 }

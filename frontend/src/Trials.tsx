@@ -7,7 +7,7 @@
 // out for a while.
 import { useEffect, useRef, useState } from 'react'
 import type { Placed, Refusal, Run, Trial } from './api'
-import { checks } from './charts'
+import { admissionAxis, bar, checks, count, niceTicks } from './charts'
 import { Checks, CumulativeIC, DecileChart } from './FactorCharts'
 import { LineageGraph, LineageSection, RoundPlanView, StepperBar, useRoundPlan, useStepper } from './LineageGraph'
 import { idOf, keyOf } from './lineage'
@@ -60,13 +60,16 @@ function Numbers({ run }: { run: Run }) {
 function AdmissionMap({ run, picked, fresh, pick, hovered, hover }: {
   run: Run; picked: string | null; fresh: Set<string>; pick: (k: string) => void; hovered: string | null; hover: (k: string | null) => void
 }) {
-  const points = run.evaluated.filter(p => p.partial_ic_t != null)
-  const limit = run.correlation_limit, threshold = run.threshold
-  const ts = points.map(p => p.partial_ic_t!)
-  const low = Math.min(-2, ...ts), high = Math.max((threshold ?? 0) + 1, ...ts)
-  const y0 = low - (high - low) * 0.04, y1 = high + (high - low) * 0.04
-  const step = [1, 2, 5, 10, 20, 50, 100].find(s => (y1 - y0) / s <= 8) ?? 200
-  const ticks = Array.from({ length: Math.floor(y1 / step) - Math.ceil(y0 / step) + 1 }, (_, i) => (Math.ceil(y0 / step) + i) * step)
+  const tOff = run.threshold_source === 'off'
+  const axis = admissionAxis(tOff, run.threshold, run.admission?.min_ic ?? null)
+  const points = run.evaluated.filter(p => axis.value(p) != null)
+  const limit = run.correlation_limit, threshold = axis.threshold
+  const ys = points.map(p => axis.value(p)!)
+  // The t axis reaches 1 above the threshold; the IC axis just past its largest value or min_ic.
+  const low = Math.min(axis.floor, ...ys), high = Math.max((threshold ?? 0) + (tOff ? 0 : 1), ...ys)
+  const pad = (high - low) * 0.04 || 0.01
+  const y0 = low - pad, y1 = high + pad
+  const ticks = niceTicks(y0, y1)
   const x1 = Math.max(1, ...points.map(p => p.largest_correlation ?? 0))
   const X = (v: number) => P + (v / x1) * (W - 2 * P)
   const Y = (v: number) => H - P - ((v - y0) / (y1 - y0)) * (H - 2 * P)
@@ -76,7 +79,7 @@ function AdmissionMap({ run, picked, fresh, pick, hovered, hover }: {
   return (
     <figure className="admission">
       <svg viewBox={`0 0 ${W} ${H}`} role="img"
-           aria-label="every evaluated trial by its largest correlation with an existing factor and its partial-IC t in its direction">
+           aria-label={`every evaluated trial by its largest absolute correlation with an existing factor and its ${axis.label} in its direction`}>
         {threshold != null && (
           <rect x={X(0)} y={Y(y1)} width={X(limit ?? x1) - X(0)} height={Y(threshold) - Y(y1)} className="zone">
             <title>Admitted here if coverage and monotonicity also pass</title>
@@ -90,7 +93,7 @@ function AdmissionMap({ run, picked, fresh, pick, hovered, hover }: {
         </>}
         {threshold != null && <>
           <line x1={P} x2={W - P} y1={Y(threshold)} y2={Y(threshold)} className="limit" />
-          <text x={W - P - 4} y={Y(threshold) - 4} textAnchor="end" className="label">t threshold {fmt(threshold)}</text>
+          <text x={W - P - 4} y={Y(threshold) - 4} textAnchor="end" className="label">{axis.thresholdLabel}</text>
         </>}
         {[0, 0.25, 0.5, 0.75, 1].filter(v => v <= x1).map(v => (
           <text key={v} x={X(v)} y={H - P + 14} textAnchor="middle" className="label">{v}</text>
@@ -98,22 +101,22 @@ function AdmissionMap({ run, picked, fresh, pick, hovered, hover }: {
         {ticks.map(v => (
           <text key={v} x={P - 4} y={Y(v) + 4} textAnchor="end" className="label">{v}</text>
         ))}
-        <text x={W / 2} y={H - 8} textAnchor="middle" className="label">largest |ρ| with an existing factor</text>
-        <text x={12} y={H / 2} transform={`rotate(-90 12 ${H / 2})`} textAnchor="middle" className="label">partial-IC t</text>
+        <text x={W / 2} y={H - 8} textAnchor="middle" className="label">max |ρ|</text>
+        <text x={12} y={H / 2} transform={`rotate(-90 12 ${H / 2})`} textAnchor="middle" className="label">{axis.label}</text>
         {points.map(p => (
-          <circle key={key(p)} cx={X(p.largest_correlation ?? 0)} cy={Y(p.partial_ic_t!)} r={size(p)}
+          <circle key={key(p)} cx={X(p.largest_correlation ?? 0)} cy={Y(axis.value(p)!)} r={size(p)}
                   className={`point ${p.status}${fresh.has(key(p)) ? ' fresh' : ''}${picked === key(p) ? ' picked' : ''}`}
                   onClick={() => pick(key(p))} onMouseEnter={() => hover(key(p))} onMouseLeave={() => hover(null)}>
-            <title>{`round ${p.round}, slot ${p.slot + 1}: ${p.status}, t ${fmt(p.partial_ic_t)}, |ρ| ${fmt(p.largest_correlation)}`}</title>
+            <title>{`round ${p.round}, slot ${p.slot + 1}: ${p.status}, ${tOff ? `IC ${p.ic_mean!.toFixed(4)}` : `t ${fmt(p.partial_ic_t)}`}, |ρ| ${fmt(p.largest_correlation)}`}</title>
           </circle>
         ))}
-        {lifted && <circle cx={X(lifted.largest_correlation ?? 0)} cy={Y(lifted.partial_ic_t!)} r={10} className="hover-ring" />}
+        {lifted && <circle cx={X(lifted.largest_correlation ?? 0)} cy={Y(axis.value(lifted)!)} r={10} className="hover-ring" />}
       </svg>
       <figcaption className="muted small">
         <span className="key accepted">●</span> accepted <span className="key rejected">●</span> rejected{' '}
         <span className="key failed">●</span> failed ({failed}, listed below)
-        {threshold == null && ' · t threshold unknown'}
-        {limit == null && ' · ρ limit unknown'}
+        {tOff ? ` · t check off${threshold == null ? ', no IC floor' : ''}` : threshold == null && ' · t threshold unknown'}
+        {limit == null && (bar(run.admission, 'max_correlation') === 'off' ? ' · ρ check off' : ' · ρ limit unknown')}
       </figcaption>
     </figure>
   )
@@ -186,9 +189,14 @@ function Version({ a, n }: { a: Attempt; n: number }) {
 function Statistics({ p, t, run, name }: { p: Placed; t: Trial; run: Run; name: string }) {
   const m = t.metrics ?? {}
   const items = checks({
-    partial_ic_t: p.partial_ic_t, threshold: p.threshold, largest_correlation: p.largest_correlation, limit: run.correlation_limit,
-    coverage: typeof m.coverage === 'number' ? m.coverage : null, min_coverage: run.admission?.min_coverage ?? null,
-    monotonicity: p.monotonicity, min_monotonicity: run.admission?.min_monotonicity ?? null,
+    partial_ic_t: p.partial_ic_t, threshold: p.threshold ?? (run.threshold_source === 'off' ? 'off' : null),
+    largest_correlation: p.largest_correlation, limit: bar(run.admission, 'max_correlation', run.correlation_limit),
+    coverage: typeof m.coverage === 'number' ? m.coverage : null, min_coverage: bar(run.admission, 'min_coverage'),
+    monotonicity: p.monotonicity, min_monotonicity: bar(run.admission, 'min_monotonicity'),
+    ic_mean: p.ic_mean, min_ic: bar(run.admission, 'min_ic'),
+    partial_ic_mean: p.partial_ic_mean, min_partial_ic: bar(run.admission, 'min_partial_ic'),
+    years_in_direction: count(m, 'years_in_direction'), full_years: count(m, 'full_years'),
+    min_year_share: bar(run.admission, 'min_year_share'),
   })
   const raw = (k: string) => (typeof m[k] === 'number' ? `raw (as the ledger records it): ${(m[k] as number).toFixed(4)}` : 'no raw value')
   const nearest = (label: unknown, rho: unknown) => (label ? <>{String(label)} ρ {fmt(rho as number | null)}</> : <span className="muted">none</span>)

@@ -431,3 +431,60 @@ def test_an_unknown_trial_graph_key_is_refused(tmp_path):
 def test_a_fertile_children_count_below_one_is_refused(tmp_path, count):
     with pytest.raises(ValueError, match=re.escape(f"context: fertile_children is {count!r}")):
         CampaignConfig.from_file(_minimal(tmp_path, context={"fertile_children": count}))
+
+
+def test_the_admission_checks_a_config_switches_on_are_read_with_their_thresholds(tmp_path):
+    admission = {"t_threshold": None, "max_correlation": None, "min_ic": 0.004, "min_partial_ic": 0.002, "min_year_share": 0.75}
+    config = CampaignConfig.from_file(_minimal(tmp_path, admission=admission)).admission
+    assert (config.t_threshold, config.max_correlation) == (None, None)
+    assert (config.min_ic, config.min_partial_ic, config.min_year_share) == (0.004, 0.002, 0.75)
+
+
+def test_a_config_switching_every_signal_check_off_is_refused_naming_them(tmp_path):
+    off = {"t_threshold": None, "min_monotonicity": None, "confirm_t": None}
+    with pytest.raises(ValueError, match=(
+        "admission: every signal check is off; switch on at least one of t_threshold, min_ic, min_partial_ic, "
+        "min_year_share, min_monotonicity, confirm_t"
+    )):
+        CampaignConfig.from_file(_minimal(tmp_path, admission=off))
+
+
+def test_the_confirmation_does_not_count_as_a_signal_check_without_a_confirmation_segment(tmp_path):
+    with pytest.raises(ValueError, match="every signal check is off"):
+        CampaignConfig.from_file(_minimal(tmp_path, admission={"t_threshold": None, "min_monotonicity": None}))
+
+
+@pytest.mark.parametrize(("key", "value", "message"), [
+    ("min_ic", -0.001, "admission: min_ic is -0.001; it is above 0"),
+    ("min_ic", 0, "admission: min_ic is 0; it is above 0"),
+    ("min_partial_ic", -0.5, "admission: min_partial_ic is -0.5; it is above 0"),
+    ("min_year_share", 1.2, r"admission: min_year_share is 1.2; it lies in \(0, 1\]"),
+    ("min_year_share", 0, r"admission: min_year_share is 0; it lies in \(0, 1\]"),
+])
+def test_a_size_or_stability_threshold_out_of_its_range_is_refused(tmp_path, key, value, message):
+    with pytest.raises(ValueError, match=message):
+        CampaignConfig.from_file(_minimal(tmp_path, admission={key: value}))
+
+
+@pytest.mark.parametrize("key", [
+    "t_threshold", "max_correlation", "min_monotonicity", "min_coverage", "confirm_t", "min_ic", "min_partial_ic",
+    "min_year_share",
+])
+@pytest.mark.parametrize("value", [True, "0.01"])
+def test_an_admission_threshold_that_is_not_a_number_is_refused(tmp_path, key, value):
+    with pytest.raises(TypeError, match=rf"admission: {key} is {value!r}; it is a number, or null to switch the check off"):
+        CampaignConfig.from_file(_minimal(tmp_path, admission={key: value}))
+
+
+def test_a_trial_exponent_without_the_t_check_is_refused(tmp_path):
+    with pytest.raises(ValueError, match="admission: trial_exponent is set while t_threshold is off"):
+        CampaignConfig.from_file(_minimal(tmp_path, admission={"t_threshold": None, "trial_exponent": 0.5}))
+
+
+def test_a_confirmation_segment_with_the_confirmation_switched_off_is_refused(tmp_path):
+    segments = {"training": {"start": "2024-01-01", "end": "2024-01-02"},
+                "confirmation": {"start": "2024-01-03", "end": "2024-01-04"}}
+    with pytest.raises(ValueError, match=(
+        "admission: confirm_t is off but segments has a confirmation segment; set confirm_t or drop the segment"
+    )):
+        CampaignConfig.from_file(_minimal(tmp_path, segments=segments, admission={"confirm_t": None}))

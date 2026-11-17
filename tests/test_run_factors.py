@@ -115,6 +115,47 @@ def test_without_events_a_rounds_threshold_is_the_one_its_refusals_quote_carried
     assert (factors["planted"].threshold, factors["planted"].threshold_source) == (3.51, "carried_over")
 
 
+def test_with_the_t_check_off_a_rounds_threshold_is_off_and_the_opening_records_it(runs):
+    config = write_config(runs / "t_off", synthetic_market.build(runs / "t_off_data"),
+                          admission={"t_threshold": None, "min_ic": 0.0001},
+                          round={"candidates": 4, "min_per_type": 0, "retries": 0, "max_rounds": 2})
+    run(config, FakeLLM(lambda number, directions: ROUND_1 if number == 1 else ROUND_2), runs / "kunquant_cache")
+    view = RunView.read(runs / "t_off" / "run")
+    assert view.factors and {(f.threshold, f.threshold_source) for f in view.factors} == {(None, "off")}
+    assert (view.threshold, view.threshold_source) == (None, "off")
+    assert (view.admission.min_ic, view.admission.min_partial_ic, view.admission.min_year_share) == (0.0001, None, None)
+    [start] = [json.loads(line) for line in (runs / "t_off" / "run" / "events.jsonl").read_text().splitlines()][:1]
+    assert (start["t_threshold"], start["min_ic"], start["confirm_t"]) == (None, 0.0001, 2.0)
+
+
+def test_a_round_a_resume_ran_with_the_t_check_off_is_off_even_without_admission_events(runs, tmp_path):
+    # A resume after round 1 switches the t check off; round 2 records no admission event (as when no
+    # candidate of it reaches admission), so nothing of it gives a threshold to carry round 1's over.
+    shutil.copytree(runs / "two_rounds" / "run", tmp_path / "run")
+    path = tmp_path / "run" / "events.jsonl"
+    written = [json.loads(line) for line in path.read_text().splitlines()]
+    resumed = {**written[0], "rounds": 1, "t_threshold": None}
+    kept = []
+    for event in written:
+        if event.get("round") == 2 and event["type"] == "admission":
+            continue
+        kept.append(event)
+        if event["type"] == "round_end" and event["round"] == 1:
+            kept.append(resumed)
+    path.write_text("".join(json.dumps(event) + "\n" for event in kept))
+    view = RunView.read(tmp_path / "run")
+    factors = {f.description: f for f in view.factors}
+    assert factors[QUIET_VOLUME].threshold == pytest.approx(3.51, abs=0.005)
+    assert (factors["planted"].threshold, factors["planted"].threshold_source) == (None, "off")
+    assert (view.threshold, view.threshold_source) == (None, "off")
+
+
+def test_each_factor_records_how_many_full_training_years_went_its_way(runs):
+    for factor in _factors(runs).values():
+        held, years = factor.metrics["years_in_direction"], factor.metrics["full_years"]
+        assert years >= 1 and 0 <= held <= years
+
+
 def test_decile_monotonicity_is_the_one_admission_judged_in_the_factors_direction(runs):
     for factor in _factors(runs).values():
         expected = _admission.monotonicity(factor.decile_returns, factor.factor_direction)

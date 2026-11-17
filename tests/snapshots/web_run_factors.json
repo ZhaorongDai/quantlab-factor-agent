@@ -62,7 +62,9 @@
         "start": "2010-01-01",
         "end": "2011-12-22",
         "pool_share": "<number>",
-        "overlaps": []
+        "overlaps": [],
+        "years_in_direction": 2,
+        "full_years": 2
       },
       "intraday": false
     }

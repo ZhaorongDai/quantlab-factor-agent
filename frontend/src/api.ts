@@ -130,8 +130,9 @@ export type Factor = {
   partial_ic_mean: number | null
   partial_ic_t: number | null
   threshold: number | null
-  // admission: its round's admission events; refusals: what its round's refusals quote; carried_over: an earlier round's.
-  threshold_source: 'admission' | 'refusals' | 'carried_over' | null
+  // admission: its round's admission events; refusals: what its round's refusals quote; carried_over: an earlier
+  // round's; off: the run switched the t check off.
+  threshold_source: 'admission' | 'refusals' | 'carried_over' | 'off' | null
   monotonicity: number | null
   nearest: Neighbour | null
   nearest_known: Neighbour | null
@@ -227,10 +228,17 @@ export type Run = {
   trials: Trial[]
   factors: Factor[]
   correlation_limit: number | null
-  // The least coverage and monotonicity admission required, from the run's last start; null without events.
-  admission: { min_coverage: number; min_monotonicity: number } | null
+  // The thresholds of the admission checks the panel shows, from the run's last start, each null for a check
+  // switched off (min_ic, min_partial_ic and min_year_share are off unless set, and absent from older runs); null
+  // without events.
+  admission: {
+    min_coverage: number | null; min_monotonicity: number | null; max_correlation: number | null
+    min_ic: number | null; min_partial_ic?: number | null; min_year_share?: number | null
+  } | null
   evaluated: Placed[]
   threshold: number | null
+  // Where the latest round's t threshold comes from, as Factor.threshold_source.
+  threshold_source: 'admission' | 'refusals' | 'carried_over' | 'off' | null
   never_evaluated: Refusal[]
   memory: MemoryVersion[]
   acceptance: AcceptanceReports

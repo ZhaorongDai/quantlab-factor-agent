@@ -143,6 +143,21 @@ class DailyIC:
     partial_ic: tuple[float, ...]
 
 
+#: Scored days a calendar year of the training segment needs to count in the yearly stability.
+FULL_YEAR_DAYS = 120
+
+
+def yearly_stability(daily: DailyIC, sign: int) -> tuple[int, int]:
+    """How many full years of ``daily`` had a mean IC in direction ``sign``, and how many full years there were.
+
+    A year is full when it has at least ``FULL_YEAR_DAYS`` scored (finite) daily ICs.
+    """
+    ic = pd.Series(daily.ic, index=pd.DatetimeIndex(daily.days)).dropna()
+    by_year = ic.groupby(ic.index.year).agg(["mean", "size"])
+    full = by_year[by_year["size"] >= FULL_YEAR_DAYS]
+    return int((sign * full["mean"] > 0).sum()), len(full)
+
+
 @dataclass(frozen=True)
 class Metrics:
     """A candidate's training-segment statistics; see the module docstring.
@@ -160,7 +175,9 @@ class Metrics:
     ``decile_returns`` holds the mean label of each decile, lowest
     candidate values first. ``coverage`` is the mean daily share of the
     scored members with a value before any fill. ``daily`` holds the daily
-    series the means and t come from; the ledger leaves it out.
+    series the means and t come from; the ledger leaves it out, and records
+    from it how many full years went in the direction of the IC
+    (``years_in_direction`` of ``full_years``, see ``yearly_stability``).
     """
 
     ic_mean: float
@@ -183,6 +200,9 @@ class Metrics:
     def to_dict(self) -> dict:
         """Return the metrics as the ledger stores them, without the daily series."""
         stored = {key: value for key, value in vars(self).items() if key != "daily"}
+        if self.daily is not None:
+            sign = int(np.sign(self.ic_mean)) if np.isfinite(self.ic_mean) else 0
+            stored["years_in_direction"], stored["full_years"] = yearly_stability(self.daily, sign)
         return {
             **stored, "decile_returns": list(self.decile_returns),
             "overlaps": [[name, correlation] for name, correlation in self.overlaps],

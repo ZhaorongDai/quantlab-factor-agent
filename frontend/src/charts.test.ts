@@ -1,7 +1,7 @@
 // What a factor's charts and checks draw, run with `npm test`.
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { checks, cumulative, excess, yearTicks } from './charts.ts'
+import { admissionAxis, checks, cumulative, excess, niceTicks, yearTicks } from './charts.ts'
 
 test('the cumulative IC adds each day in the factor direction and skips an unscored day', () => {
   assert.deepEqual(cumulative([0.1, null, -0.05, 0.2], 1), [0.1, 0.1, 0.05, 0.25].map(v => v))
@@ -24,6 +24,47 @@ test('each statistic passes or fails against the bar admission set, and is undec
   })
   assert.deepEqual(found.map(c => [c.label, c.passed]),
     [['partial-IC t', true], ['largest |ρ|', false], ['coverage', null], ['monotonicity', false]])
+})
+
+test('a check the run switched off shows as off and neither passes nor fails', () => {
+  const found = checks({
+    partial_ic_t: 1.2, threshold: 'off', largest_correlation: 0.95, limit: 'off',
+    coverage: 0.2, min_coverage: 'off', monotonicity: -0.3, min_monotonicity: 'off',
+  })
+  assert.deepEqual(found.map(c => [c.label, c.bar, c.passed]), [
+    ['partial-IC t', 'off', null], ['largest |ρ|', 'off', null], ['coverage', 'off', null], ['monotonicity', 'off', null],
+  ])
+})
+
+test('the IC size, partial IC size and yearly stability show only when the run switched them on', () => {
+  const base = {
+    partial_ic_t: 5.1, threshold: 3.97, largest_correlation: 0.2, limit: 0.7,
+    coverage: 0.92, min_coverage: 0.5, monotonicity: 0.8, min_monotonicity: 0.6,
+    ic_mean: 0.0123, partial_ic_mean: 0.004, years_in_direction: 2, full_years: 3,
+  }
+  assert.equal(checks({ ...base, min_ic: 'off', min_partial_ic: 'off', min_year_share: 'off' }).length, 4)
+  const found = checks({ ...base, min_ic: 0.01, min_partial_ic: 0.005, min_year_share: 0.75 }).slice(4)
+  assert.deepEqual(found.map(c => [c.label, c.value, c.bar, c.passed]), [
+    ['IC', '0.0123', '≥ 0.0100', true],
+    ['partial IC', '0.0040', '≥ 0.0050', false],
+    ['full years its way', '2 of 3', '≥ 75%', false],
+  ])
+  const none = checks({ ...base, full_years: 0, years_in_direction: 0, min_year_share: 0.5 }).at(-1)!
+  assert.deepEqual([none.value, none.passed], ['0 of 0', false])
+})
+
+test('the admission map plots the partial-IC t against its threshold, or the IC against min_ic with the t check off', () => {
+  const p = { partial_ic_t: 5.2, ic_mean: 0.012 }
+  const t = admissionAxis(false, 3.8, 0.004)
+  assert.deepEqual([t.label, t.value(p), t.threshold, t.thresholdLabel], ['partial-IC t', 5.2, 3.8, 't threshold 3.80'])
+  const ic = admissionAxis(true, null, 0.004)
+  assert.deepEqual([ic.label, ic.value(p), ic.threshold, ic.thresholdLabel], ['IC', 0.012, 0.004, 'min IC 0.004'])
+  assert.equal(admissionAxis(true, null, null).threshold, null)
+})
+
+test('ticks fall on round steps at most eight apart, small ones as well as large', () => {
+  assert.deepEqual(niceTicks(-2.5, 20), [0, 5, 10, 15, 20])
+  assert.deepEqual(niceTicks(-0.002, 0.031), [0, 0.005, 0.01, 0.015, 0.02, 0.025, 0.03])
 })
 
 test('a year label too near the next one is left out, the short first year first, its line kept', () => {

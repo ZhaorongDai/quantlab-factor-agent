@@ -59,6 +59,12 @@ def test_fertility_is_the_mean_of_the_three_best_outcomes_above_each_childs_own_
     assert math.isclose(fertility, (1.1828 + 0.6828 + 0.1594) / 3, abs_tol=1e-4)
 
 
+def test_with_the_t_check_off_fertility_is_the_mean_of_the_three_best_residual_ts_above_zero():
+    # T2-03 5.0, T2-02 (in its direction) 4.5, T3-01 4.0.
+    fertility = lineages(named(_run()), AdmissionConfig(t_threshold=None, min_ic=0.001), 3)["T1-01"].fertility
+    assert math.isclose(fertility, (5.0 + 4.5 + 4.0) / 3)
+
+
 def test_fewer_than_three_children_are_padded_with_zeros():
     trials = named([_trial(1, ic=0.02, t=3.5), _trial(2, action="mutation", parent="T1-01", ic=0.02, t=5.0)])
     # The child is the second evaluated trial: its threshold is 3.3996.
