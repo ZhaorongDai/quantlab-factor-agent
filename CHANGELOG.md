@@ -6,6 +6,11 @@ layout; there are no compatibility shims or config migrations.
 
 ## Unreleased
 
+## 0.3.0 (2026-11-16)
+
+Every admission check can be switched off, and three new ones ask for the size of a factor's
+training IC and partial IC and for its yearly stability.
+
 ### Added
 
 - Three admission checks, off by default: `admission.min_ic` and `admission.min_partial_ic`, the
