@@ -143,13 +143,13 @@ def test_the_planner_is_told_the_refusals_a_refinement_can_remove_by_the_checks_
     [_, second] = _planner_prompts(t_off)
     assert (
         "to remove what refused it (values on too few members, a correlation with an existing factor, deciles "
-        "that do not rise in the factor's direction, a training IC below its floor)"
+        "that do not rise steadily enough in the factor's direction, a training IC below its floor)"
     ) in second
     assert "residual t" not in second.split("<quota>")[0].split("</mechanism_types>")[1]
     [_, default] = _planner_prompts(runs / "two_rounds" / "run")
     assert (
         "to remove what refused it (values on too few members, a correlation with an existing factor, a residual "
-        "t below the threshold, deciles that do not rise in the factor's direction)"
+        "t below the threshold, deciles that do not rise steadily enough in the factor's direction)"
     ) in default
 
 

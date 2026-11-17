@@ -186,7 +186,7 @@ REFUSALS = (
     ("min_coverage", "values on too few members"),
     ("max_correlation", "a correlation with an existing factor"),
     ("t_threshold", "a residual t below the threshold"),
-    ("min_monotonicity", "deciles that do not rise in the factor's direction"),
+    ("min_monotonicity", "deciles that do not rise steadily enough in the factor's direction"),
     ("min_ic", "a training IC below its floor"),
     ("min_partial_ic", "a residual IC below its floor"),
     ("min_year_share", "too few training years in the factor's direction"),
