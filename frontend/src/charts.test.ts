@@ -23,7 +23,7 @@ test('each statistic passes or fails against the bar admission set, and is undec
     coverage: 0.92, min_coverage: null, monotonicity: 0.4, min_monotonicity: 0.6,
   })
   assert.deepEqual(found.map(c => [c.label, c.passed]),
-    [['partial-IC t', true], ['largest |ρ|', false], ['coverage', null], ['monotonicity', false]])
+    [['partial rank-IC t', true], ['largest |ρ|', false], ['coverage', null], ['monotonicity', false]])
 })
 
 test('a check the run switched off shows as off and neither passes nor fails', () => {
@@ -32,7 +32,7 @@ test('a check the run switched off shows as off and neither passes nor fails', (
     coverage: 0.2, min_coverage: 'off', monotonicity: -0.3, min_monotonicity: 'off',
   })
   assert.deepEqual(found.map(c => [c.label, c.bar, c.passed]), [
-    ['partial-IC t', 'off', null], ['largest |ρ|', 'off', null], ['coverage', 'off', null], ['monotonicity', 'off', null],
+    ['partial rank-IC t', 'off', null], ['largest |ρ|', 'off', null], ['coverage', 'off', null], ['monotonicity', 'off', null],
   ])
 })
 
@@ -45,8 +45,8 @@ test('the IC size, partial IC size and yearly stability show only when the run s
   assert.equal(checks({ ...base, min_ic: 'off', min_partial_ic: 'off', min_year_share: 'off' }).length, 4)
   const found = checks({ ...base, min_ic: 0.01, min_partial_ic: 0.005, min_year_share: 0.75 }).slice(4)
   assert.deepEqual(found.map(c => [c.label, c.value, c.bar, c.passed]), [
-    ['IC', '0.0123', '≥ 0.0100', true],
-    ['partial IC', '0.0040', '≥ 0.0050', false],
+    ['rank IC', '0.0123', '≥ 0.0100', true],
+    ['partial rank IC', '0.0040', '≥ 0.0050', false],
     ['full years its way', '2 of 3', '≥ 75%', false],
   ])
   const none = checks({ ...base, full_years: 0, years_in_direction: 0, min_year_share: 0.5 }).at(-1)!
@@ -56,9 +56,9 @@ test('the IC size, partial IC size and yearly stability show only when the run s
 test('the admission map plots the partial-IC t against its threshold, or the IC against min_ic with the t check off', () => {
   const p = { partial_ic_t: 5.2, ic_mean: 0.012 }
   const t = admissionAxis(false, 3.8, 0.004)
-  assert.deepEqual([t.label, t.value(p), t.threshold, t.thresholdLabel], ['partial-IC t', 5.2, 3.8, 't threshold 3.80'])
+  assert.deepEqual([t.label, t.value(p), t.threshold, t.thresholdLabel], ['partial rank-IC t', 5.2, 3.8, 't threshold 3.80'])
   const ic = admissionAxis(true, null, 0.004)
-  assert.deepEqual([ic.label, ic.value(p), ic.threshold, ic.thresholdLabel], ['IC', 0.012, 0.004, 'min IC 0.004'])
+  assert.deepEqual([ic.label, ic.value(p), ic.threshold, ic.thresholdLabel], ['rank IC', 0.012, 0.004, 'min rank IC 0.004'])
   assert.equal(admissionAxis(true, null, null).threshold, null)
 })
 

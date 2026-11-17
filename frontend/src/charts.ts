@@ -68,7 +68,7 @@ export function checks(s: {
 }): Check[] {
   const out: Check[] = []
   const t = s.partial_ic_t, rho = s.largest_correlation, coverage = s.coverage, rising = s.monotonicity
-  if (t != null) out.push(check('partial-IC t', num(t), s.threshold, b => `≥ ${num(b)}`, b => t >= b))
+  if (t != null) out.push(check('partial rank-IC t', num(t), s.threshold, b => `≥ ${num(b)}`, b => t >= b))
   if (rho != null) out.push(check('largest |ρ|', num(rho), s.limit, b => `≤ ${num(b)}`, b => rho <= b))
   if (coverage != null) {
     out.push(check('coverage', `${Math.round(coverage * 100)}%`, s.min_coverage, b => `≥ ${Math.round(b * 100)}%`, b => coverage >= b))
@@ -76,10 +76,10 @@ export function checks(s: {
   if (rising != null) out.push(check('monotonicity', num(rising), s.min_monotonicity, b => `≥ ${num(b)}`, b => rising >= b))
   const ic = s.ic_mean, partial = s.partial_ic_mean, held = s.years_in_direction, years = s.full_years
   if (typeof s.min_ic === 'number' && ic != null) {
-    out.push(check('IC', num(ic, 4), s.min_ic, b => `≥ ${num(b, 4)}`, b => ic >= b))
+    out.push(check('rank IC', num(ic, 4), s.min_ic, b => `≥ ${num(b, 4)}`, b => ic >= b))
   }
   if (typeof s.min_partial_ic === 'number' && partial != null) {
-    out.push(check('partial IC', num(partial, 4), s.min_partial_ic, b => `≥ ${num(b, 4)}`, b => partial >= b))
+    out.push(check('partial rank IC', num(partial, 4), s.min_partial_ic, b => `≥ ${num(b, 4)}`, b => partial >= b))
   }
   if (typeof s.min_year_share === 'number' && held != null && years != null) {
     out.push(check('full years its way', `${held} of ${years}`, s.min_year_share, b => `≥ ${Math.round(b * 100)}%`,
@@ -100,10 +100,10 @@ export type Axis = {
 
 export function admissionAxis(tOff: boolean, threshold: number | null, minIc: number | null): Axis {
   if (tOff) {
-    return { label: 'IC', value: p => p.ic_mean, threshold: minIc, thresholdLabel: `min IC ${minIc}`, floor: 0 }
+    return { label: 'rank IC', value: p => p.ic_mean, threshold: minIc, thresholdLabel: `min rank IC ${minIc}`, floor: 0 }
   }
   return {
-    label: 'partial-IC t', value: p => p.partial_ic_t, threshold,
+    label: 'partial rank-IC t', value: p => p.partial_ic_t, threshold,
     thresholdLabel: threshold == null ? '' : `t threshold ${num(threshold)}`, floor: -2,
   }
 }

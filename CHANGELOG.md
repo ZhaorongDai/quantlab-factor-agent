@@ -12,6 +12,8 @@ layout; there are no compatibility shims or config migrations.
   on refuse, in their order, instead of always the residual t, the correlation and the
   deciles: with the t check off it no longer mentions a residual t, and it names the coverage
   and, when on, the IC and partial IC floors, the yearly stability and the confirmation.
+- The web panel says rank IC wherever it showed an IC: `rank IC`, `partial rank IC` and
+  `partial rank-IC t` (every IC the Evaluator gives is a daily rank IC).
 
 ## 0.3.0 (2026-11-16)
 
