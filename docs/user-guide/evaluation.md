@@ -101,6 +101,9 @@ bar. Three more checks, off by default, judge that:
 | `admission.min_partial_ic` | the training partial IC, in the factor's direction, is at least this (above 0) |
 | `admission.min_year_share` | yearly stability: of the full training years (120 scored days or more), at least this share (above 0) had a mean IC in the factor's direction; a segment without a full year fails |
 
+The ledger records every evaluated trial's count of full years and of those in its direction
+(`full_years`, `years_in_direction`), whether or not the check is on.
+
 Each other check is switched off by setting its threshold to `null`: `t_threshold`,
 `max_correlation`, `min_coverage`, `min_monotonicity` and `confirm_t`. The signal checks,
 those that judge whether the factor predicts returns (all but coverage and correlation),

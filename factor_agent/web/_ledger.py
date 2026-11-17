@@ -190,31 +190,37 @@ def correlation_limit(trials: tuple[Trial, ...], replayed: Replayed) -> float | 
 def thresholds(trials: tuple[Trial, ...], replayed: Replayed) -> dict[int, tuple[float | None, str | None]]:
     """Each round's threshold and where it comes from: ``"admission"``, ``"refusals"``, ``"carried_over"`` or ``"off"``.
 
-    A round's admission events give it; without them its refusals quote it;
-    when neither does it is the round before's, carried over. A round judged
-    while the campaign was opened with the t check off has ``(None, "off")``,
-    and so has a round after it that nothing else gives. The admission
-    events of a round a resume dropped come before those of the round run
-    again under the same number, so the later ones count. A round before
-    any threshold has ``(None, None)``.
+    A round run by an opening that switched the t check off (the last
+    opening before it) has ``(None, "off")``. Any other round's admission
+    events give it; without them its refusals quote it; when neither does
+    it is the round before's, carried over, unless that round's was off.
+    The admission events of a round a resume dropped come before those of
+    the round run again under the same number, so the later ones count. A
+    round before any threshold has ``(None, None)``.
     """
     given = {}
     for trial in trials:
         for reason in trial.reasons:
             if found := THRESHOLD.search(reason):
                 given[trial.round] = (float(found.group(1)), "refusals")
-    t_off = False  # whether the latest opening switched the t check off
+    openings = []  # (rounds written before the opening, whether it switched the t check off), in order
     for event in replayed.all:
         if isinstance(event, events.Start):
-            t_off = event.t_threshold is None
+            openings.append((event.rounds, event.t_threshold is None))
         elif isinstance(event, events.AdmissionOutcome) and event.stage == "admission":
-            given[event.round] = (None, "off") if t_off else (event.threshold, "admission")
+            given[event.round] = (event.threshold, "admission")
+
+    def off(number: int) -> bool:
+        return next((t_off for written, t_off in reversed(openings) if written < number), False)
+
     found, last = {}, None
     for number in sorted({trial.round for trial in trials}):
-        if number in given:
+        if off(number):
+            found[number] = last = (None, "off")
+        elif number in given:
             found[number] = last = given[number]
         elif last is None or last[1] == "off":
-            found[number] = (None, None) if last is None else last
+            found[number] = (None, None)
         else:
             found[number] = (last[0], "carried_over")
     return found

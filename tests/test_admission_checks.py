@@ -67,6 +67,13 @@ def test_a_factor_whose_ic_went_its_way_in_too_few_full_years_is_refused_countin
     assert reasons(metrics(daily=history), 1, AdmissionConfig(min_year_share=0.6)) == []
 
 
+def test_the_ledger_records_how_many_full_years_went_the_factors_way_whatever_the_checks():
+    history = daily({2001: (250, -0.01), 2002: (250, 0.01), 2003: (250, -0.01), 2004: (119, 0.05)})
+    recorded = metrics(daily=history).to_dict()
+    assert (recorded["years_in_direction"], recorded["full_years"]) == (2, 3)
+    assert "years_in_direction" not in metrics().to_dict()
+
+
 def test_without_a_full_training_year_the_yearly_stability_fails_whatever_its_threshold():
     history = daily({2001: (100, -0.01), 2002: (119, -0.01)})
     [reason] = reasons(metrics(daily=history), 1, AdmissionConfig(min_year_share=0.01))

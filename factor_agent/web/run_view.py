@@ -109,15 +109,19 @@ __all__ = [
 
 @dataclass(frozen=True)
 class AdmissionLimits:
-    """The least coverage, decile monotonicity and IC and the largest correlation admission allowed, as the run's last start recorded them.
+    """The thresholds of the admission checks the web panel shows, as the run's last start recorded them.
 
-    Each is None when the run switched that check off (``min_ic`` is off unless set).
+    The least coverage, decile monotonicity, IC, partial IC and share of full years in the factor's direction,
+    and the largest correlation. Each is None when the run switched that check off (the last three are off
+    unless set).
     """
 
     min_coverage: float | None
     min_monotonicity: float | None
     max_correlation: float | None
     min_ic: float | None = None
+    min_partial_ic: float | None = None
+    min_year_share: float | None = None
 
 
 @dataclass(frozen=True)
@@ -239,7 +243,8 @@ class RunView:
             never_evaluated=page.never_evaluated, memory=memory(run_dir / "memory"), acceptance=acceptance(run_dir),
             diagnosis=diagnosis(trials),
             admission=AdmissionLimits(replayed.opened.min_coverage, replayed.opened.min_monotonicity,
-                                      replayed.opened.max_correlation, replayed.opened.min_ic)
+                                      replayed.opened.max_correlation, replayed.opened.min_ic,
+                                      replayed.opened.min_partial_ic, replayed.opened.min_year_share)
             if replayed.opened else None,
             health=health(run_dir, state, summary.rounds, summary.trials, summary.stop is not None, replayed, now),
             running=None if summary.stop else running(summary.rounds + 1, replayed), now=now,

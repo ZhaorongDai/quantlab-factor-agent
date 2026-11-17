@@ -36,6 +36,23 @@ test('a check the run switched off shows as off and neither passes nor fails', (
   ])
 })
 
+test('the IC size, partial IC size and yearly stability show only when the run switched them on', () => {
+  const base = {
+    partial_ic_t: 5.1, threshold: 3.97, largest_correlation: 0.2, limit: 0.7,
+    coverage: 0.92, min_coverage: 0.5, monotonicity: 0.8, min_monotonicity: 0.6,
+    ic_mean: 0.0123, partial_ic_mean: 0.004, years_in_direction: 2, full_years: 3,
+  }
+  assert.equal(checks({ ...base, min_ic: 'off', min_partial_ic: 'off', min_year_share: 'off' }).length, 4)
+  const found = checks({ ...base, min_ic: 0.01, min_partial_ic: 0.005, min_year_share: 0.75 }).slice(4)
+  assert.deepEqual(found.map(c => [c.label, c.value, c.bar, c.passed]), [
+    ['IC', '0.0123', '≥ 0.0100', true],
+    ['partial IC', '0.0040', '≥ 0.0050', false],
+    ['full years its way', '2 of 3', '≥ 75%', false],
+  ])
+  const none = checks({ ...base, full_years: 0, years_in_direction: 0, min_year_share: 0.5 }).at(-1)!
+  assert.deepEqual([none.value, none.passed], ['0 of 0', false])
+})
+
 test('the admission map plots the partial-IC t against its threshold, or the IC against min_ic with the t check off', () => {
   const p = { partial_ic_t: 5.2, ic_mean: 0.012 }
   const t = admissionAxis(false, 3.8, 0.004)

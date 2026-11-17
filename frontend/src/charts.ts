@@ -44,8 +44,14 @@ export type Bar = number | null | 'off'
 
 // The bar of an admission check: 'off' when the run's opening records the check with no threshold (a run
 // without events records none), else the threshold the run recorded, if any.
-export function bar(opened: Record<string, number | null> | null, key: string, recorded: number | null = opened?.[key] ?? null): Bar {
+export function bar(opened: Record<string, number | null | undefined> | null, key: string, recorded: number | null = opened?.[key] ?? null): Bar {
   return opened != null && opened[key] == null ? 'off' : recorded
+}
+
+// A count a trial's metrics record, as the ledger stores it; null when the run predates it.
+export function count(metrics: Record<string, unknown> | null | undefined, key: string): number | null {
+  const value = metrics?.[key]
+  return typeof value === 'number' ? value : null
 }
 
 function check(label: string, value: string, bar: Bar, shown: (b: number) => string, passes: (b: number) => boolean): Check {
@@ -53,9 +59,12 @@ function check(label: string, value: string, bar: Bar, shown: (b: number) => str
   return { label, value, bar: bar == null ? 'bar unknown' : shown(bar), passed: bar == null ? null : passes(bar) }
 }
 
+// The IC size, partial IC size and yearly stability are off unless a run sets them, so they show only when it did.
 export function checks(s: {
   partial_ic_t: number | null; threshold: Bar; largest_correlation: number | null; limit: Bar
   coverage: number | null; min_coverage: Bar; monotonicity: number | null; min_monotonicity: Bar
+  ic_mean?: number | null; min_ic?: Bar; partial_ic_mean?: number | null; min_partial_ic?: Bar
+  years_in_direction?: number | null; full_years?: number | null; min_year_share?: Bar
 }): Check[] {
   const out: Check[] = []
   const t = s.partial_ic_t, rho = s.largest_correlation, coverage = s.coverage, rising = s.monotonicity
@@ -65,6 +74,17 @@ export function checks(s: {
     out.push(check('coverage', `${Math.round(coverage * 100)}%`, s.min_coverage, b => `≥ ${Math.round(b * 100)}%`, b => coverage >= b))
   }
   if (rising != null) out.push(check('monotonicity', num(rising), s.min_monotonicity, b => `≥ ${num(b)}`, b => rising >= b))
+  const ic = s.ic_mean, partial = s.partial_ic_mean, held = s.years_in_direction, years = s.full_years
+  if (typeof s.min_ic === 'number' && ic != null) {
+    out.push(check('IC', num(ic, 4), s.min_ic, b => `≥ ${num(b, 4)}`, b => ic >= b))
+  }
+  if (typeof s.min_partial_ic === 'number' && partial != null) {
+    out.push(check('partial IC', num(partial, 4), s.min_partial_ic, b => `≥ ${num(b, 4)}`, b => partial >= b))
+  }
+  if (typeof s.min_year_share === 'number' && held != null && years != null) {
+    out.push(check('full years its way', `${held} of ${years}`, s.min_year_share, b => `≥ ${Math.round(b * 100)}%`,
+      b => years > 0 && held / years >= b))
+  }
   return out
 }
 

@@ -466,6 +466,16 @@ def test_a_size_or_stability_threshold_out_of_its_range_is_refused(tmp_path, key
         CampaignConfig.from_file(_minimal(tmp_path, admission={key: value}))
 
 
+@pytest.mark.parametrize("key", [
+    "t_threshold", "max_correlation", "min_monotonicity", "min_coverage", "confirm_t", "min_ic", "min_partial_ic",
+    "min_year_share",
+])
+@pytest.mark.parametrize("value", [True, "0.01"])
+def test_an_admission_threshold_that_is_not_a_number_is_refused(tmp_path, key, value):
+    with pytest.raises(TypeError, match=rf"admission: {key} is {value!r}; it is a number, or null to switch the check off"):
+        CampaignConfig.from_file(_minimal(tmp_path, admission={key: value}))
+
+
 def test_a_trial_exponent_without_the_t_check_is_refused(tmp_path):
     with pytest.raises(ValueError, match="admission: trial_exponent is set while t_threshold is off"):
         CampaignConfig.from_file(_minimal(tmp_path, admission={"t_threshold": None, "trial_exponent": 0.5}))

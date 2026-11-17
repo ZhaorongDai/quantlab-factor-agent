@@ -228,9 +228,13 @@ export type Run = {
   trials: Trial[]
   factors: Factor[]
   correlation_limit: number | null
-  // The least coverage, monotonicity and IC and the largest correlation admission allowed, from the run's last
-  // start, each null for a check switched off; null without events.
-  admission: { min_coverage: number | null; min_monotonicity: number | null; max_correlation: number | null; min_ic: number | null } | null
+  // The thresholds of the admission checks the panel shows, from the run's last start, each null for a check
+  // switched off (min_ic, min_partial_ic and min_year_share are off unless set, and absent from older runs); null
+  // without events.
+  admission: {
+    min_coverage: number | null; min_monotonicity: number | null; max_correlation: number | null
+    min_ic: number | null; min_partial_ic?: number | null; min_year_share?: number | null
+  } | null
   evaluated: Placed[]
   threshold: number | null
   // Where the latest round's t threshold comes from, as Factor.threshold_source.

@@ -89,7 +89,10 @@ statistics and charts, hypothesis, description, code and trust facts in sentence
 
 Thresholds and the correlation limit come from the events file. A run without one takes
 them from the refusals that quote them, and a card says when its threshold was quoted
-that way or carried over from an earlier round. A check the run switched off shows as off.
+that way or carried over from an earlier round. A check the run switched off shows as off,
+and a round a resume ran with the t check off shows it off. The IC, partial IC and yearly
+stability checks show only in a run that switches them on; the yearly stability reads as
+the full training years that went the factor's way, such as `2 of 3`.
 
 ### The diagnosis
 

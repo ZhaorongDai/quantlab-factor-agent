@@ -4,7 +4,7 @@ import { useState } from 'react'
 import type { Factor, Neighbour, Run } from './api'
 import Verdict, { ContributionLines, dropOne } from './Verdict'
 import Diagnosis from './Diagnosis'
-import { bar, checks } from './charts'
+import { bar, checks, count } from './charts'
 import { Checks, CumulativeIC, DecileChart } from './FactorCharts'
 
 const SORTS = {
@@ -128,6 +128,10 @@ function WriteUp({ f, limit, run, name }: { f: Factor; limit: number | null; run
     largest_correlation: closest(f), limit: bar(run.admission, 'max_correlation', limit),
     coverage: f.coverage, min_coverage: bar(run.admission, 'min_coverage'),
     monotonicity: f.monotonicity, min_monotonicity: bar(run.admission, 'min_monotonicity'),
+    ic_mean: f.ic_mean, min_ic: bar(run.admission, 'min_ic'),
+    partial_ic_mean: f.partial_ic_mean, min_partial_ic: bar(run.admission, 'min_partial_ic'),
+    years_in_direction: count(f.metrics, 'years_in_direction'), full_years: count(f.metrics, 'full_years'),
+    min_year_share: bar(run.admission, 'min_year_share'),
   })
   return (
     <div className="write-up">

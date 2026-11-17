@@ -7,7 +7,7 @@
 // out for a while.
 import { useEffect, useRef, useState } from 'react'
 import type { Placed, Refusal, Run, Trial } from './api'
-import { admissionAxis, bar, checks, niceTicks } from './charts'
+import { admissionAxis, bar, checks, count, niceTicks } from './charts'
 import { Checks, CumulativeIC, DecileChart } from './FactorCharts'
 import { LineageGraph, LineageSection, RoundPlanView, StepperBar, useRoundPlan, useStepper } from './LineageGraph'
 import { idOf, keyOf } from './lineage'
@@ -193,6 +193,10 @@ function Statistics({ p, t, run, name }: { p: Placed; t: Trial; run: Run; name: 
     largest_correlation: p.largest_correlation, limit: bar(run.admission, 'max_correlation', run.correlation_limit),
     coverage: typeof m.coverage === 'number' ? m.coverage : null, min_coverage: bar(run.admission, 'min_coverage'),
     monotonicity: p.monotonicity, min_monotonicity: bar(run.admission, 'min_monotonicity'),
+    ic_mean: p.ic_mean, min_ic: bar(run.admission, 'min_ic'),
+    partial_ic_mean: p.partial_ic_mean, min_partial_ic: bar(run.admission, 'min_partial_ic'),
+    years_in_direction: count(m, 'years_in_direction'), full_years: count(m, 'full_years'),
+    min_year_share: bar(run.admission, 'min_year_share'),
   })
   const raw = (k: string) => (typeof m[k] === 'number' ? `raw (as the ledger records it): ${(m[k] as number).toFixed(4)}` : 'no raw value')
   const nearest = (label: unknown, rho: unknown) => (label ? <>{String(label)} ρ {fmt(rho as number | null)}</> : <span className="muted">none</span>)

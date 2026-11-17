@@ -204,6 +204,9 @@ class GateConfig:
 #: returns (coverage and correlation do not); a campaign keeps at least one on.
 SIGNAL_CHECKS = ("t_threshold", "min_ic", "min_partial_ic", "min_year_share", "min_monotonicity", "confirm_t")
 
+#: Every admission check's threshold: a number, or None for the check switched off.
+_THRESHOLDS = ("min_coverage", "max_correlation", *SIGNAL_CHECKS)
+
 TRIAL_EXPONENT_WITHOUT_T = "admission: trial_exponent is set while t_threshold is off; it shapes only that threshold"
 
 
@@ -237,13 +240,15 @@ class AdmissionConfig:
     min_ic: float | None = None
     #: Smallest training partial IC, in the factor's direction.
     min_partial_ic: float | None = None
-    #: Smallest share of the full training years (``_admission.FULL_YEAR_DAYS`` scored days or more)
+    #: Smallest share of the full training years (``evaluator.FULL_YEAR_DAYS`` scored days or more)
     #: whose mean IC goes in the factor's direction.
     min_year_share: float | None = None
 
     def __post_init__(self):
-        if isinstance(self.confirm_t, bool) or not isinstance(self.confirm_t, (int, float, type(None))):
-            raise TypeError(f"admission: confirm_t is {self.confirm_t!r}; it is a number, or null to switch the check off")
+        for name in _THRESHOLDS:
+            value = getattr(self, name)
+            if isinstance(value, bool) or not isinstance(value, (int, float, type(None))):
+                raise TypeError(f"admission: {name} is {value!r}; it is a number, or null to switch the check off")
         if not 0 < self.trial_exponent <= 1:
             raise ValueError(f"admission: trial_exponent is {self.trial_exponent}; it lies in (0, 1]")
         if self.t_threshold is None and self.trial_exponent != 1.0:

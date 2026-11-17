@@ -47,14 +47,12 @@ import re
 from collections.abc import Callable, Sequence
 
 import numpy as np
-import pandas as pd
 from scipy import stats
 
 from factor_agent.config import AdmissionConfig
-from factor_agent.evaluator import KNOWN_SAMPLE_EVERY, CompileFailure, DailyIC, Metrics, NodeCoverage
-
-#: Scored days a calendar year of the training segment needs to count in the yearly stability.
-FULL_YEAR_DAYS = 120
+from factor_agent.evaluator import (
+    FULL_YEAR_DAYS, KNOWN_SAMPLE_EVERY, CompileFailure, Metrics, NodeCoverage, yearly_stability,
+)
 
 #: The dates a known factor's correlation is sampled on, as the reason says.
 _SAMPLED_DATES = f"one training date in {KNOWN_SAMPLE_EVERY}"
@@ -109,17 +107,6 @@ NOT_CONFIRMED = (
 def confirmed(ic_mean: float, confirmation_partial_t: float, config: AdmissionConfig) -> bool:
     """Whether the partial IC on the confirmation segment holds in the direction of the training ``ic_mean``."""
     return direction(ic_mean) * confirmation_partial_t >= config.confirm_t
-
-
-def yearly_stability(daily: DailyIC, sign: int) -> tuple[int, int]:
-    """How many full training years had a mean IC in direction ``sign``, and how many full years there were.
-
-    A year is full when it has at least ``FULL_YEAR_DAYS`` scored (finite) daily ICs.
-    """
-    ic = pd.Series(daily.ic, index=pd.DatetimeIndex(daily.days)).dropna()
-    by_year = ic.groupby(ic.index.year).agg(["mean", "size"])
-    full = by_year[by_year["size"] >= FULL_YEAR_DAYS]
-    return int((sign * full["mean"] > 0).sum()), len(full)
 
 
 def reason_kind(reason: str) -> str:
