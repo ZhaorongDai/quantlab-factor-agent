@@ -488,3 +488,22 @@ def test_a_confirmation_segment_with_the_confirmation_switched_off_is_refused(tm
         "admission: confirm_t is off but segments has a confirmation segment; set confirm_t or drop the segment"
     )):
         CampaignConfig.from_file(_minimal(tmp_path, segments=segments, admission={"confirm_t": None}))
+
+
+def test_the_planners_reasons_and_near_misses_are_off_by_default_and_read_when_set(tmp_path):
+    default = CampaignConfig.from_file(_minimal(tmp_path)).context
+    assert (default.history_reasons, default.near_misses) == (False, 0)
+    context = CampaignConfig.from_file(_minimal(tmp_path, context={"history_reasons": True, "near_misses": 10})).context
+    assert (context.history_reasons, context.near_misses) == (True, 10)
+
+
+@pytest.mark.parametrize(("context", "error", "message"), [
+    ({"near_misses": -1}, ValueError, "context: near_misses is -1; it is a count of at least 0"),
+    ({"near_misses": True}, ValueError, "context: near_misses is True; it is a count of at least 0"),
+    ({"history_reasons": "yes"}, TypeError, "context: history_reasons is 'yes'; it is true or false"),
+    ({"feedback": False, "near_misses": 3}, ValueError, "context: history_reasons and near_misses need feedback"),
+    ({"feedback": False, "history_reasons": True}, ValueError, "context: history_reasons and near_misses need feedback"),
+])
+def test_the_planners_reasons_and_near_misses_are_refused_out_of_their_range(tmp_path, context, error, message):
+    with pytest.raises(error, match=message):
+        CampaignConfig.from_file(_minimal(tmp_path, context=context))

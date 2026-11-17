@@ -618,6 +618,7 @@ def test_each_admission_reason_is_counted_under_its_kind():
     good = dict(
         ic_mean=0.05, ic_t=8.0, partial_ic_mean=0.04, partial_ic_t=8.0, nearest="x", nearest_correlation=0.1,
         nearest_known="y", nearest_known_correlation=-0.2, decile_returns=tuple(range(10)), coverage=0.9, n_days=100, start="s", end="e",
+        years_in_direction=10, full_years=10,
     )
     cases = {
         "coverage": {"coverage": 0.1},
