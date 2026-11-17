@@ -145,10 +145,21 @@ def test_every_failing_check_is_a_shortfall_in_admission_order_where_reasons_giv
 
 
 def test_a_check_switched_off_is_never_a_shortfall_and_the_confirmation_never_is():
-    off = AdmissionConfig(min_coverage=None, max_correlation=None, t_threshold=None, min_monotonicity=None)
+    config = AdmissionConfig(min_coverage=None, max_correlation=None, t_threshold=None, min_monotonicity=None,
+                             min_ic=0.001)
     poor = metrics(coverage=0.1, nearest_correlation=0.99, partial_ic_t=-0.1, decile_returns=tuple(range(10)))
-    assert shortfalls(poor, 1, AdmissionConfig(min_ic=0.001, **{k: getattr(off, k) for k in (
-        "min_coverage", "max_correlation", "t_threshold", "min_monotonicity")})) == ()
+    assert shortfalls(poor, 1, config) == ()
+
+
+def test_a_shortfall_from_a_threshold_of_zero_or_below_is_measured_by_the_thresholds_size():
+    # Rising deciles for a negative factor: a monotonicity of -1 in its direction.
+    falling = metrics(decile_returns=tuple(range(10)))
+    assert shortfalls(falling, 1, AdmissionConfig(min_monotonicity=0.0)) == (
+        Shortfall("min_monotonicity", pytest.approx(1.0)),
+    )
+    assert shortfalls(falling, 1, AdmissionConfig(min_monotonicity=-0.5)) == (
+        Shortfall("min_monotonicity", pytest.approx(1.0)),
+    )
 
 
 def test_the_correlation_shortfall_is_the_larger_of_the_pools_and_the_known_factors():

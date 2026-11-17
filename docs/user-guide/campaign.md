@@ -304,8 +304,9 @@ one ending with its reasons), and the older trials counted by mechanism type and
 With `context.near_misses: n` it also reads the n near misses: the refused trials before
 the recent history that fail exactly one admission check (every check is made again, the
 confirmation aside), the one least short of its threshold first, no trial built on any, each
-with its statistics and reasons as the last round shows them. Every `round.memory_every` rounds the distiller folds the trials since
-the last memory into `memory.md`; an empty or unparsable reply keeps the previous memory.
+with its statistics and reasons as the last round shows them. Every `round.memory_every`
+rounds the distiller folds the trials since the last memory into `memory.md`; an empty or
+unparsable reply keeps the previous memory.
 It also reads every factor accepted so far, each with its mechanism type, hypothesis and
 direction, and the memory's working patterns are about those factors only: a factor a
 refusal names is one of the reference set, a known one or one accepted earlier.

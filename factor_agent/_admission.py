@@ -48,7 +48,7 @@ threshold rising more slowly than Bonferroni's (at 0.5, 3.82 at 100 and
 
 import math
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass
 
 import numpy as np
@@ -168,30 +168,37 @@ class Shortfall:
 
 @dataclass(frozen=True)
 class _Check:
-    """One training admission check: its threshold's name, the statistic it reads in the factor's direction, whether
-    that statistic is a floor (at least the threshold) or a ceiling (at most), and its refusal reason."""
+    """One training admission check: its threshold's name, its threshold (None when the check is off), the
+    statistic it reads in the factor's direction, whether that statistic is a floor (at least the threshold)
+    or a ceiling (at most), and its refusal reason, written from the statistic and the threshold."""
 
     name: str
+    threshold: Callable[[AdmissionConfig, int], float | None]
     value: Callable[[Metrics, int], float]
     floor: bool
-    reason: Callable[[Metrics, int, float, int], str]
+    reason: Callable[[Metrics, float, float, int], str]
 
     def passes(self, value: float, bar: float) -> bool:
+        """Whether ``value`` clears ``bar``; a value that is not a number clears no floor."""
         return value >= bar if self.floor else value <= bar
 
     def gap(self, value: float, bar: float) -> float:
+        """How far ``value`` falls short of ``bar``, relative to the bar's size (absolute at a bar of 0); infinite
+        for a value that is not a number."""
         if not math.isfinite(value):
             return math.inf
-        return (bar - value) / bar if self.floor else (value - bar) / bar
+        short = bar - value if self.floor else value - bar
+        return short / abs(bar) if bar else short
 
 
-def _correlation(metrics: Metrics) -> float:
+def _correlation(metrics: Metrics, sign: int) -> float:
     """The larger absolute correlation with a pool factor or a known factor; 0 without either."""
     found = [abs(c) for c in (metrics.nearest_correlation, metrics.nearest_known_correlation) if math.isfinite(c)]
     return max(found, default=0.0)
 
 
-def _correlation_reason(metrics: Metrics, sign: int, bar: float, trials: int) -> str:
+def _correlation_reason(metrics: Metrics, value: float, bar: float, trials: int) -> str:
+    """The refusal for a correlation above ``bar``: the pool factor's when it is the one above, else the known factor's."""
     if math.isfinite(metrics.nearest_correlation) and abs(metrics.nearest_correlation) > bar:
         return (
             f"cross-sectional correlation {metrics.nearest_correlation:+.2f} with {metrics.nearest} "
@@ -204,70 +211,71 @@ def _correlation_reason(metrics: Metrics, sign: int, bar: float, trials: int) ->
 
 
 def _year_share(metrics: Metrics, sign: int) -> float:
+    """The share of the full training years whose mean IC went the factor's way; 0 without a full year."""
     return metrics.years_in_direction / metrics.full_years if metrics.full_years else 0.0
 
 
 #: The coverage check, the one admission makes before it reads the factor's direction.
 _COVERAGE = _Check(
-    "min_coverage", lambda m, sign: m.coverage, True,
-    lambda m, sign, bar, trials: (
-        f"coverage {m.coverage:.2f} (the mean daily share of the members with a value) is below {bar:g}"
+    "min_coverage", lambda config, trials: config.min_coverage, lambda m, sign: m.coverage, True,
+    lambda m, value, bar, trials: (
+        f"coverage {value:.2f} (the mean daily share of the members with a value) is below {bar:g}"
     ),
 )
 
 #: The training checks admission makes once the factor has a direction, in order.
 _IN_DIRECTION = (
-    _Check("max_correlation", lambda m, sign: _correlation(m), False, _correlation_reason),
     _Check(
-        "t_threshold", lambda m, sign: sign * m.partial_ic_t, True,
-        lambda m, sign, bar, trials: (
-            f"the partial IC's Newey-West t {sign * m.partial_ic_t:.2f} (residualised against the reference set and "
-            f"the accepted factors, in the factor's direction) is below the threshold {bar:.2f} "
-            f"at {trials} evaluated trial(s), each counted in both directions"
+        "max_correlation", lambda config, trials: config.max_correlation, _correlation, False, _correlation_reason,
+    ),
+    _Check(
+        "t_threshold", t_threshold, lambda m, sign: sign * m.partial_ic_t, True,
+        lambda m, value, bar, trials: (
+            f"the partial IC's Newey-West t {value:.2f} (residualised against the reference set and the accepted "
+            f"factors, in the factor's direction) is below the threshold {bar:.2f} at {trials} evaluated trial(s), "
+            f"each counted in both directions"
         ),
     ),
     _Check(
-        "min_monotonicity", lambda m, sign: monotonicity(m.decile_returns, sign), True,
-        lambda m, sign, bar, trials: (
-            f"decile monotonicity {monotonicity(m.decile_returns, sign):.2f} (Spearman correlation of the decile "
-            f"returns with the decile, in the factor's direction) is below {bar:g}"
+        "min_monotonicity", lambda config, trials: config.min_monotonicity,
+        lambda m, sign: monotonicity(m.decile_returns, sign), True,
+        lambda m, value, bar, trials: (
+            f"decile monotonicity {value:.2f} (Spearman correlation of the decile returns with the decile, "
+            f"in the factor's direction) is below {bar:g}"
         ),
     ),
     _Check(
-        "min_ic", lambda m, sign: sign * m.ic_mean, True,
-        lambda m, sign, bar, trials: (
-            f"the training IC {sign * m.ic_mean:.4f} in the factor's direction is below min_ic {bar:g}"
+        "min_ic", lambda config, trials: config.min_ic, lambda m, sign: sign * m.ic_mean, True,
+        lambda m, value, bar, trials: f"the training IC {value:.4f} in the factor's direction is below min_ic {bar:g}",
+    ),
+    _Check(
+        "min_partial_ic", lambda config, trials: config.min_partial_ic, lambda m, sign: sign * m.partial_ic_mean, True,
+        lambda m, value, bar, trials: (
+            f"the training partial IC {value:.4f} (residualised against the reference set and the accepted "
+            f"factors) in the factor's direction is below min_partial_ic {bar:g}"
         ),
     ),
     _Check(
-        "min_partial_ic", lambda m, sign: sign * m.partial_ic_mean, True,
-        lambda m, sign, bar, trials: (
-            f"the training partial IC {sign * m.partial_ic_mean:.4f} (residualised against the reference set "
-            f"and the accepted factors) in the factor's direction is below min_partial_ic {bar:g}"
-        ),
-    ),
-    _Check(
-        "min_year_share", _year_share, True,
-        lambda m, sign, bar, trials: (
-            f"the training IC went in the factor's direction in {m.years_in_direction} of {m.full_years} full years "
-            f"({_year_share(m, sign):.2f}, years with at least {FULL_YEAR_DAYS} scored days), below min_year_share "
-            f"{bar:g}"
+        "min_year_share", lambda config, trials: config.min_year_share, _year_share, True,
+        lambda m, value, bar, trials: (
+            f"the training IC went in the factor's direction in {m.years_in_direction} of {m.full_years} full "
+            f"years ({value:.2f}, years with at least {FULL_YEAR_DAYS} scored days), below min_year_share {bar:g}"
         ),
     ),
 )
 
 
-def _bar(check: _Check, config: AdmissionConfig, trials: int) -> float | None:
-    """A check's threshold: the config's, the t threshold at ``trials``; None when the check is off."""
-    return t_threshold(config, trials) if check.name == "t_threshold" else getattr(config, check.name)
-
-
-def _failing(checks, metrics: Metrics, sign: int, trials: int, config: AdmissionConfig):
-    """Each of ``checks`` switched on that ``metrics`` fails, in order, with its threshold."""
+def _failing(
+    checks: Sequence[_Check], metrics: Metrics, sign: int, trials: int, config: AdmissionConfig,
+) -> Iterator[tuple[_Check, float, float]]:
+    """Each of ``checks`` switched on that ``metrics`` fails, in order, with its statistic and its threshold."""
     for check in checks:
-        bar = _bar(check, config, trials)
-        if bar is not None and not check.passes(check.value(metrics, sign), bar):
-            yield check, bar
+        bar = check.threshold(config, trials)
+        if bar is None:
+            continue
+        value = check.value(metrics, sign)
+        if not check.passes(value, bar):
+            yield check, value, bar
 
 
 def shortfalls(metrics: Metrics, trials: int, config: AdmissionConfig) -> tuple[Shortfall, ...]:
@@ -277,8 +285,8 @@ def shortfalls(metrics: Metrics, trials: int, config: AdmissionConfig) -> tuple[
     """
     sign = direction(metrics.ic_mean)
     return tuple(
-        Shortfall(check.name, check.gap(check.value(metrics, sign), bar))
-        for check, bar in _failing((_COVERAGE, *_IN_DIRECTION), metrics, sign, trials, config)
+        Shortfall(check.name, check.gap(value, bar))
+        for check, value, bar in _failing((_COVERAGE, *_IN_DIRECTION), metrics, sign, trials, config)
     )
 
 
@@ -292,12 +300,13 @@ def reasons(
     did not compile does not hold.
     """
     sign = direction(metrics.ic_mean)
-    for check, bar in _failing((_COVERAGE,), metrics, sign, trials, config):
-        return [check.reason(metrics, sign, bar, trials)]
-    if sign == 0:
+    failed = next(_failing((_COVERAGE,), metrics, sign, trials, config), None)
+    if failed is None and sign == 0:
         return [f"the training IC {metrics.ic_mean:+.4f} gives the factor no direction"]
-    for check, bar in _failing(_IN_DIRECTION, metrics, sign, trials, config):
-        return [check.reason(metrics, sign, bar, trials)]
+    failed = failed or next(_failing(_IN_DIRECTION, metrics, sign, trials, config), None)
+    if failed is not None:
+        check, value, bar = failed
+        return [check.reason(metrics, value, bar, trials)]
     if confirmation is not None and config.confirm_t is not None and not (
         isinstance(confirmation, Metrics) and confirmed(metrics.ic_mean, confirmation.partial_ic_t, config)
     ):

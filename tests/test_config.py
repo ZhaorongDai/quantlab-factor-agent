@@ -490,7 +490,6 @@ def test_a_confirmation_segment_with_the_confirmation_switched_off_is_refused(tm
         CampaignConfig.from_file(_minimal(tmp_path, segments=segments, admission={"confirm_t": None}))
 
 
-
 def test_the_planners_reasons_and_near_misses_are_off_by_default_and_read_when_set(tmp_path):
     default = CampaignConfig.from_file(_minimal(tmp_path)).context
     assert (default.history_reasons, default.near_misses) == (False, 0)

@@ -25,6 +25,7 @@ from quantlab.factor.predefined.alpha158 import Alpha158Stock
 from tests import synthetic_market
 from tests.campaign_runner import candidate, run, write_config
 from tests.fake_llm import FakeLLM
+from tests.test_planner_feedback import numbered
 
 QUIET_VOLUME = "quiet volume: a day traded on less volume than its twenty-day average"
 
@@ -247,7 +248,7 @@ def test_with_the_switches_on_the_planner_reads_the_refusal_reasons_and_the_near
     recent = third.split("<recent_history>")[1].split("</recent_history>")[0]
     assert "; refused: cross-sectional correlation" in recent
     near = third.split("<near_misses>")[1].split("</near_misses>")[0]
-    assert [line.split(" [")[0] for line in near.splitlines() if line[:1].isdigit()] == ["1. T1-04", "2. T1-02"]
+    assert numbered(near) == ["1. T1-04", "2. T1-02"]
     assert "hypothesis: Hypothesis behind noise." in near
     [_, default, *_] = _planner_prompts(runs / "two_rounds" / "run")
     assert "<near_misses>" not in default and "; refused:" not in default

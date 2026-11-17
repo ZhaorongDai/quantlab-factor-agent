@@ -31,6 +31,11 @@ def trial(number, description, status="rejected", reasons=(), parent="", **chang
     )
 
 
+def numbered(text: str) -> list[str]:
+    """The ids of the trials a ``last_round`` text numbers, each with its number, such as ``1. T1-01``."""
+    return [line.split(" [")[0] for line in text.splitlines() if line[:1].isdigit()]
+
+
 PARTIAL = "the training partial IC 0.0014 (residualised ...) in the factor's direction is below min_partial_ic 0.002"
 
 
@@ -56,10 +61,7 @@ def test_the_near_misses_are_the_refused_trials_before_the_recent_history_one_ch
         trial(3, "child", parent="T2-02"),                                      # T3-02
     ])
     shown = near_misses(trials, before_round=3, admission=ADMISSION, trial_count=10, n=10)
-    assert [line.split(" [")[0] for line in shown.splitlines() if line[:1].isdigit()] == [
-        "1. T1-01", "2. T2-01", "3. T1-02",
-    ]
+    assert numbered(shown) == ["1. T1-01", "2. T2-01", "3. T1-02"]
     assert "hypothesis: why a little thin" in shown and "residual IC -0.0018" in shown
-    assert [line.split(" [")[0] for line in near_misses(trials, 3, ADMISSION, 10, n=2).splitlines()
-            if line[:1].isdigit()] == ["1. T1-01", "2. T2-01"]
+    assert numbered(near_misses(trials, 3, ADMISSION, 10, n=2)) == ["1. T1-01", "2. T2-01"]
     assert near_misses(trials, before_round=1, admission=ADMISSION, trial_count=10, n=10) == ""
