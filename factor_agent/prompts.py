@@ -439,6 +439,7 @@ SECTIONS = (
     ("themes", "What the evaluated trials measure (the trials grouped by the correlation of their factors)"),
     ("recent_history", "Recent history (the trials of the last rounds, one line each)"),
     ("last_round", "Last round's feedback (training period only)"),
+    ("near_misses", "Near misses (earlier refused trials one admission check short, training period only)"),
     ("best", "Current best mechanisms (the accepted factors)"),
 )
 

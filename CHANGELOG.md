@@ -6,7 +6,19 @@ layout; there are no compatibility shims or config migrations.
 
 ## Unreleased
 
+### Added
+
+- `context.history_reasons` (off by default): each line of the planner's recent history ends
+  with the trial's refusal reasons. `context.near_misses: n` (0 by default): the planner reads
+  the n near misses, refused trials before the recent history that fail exactly one admission
+  check, the nearest first, with their statistics. A resume may change both.
+
 ### Changed
+
+- `Metrics` holds `years_in_direction` and `full_years` and reads back from a ledger record
+  (`Metrics.from_dict`); admission reads the yearly stability from them. Each training
+  admission check is defined once, and `_admission.shortfalls` gives every check a candidate
+  fails and how far short. A record written before 0.3.0 does not read back.
 
 - The planner's rule for a refinement names what the admission checks the campaign switches
   on refuse, in their order, instead of always the residual t, the correlation and the

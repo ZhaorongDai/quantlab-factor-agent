@@ -127,6 +127,8 @@ known factor at a time.
 | `context.feedback` | true | whether the planner and the proposer read the earlier trials and a memory is distilled; off, every direction is new (a control run) |
 | `context.theme_correlation` | null | the absolute correlation at which an evaluated trial is grouped with an earlier one; set, the planner reads the groups (see below) |
 | `context.send_back_repeats` | false | whether a new direction's candidate in a group is rewritten once before it is evaluated; needs `context.theme_correlation` |
+| `context.history_reasons` | false | whether each line of the planner's recent history ends with the trial's refusal reasons, numbers included; needs `context.feedback` |
+| `context.near_misses` | 0 | near misses the planner reads: refused trials before the recent history that fail exactly one admission check, the nearest first, each with its statistics; 0 shows none; needs `context.feedback` |
 | `context.lineage` | false | whether the planner's accepted factors and the proposer's parent carry each trial's Lineage (see below); needs `context.feedback` |
 | `context.fertile_children` | 3 | best children's outcomes a trial's fertility is the mean of (see below) |
 | `trial_graph.gamma` | 0.75 | share of each utility the Picked parents take from the related trials, in [0, 1) (see below) |
@@ -229,7 +231,7 @@ The first start copies the field, operator and replaced template files into
 `snapshot/` with their hashes, and the run searches with those copies. A resume whose
 files differ fails: a new search space needs a new run directory. A resume on other
 commits of factor_agent or quantlab only warns, and `state.json` lists the commits of every
-start and resume. `round.groups` may change on a resume; `context.recent_rounds`, `context.feedback`, `context.theme_correlation`, `context.send_back_repeats`, `context.lineage`, `context.fertile_children`, `round.max_children`, `round.picked_parents` and, with Picked parents, the `trial_graph` values may not.
+start and resume. `round.groups`, `context.history_reasons` and `context.near_misses` may change on a resume; `context.recent_rounds`, `context.feedback`, `context.theme_correlation`, `context.send_back_repeats`, `context.lineage`, `context.fertile_children`, `round.max_children`, `round.picked_parents` and, with Picked parents, the `trial_graph` values may not.
 The reference set and the known factors are read from the config on every start. Every
 start and resume also keeps the config it was given as `config/open-<k>.yaml` (the first
 start is `open-1.yaml`), so a run says which settings it ran with even after the config
@@ -297,8 +299,12 @@ The planner and the proposer read the same context: the seed directions, the ref
 factor families and then the known ones (marked as known), the memory, the last round's
 training statistics and rejection reasons, and the accepted factors with their weight and
 residual IC in the accepted pool. The planner also reads the trials of the last
-`context.recent_rounds` rounds one line each, and the older trials counted by mechanism
-type and outcome. Every `round.memory_every` rounds the distiller folds the trials since
+`context.recent_rounds` rounds one line each (with `context.history_reasons`, each refused
+one ending with its reasons), and the older trials counted by mechanism type and outcome.
+With `context.near_misses: n` it also reads the n near misses: the refused trials before
+the recent history that fail exactly one admission check (every check is made again, the
+confirmation aside), the one least short of its threshold first, no trial built on any, each
+with its statistics and reasons as the last round shows them. Every `round.memory_every` rounds the distiller folds the trials since
 the last memory into `memory.md`; an empty or unparsable reply keeps the previous memory.
 It also reads every factor accepted so far, each with its mechanism type, hypothesis and
 direction, and the memory's working patterns are about those factors only: a factor a

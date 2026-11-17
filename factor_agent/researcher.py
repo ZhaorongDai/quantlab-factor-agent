@@ -42,7 +42,9 @@ _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
 ACTIONS = ("new", "mutation", "refinement")
 
 #: The context sections each role reads (see ``factor_agent.prompts.SECTIONS``); ``render_context`` shows them.
-PLANNER_SECTIONS = ("seed", "families", "memory", "earlier_summary", "themes", "recent_history", "last_round", "best")
+PLANNER_SECTIONS = (
+    "seed", "families", "memory", "earlier_summary", "themes", "recent_history", "last_round", "near_misses", "best",
+)
 PROPOSER_SECTIONS = ("families", "memory", "last_round", "best")
 
 

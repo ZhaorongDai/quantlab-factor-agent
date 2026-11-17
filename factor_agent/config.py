@@ -320,7 +320,8 @@ class RoundConfig:
 
 @dataclass(frozen=True)
 class ContextConfig:
-    """What the prompt context holds; the run snapshot records it at the first start, and a resume may not change it."""
+    """What the prompt context holds; the run snapshot records it at the first start, and a resume may not change it,
+    but for ``history_reasons`` and ``near_misses``, which shape only the planner's prompt."""
 
     #: Rounds whose trials the planner reads one line each (the recent history); older trials are
     #: counted by mechanism type and outcome (the earlier summary).
@@ -341,6 +342,13 @@ class ContextConfig:
     lineage: bool = False
     #: The best child outcomes a Lineage's fertility is the mean of, in the prompts and the Trial graph alike.
     fertile_children: int = 3
+    #: Whether each line of the planner's recent history ends with the trial's refusal reasons, numbers
+    #: included; it needs ``feedback``.
+    history_reasons: bool = False
+    #: Near misses the planner reads (``_feedback.near_misses``): refused trials before the recent history
+    #: that fail exactly one admission check, the nearest first, each with its statistics; 0 (the default)
+    #: shows none. It needs ``feedback``.
+    near_misses: int = 0
 
     def __post_init__(self):
         if self.recent_rounds < 1:
@@ -364,6 +372,12 @@ class ContextConfig:
             raise ValueError("context: lineage needs feedback, since a Lineage is made of earlier trials")
         if not _is_count(self.fertile_children):
             raise ValueError(f"context: fertile_children is {self.fertile_children!r}; it is a count of at least 1")
+        if not isinstance(self.history_reasons, bool):
+            raise TypeError(f"context: history_reasons is {self.history_reasons!r}; it is true or false")
+        if isinstance(self.near_misses, bool) or not isinstance(self.near_misses, int) or self.near_misses < 0:
+            raise ValueError(f"context: near_misses is {self.near_misses!r}; it is a count of at least 0")
+        if (self.history_reasons or self.near_misses) and not self.feedback:
+            raise ValueError("context: history_reasons and near_misses need feedback, since they show earlier trials")
 
 
 def recorded_fertile_children(settings: Mapping) -> int:

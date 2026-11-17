@@ -6,7 +6,9 @@ pool factors most correlated with it, the order of its deciles' returns (as
 ranks), the nearest existing factor and the correlation with it, the nearest
 known factor and its sampled correlation, the rejection reasons, and each
 accepted factor's marginal weight and residual IC in the accepted pool, and,
-when given, each accepted factor's and each parent's Lineage (``_lineage``). It
+when given, each accepted factor's and each parent's Lineage (``_lineage``),
+the refusal reasons in the recent history and the near misses before it
+(``near_misses``). It
 never shows a return, a date, or advice to change windows or parameters. The first round
 has no history; it sees the data, the seed directions and the existing
 factor families (the reference set's, then the known factors', marked as
@@ -20,8 +22,9 @@ import math
 import re
 from typing import TYPE_CHECKING
 
-from factor_agent._admission import direction, directional_t, reason_kind
-from factor_agent.evaluator import Contribution
+from factor_agent._admission import direction, directional_t, reason_kind, shortfalls
+from factor_agent.config import AdmissionConfig
+from factor_agent.evaluator import Contribution, Metrics
 from factor_agent.ledger import TrialRecord
 from factor_agent.zoo import owner
 
@@ -90,11 +93,14 @@ def named(records: list[TrialRecord]) -> list[tuple[str, TrialRecord]]:
 
 def history(
     trials: list[tuple[str, TrialRecord]], statistics: bool = True, earlier: list[tuple[str, TrialRecord]] = (),
+    reasons: bool = False,
 ) -> str:
     """One line per trial (``named``). Without ``statistics`` no metric is shown and the reasons' decimals are masked.
 
     ``earlier`` holds the run's trials (``named``), by which a trial's parent
-    is shown with its residual t, the measure its child is compared on.
+    is shown with its residual t, the measure its child is compared on. With
+    ``reasons`` (and ``statistics``) a refused trial's line ends with its
+    reasons as written, numbers included.
     """
     by_id = dict(earlier)
     lines = []
@@ -116,6 +122,8 @@ def history(
                 line += f", {share:.0%} explained by the pool"
         if not statistics and r.reasons:
             line += "; " + _DECIMAL.sub("#", " ".join(r.reasons))
+        elif reasons and r.reasons:
+            line += "; refused: " + " | ".join(r.reasons)
         lines.append(line)
     return "\n".join(lines)
 
@@ -270,6 +278,33 @@ def last_round(trials: list[tuple[str, TrialRecord]], earlier: list[tuple[str, T
         ]
         blocks.append("\n".join(lines + _statistics(r, earlier)))
     return "\n".join(blocks)
+
+
+def near_misses(
+    trials: list[tuple[str, TrialRecord]], before_round: int, admission: AdmissionConfig, trial_count: int, n: int,
+) -> str:
+    """The ``n`` nearest near misses among ``trials`` (``named``, the run's), as ``last_round`` writes a trial.
+
+    A near miss is an evaluated trial of a round before ``before_round`` (the
+    first of the recent history) that admission refused, that has a direction,
+    that no trial built on, and that fails exactly one admission check
+    (``_admission.shortfalls``, with ``admission``'s thresholds and the t
+    threshold at ``trial_count``); the nearest is the one its check finds
+    least short. Empty when there is none.
+    """
+    built_on = {(r.direction or {}).get("parent") for _, r in trials}
+    found = []
+    for trial, r in trials:
+        if r.round >= before_round or r.status != "rejected" or not r.evaluated or trial in built_on:
+            continue
+        metrics = Metrics.from_dict(r.metrics)
+        if direction(metrics.ic_mean) == 0:
+            continue
+        missed = shortfalls(metrics, trial_count, admission)
+        if len(missed) == 1:
+            found.append((missed[0].gap, trial_order(trial), trial, r))
+    nearest = [(trial, r) for *_, trial, r in sorted(found, key=lambda f: f[:2])[:n]]
+    return last_round(nearest, trials) if nearest else ""
 
 
 def parent(trial: str, r: TrialRecord, earlier: list[tuple[str, TrialRecord]] = (), lineage: "Lineage | None" = None) -> str:
