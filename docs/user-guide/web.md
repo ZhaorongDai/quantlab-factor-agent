@@ -80,11 +80,11 @@ return), its decile returns, its partial rank-IC t against the threshold it clea
 monotonicity, the closest reference or accepted factor and the closest known factor, how
 far its largest correlation is below the limit (ρ margin), its coverage and, with
 `acceptance.contribution`, its drop-one and add-one rank IC with the seeds agreeing.
-Every IC and t is in the factor's direction; hover one for the raw value. An `intraday`
+Every IC is a daily rank IC, and every IC and t is in the factor's direction; hover one for the raw value. An `intraday`
 tag marks an [intraday](intraday.md) factor.
 
-The cards rank by drop-one contribution when there is one, and sort by round, partial-IC
-t, ρ margin or coverage. Click a description to read the factor written up: its
+The cards rank by drop-one contribution when there is one, and sort by round, partial
+rank-IC t, ρ margin or coverage. Click a description to read the factor written up: its
 statistics and charts, hypothesis, description, code and trust facts in sentences.
 
 Thresholds and the correlation limit come from the events file. A run without one takes
@@ -187,8 +187,8 @@ earlier versions with the Gate's reasons and hints, and, when evaluated, its sta
   the bar;
 - **decile returns**: each tenth of the daily cross section over the deciles' mean, which
   in the factor's direction should rise to the right;
-- **cumulative IC**: the running daily rank IC and partial IC (dashed) over the training
-  days; a partial IC far below the rank IC is an effect the existing factors already
+- **cumulative rank IC**: the running daily rank IC and partial rank IC (dashed) over the
+  training days; a partial rank IC far below the rank IC is an effect the existing factors already
   explain.
 
 ### Why these parents
