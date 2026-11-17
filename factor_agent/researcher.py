@@ -33,7 +33,7 @@ from factor_agent.candidate import Candidate
 from factor_agent.events import CallEnd, CallStart, Event, Events, GateOutcome, GateStep, ReviewVerdict, reply_facts
 from factor_agent.gate import Gate, Passed
 from factor_agent.llm.base import LLMBackend, ProviderQuotaExhausted, Request
-from factor_agent.prompts import ACTION_RULES, MEMORY_ITEMS, MEMORY_PARTS, ONLY_NEW, PICKED, SECTIONS, Prompts
+from factor_agent.prompts import ACTION_RULES, MEMORY_ITEMS, MEMORY_PARTS, ONLY_NEW, PICKED, SECTIONS, Prompts, refusals
 from factor_agent.zoo import Zoo
 
 _FENCE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL)
@@ -182,7 +182,7 @@ class Researcher:
         slots = [{"mechanism_type": kind, "parent": parent} for kind, parent in picked]
         prompt = self.prompts.render(
             "plan", round=number, context=render_context(context, PLANNER_SECTIONS), quota=json.dumps(quota),
-            actions=ONLY_NEW if parents is None else ACTION_RULES,
+            actions=ONLY_NEW if parents is None else ACTION_RULES.format(refusals=refusals(self.prompts.checks)),
             picked=PICKED.format(slots=json.dumps(slots, indent=2)) if slots else "",
         )
         parents = parents or []

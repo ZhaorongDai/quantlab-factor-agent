@@ -180,13 +180,34 @@ fields and no others:
 ```
 """
 
+#: What each admission check refuses, by its threshold's name, as the planner's rule for a refinement names
+#: it, in the order admission runs the checks (``factor_agent._admission``).
+REFUSALS = (
+    ("min_coverage", "values on too few members"),
+    ("max_correlation", "a correlation with an existing factor"),
+    ("t_threshold", "a residual t below the threshold"),
+    ("min_monotonicity", "deciles that do not rise in the factor's direction"),
+    ("min_ic", "a training IC below its floor"),
+    ("min_partial_ic", "a residual IC below its floor"),
+    ("min_year_share", "too few training years in the factor's direction"),
+    ("confirm_t", "not holding on a later period whose statistics are not shown"),
+)
+
+#: The admission checks a campaign runs with the default ``AdmissionConfig`` and no confirmation segment.
+DEFAULT_CHECKS = ("min_coverage", "max_correlation", "t_threshold", "min_monotonicity")
+
+
+def refusals(checks) -> str:
+    """What the admission ``checks`` switched on (their thresholds' names) refuse, as the planner reads them."""
+    return ", ".join(text for name, text in REFUSALS if name in checks)
+
+
 #: The planner's actions (``plan``'s ``actions``) when it reads the earlier trials.
 ACTION_RULES = """\
 Each research direction takes one of these actions:
 - "new": a mechanism not tried before; its "parent" is "".
 - "refinement": the mechanism of an earlier evaluated trial, accepted or refused, measured another
-  way: to remove what refused it (a residual t below the threshold, a correlation with an existing
-  factor, deciles that do not rise in the factor's direction) or to strengthen an accepted factor.
+  way: to remove what refused it ({refusals}) or to strengthen an accepted factor.
   Its "parent" is that trial's id. Change how the mechanism is measured, because a version that
   changes only the windows or the parameters is refused.
 - "mutation": another economic channel an earlier evaluated trial's result points to, such as the
@@ -502,6 +523,8 @@ class Prompts:
     bars the label spans, ``scoring`` the scoring's sentence
     (``Scoring.describe``), ``vocabulary`` what candidates write with and
     ``mechanisms`` the mechanism types with their one-line descriptions, in order.
+    ``checks`` names the admission checks the campaign switches on, by their
+    thresholds' names, for the planner's rule for a refinement (``refusals``).
     """
 
     templates: Templates
@@ -510,6 +533,7 @@ class Prompts:
     scoring: str
     vocabulary: Vocabulary
     mechanisms: Mapping[str, str]
+    checks: tuple[str, ...] = DEFAULT_CHECKS
 
     @property
     def mechanism_types(self) -> tuple[str, ...]:

@@ -6,6 +6,13 @@ layout; there are no compatibility shims or config migrations.
 
 ## Unreleased
 
+### Changed
+
+- The planner's rule for a refinement names what the admission checks the campaign switches
+  on refuse, in their order, instead of always the residual t, the correlation and the
+  deciles: with the t check off it no longer mentions a residual t, and it names the coverage
+  and, when on, the IC and partial IC floors, the yearly stability and the confirmation.
+
 ## 0.3.0 (2026-11-16)
 
 Every admission check can be switched off, and three new ones ask for the size of a factor's
