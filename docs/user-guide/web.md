@@ -76,7 +76,7 @@ Acceptance has run, the page shows the call that judges them.
 
 Each card is one accepted factor (see {doc}`evaluation` for each statistic): its round and
 mechanism type, its factor direction (+1 when a higher value went with a higher training
-return), its decile returns, its partial-IC t against the threshold it cleared, its decile
+return), its decile returns, its partial rank-IC t against the threshold it cleared, its decile
 monotonicity, the closest reference or accepted factor and the closest known factor, how
 far its largest correlation is below the limit (ρ margin), its coverage and, with
 `acceptance.contribution`, its drop-one and add-one rank IC with the seeds agreeing.
@@ -90,7 +90,7 @@ statistics and charts, hypothesis, description, code and trust facts in sentence
 Thresholds and the correlation limit come from the events file. A run without one takes
 them from the refusals that quote them, and a card says when its threshold was quoted
 that way or carried over from an earlier round. A check the run switched off shows as off,
-and a round a resume ran with the t check off shows it off. The IC, partial IC and yearly
+and a round a resume ran with the t check off shows it off. The rank IC, partial rank IC and yearly
 stability checks show only in a run that switches them on; the yearly stability reads as
 the full training years that went the factor's way, such as `2 of 3`.
 
@@ -157,12 +157,12 @@ to a round, selecting a trial or hovering one on the plan or the admission map s
 column into view.
 
 **The admission map** places every evaluated trial by its largest absolute correlation
-with an existing factor (across, max |ρ|) and its partial-IC t in its direction (up), as admission
+with an existing factor (across, max |ρ|) and its partial rank-IC t in its direction (up), as admission
 judges them (see {doc}`evaluation`). The dashed lines are the correlation limit and the
 latest round's t threshold; the shaded region is where admission accepts, when coverage
 and monotonicity pass too. Each round had its own threshold, rising with the trials
 evaluated, so an early accepted trial can sit below the final line. With the t check
-switched off the map plots each trial's IC in its direction (up) instead, against
+switched off the map plots each trial's rank IC in its direction (up) instead, against
 `admission.min_ic` when the run sets one. New trials stand out for fifteen seconds.
 
 Under the map, the trials that never reached the Evaluator are grouped by the stage that
@@ -178,11 +178,11 @@ graph and the map; × closes it and gives the width back. The panel shows the ro
 and direction; its **Lineage**: the parent it builds on (a link) and who chose it, the
 rounds it was a Picked parent in, how many trials were built on it (refinements, mutations,
 stopped before evaluation, accepted), its fertility over the run's
-`context.fertile_children`, its own partial-IC t against its best child's, and each child;
+`context.fertile_children`, its own partial rank-IC t against its best child's, and each child;
 then the hypothesis, description and code of its final version, why it was refused, its
 earlier versions with the Gate's reasons and hints, and, when evaluated, its statistics:
 
-- **checks**: partial-IC t, largest correlation, coverage and monotonicity, green when
+- **checks**: partial rank-IC t, largest correlation, coverage and monotonicity, green when
   they cleared the bar admission set, red when not, grey "?" when the run does not record
   the bar;
 - **decile returns**: each tenth of the daily cross section over the deciles' mean, which
