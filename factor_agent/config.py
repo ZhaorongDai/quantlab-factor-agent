@@ -261,12 +261,16 @@ class AdmissionConfig:
         if self.min_year_share is not None and not 0 < self.min_year_share <= 1:
             raise ValueError(f"admission: min_year_share is {self.min_year_share}; it lies in (0, 1]")
 
-    def signal_checks(self, confirmation: bool) -> tuple[str, ...]:
-        """The signal checks switched on, by their thresholds' names; ``confirm_t`` only with a ``confirmation`` segment."""
+    def checks(self, confirmation: bool) -> tuple[str, ...]:
+        """The admission checks switched on, by their thresholds' names; ``confirm_t`` only with a ``confirmation`` segment."""
         return tuple(
-            name for name in SIGNAL_CHECKS
+            name for name in _THRESHOLDS
             if getattr(self, name) is not None and (name != "confirm_t" or confirmation)
         )
+
+    def signal_checks(self, confirmation: bool) -> tuple[str, ...]:
+        """The signal checks switched on (``checks``), by their thresholds' names."""
+        return tuple(name for name in self.checks(confirmation) if name in SIGNAL_CHECKS)
 
 
 @dataclass(frozen=True)

@@ -232,6 +232,7 @@ class Campaign:
         return Prompts(
             templates=templates, market=self.config.market, horizon=label.span_bars(), scoring=scoring.describe(),
             vocabulary=vocabulary, mechanisms={m.name: m.description for m in self.config.mechanisms},
+            checks=self.config.admission.checks(self.config.segments.confirmation is not None),
         )
 
     def _role_backends(self) -> dict[str, LLMBackend]:

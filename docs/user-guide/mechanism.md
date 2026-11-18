@@ -24,7 +24,8 @@ mechanism, or builds on an earlier trial, named by its id (`T3-07` is round 3's 
 slot):
 
 - a **refinement** measures the parent's mechanism in another way, to remove what got it
-  refused or to strengthen an accepted factor;
+  refused or to strengthen an accepted factor; the planner is told what the admission checks
+  the campaign switches on refuse (with the t check off, no residual t);
 - a **mutation** follows a different channel that the parent's result points to.
 
 The **proposer** turns each direction into a candidate: a hypothesis (why the mechanism

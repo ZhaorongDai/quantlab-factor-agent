@@ -115,17 +115,42 @@ def test_without_events_a_rounds_threshold_is_the_one_its_refusals_quote_carried
     assert (factors["planted"].threshold, factors["planted"].threshold_source) == (3.51, "carried_over")
 
 
-def test_with_the_t_check_off_a_rounds_threshold_is_off_and_the_opening_records_it(runs):
+@pytest.fixture(scope="module")
+def t_off(runs):
+    """The two rounds again, by a campaign with the t check off and a training IC floor."""
     config = write_config(runs / "t_off", synthetic_market.build(runs / "t_off_data"),
                           admission={"t_threshold": None, "min_ic": 0.0001},
                           round={"candidates": 4, "min_per_type": 0, "retries": 0, "max_rounds": 2})
     run(config, FakeLLM(lambda number, directions: ROUND_1 if number == 1 else ROUND_2), runs / "kunquant_cache")
-    view = RunView.read(runs / "t_off" / "run")
+    return runs / "t_off" / "run"
+
+
+def test_with_the_t_check_off_a_rounds_threshold_is_off_and_the_opening_records_it(t_off):
+    view = RunView.read(t_off)
     assert view.factors and {(f.threshold, f.threshold_source) for f in view.factors} == {(None, "off")}
     assert (view.threshold, view.threshold_source) == (None, "off")
     assert (view.admission.min_ic, view.admission.min_partial_ic, view.admission.min_year_share) == (0.0001, None, None)
-    [start] = [json.loads(line) for line in (runs / "t_off" / "run" / "events.jsonl").read_text().splitlines()][:1]
+    [start] = [json.loads(line) for line in (t_off / "events.jsonl").read_text().splitlines()][:1]
     assert (start["t_threshold"], start["min_ic"], start["confirm_t"]) == (None, 0.0001, 2.0)
+
+
+def _planner_prompts(run_dir) -> list[str]:
+    calls = sorted((run_dir / "llm_log").glob("*-planner.json"))
+    return [json.loads(call.read_text())["request"]["prompt"] for call in calls]
+
+
+def test_the_planner_is_told_the_refusals_a_refinement_can_remove_by_the_checks_the_run_switches_on(runs, t_off):
+    [_, second] = _planner_prompts(t_off)
+    assert (
+        "to remove what refused it (values on too few members, a correlation with an existing factor, deciles "
+        "that do not rise steadily enough in the factor's direction, a training IC below its floor)"
+    ) in second
+    assert "residual t" not in second.split("<quota>")[0].split("</mechanism_types>")[1]
+    [_, default] = _planner_prompts(runs / "two_rounds" / "run")
+    assert (
+        "to remove what refused it (values on too few members, a correlation with an existing factor, a residual "
+        "t below the threshold, deciles that do not rise steadily enough in the factor's direction)"
+    ) in default
 
 
 def test_a_round_a_resume_ran_with_the_t_check_off_is_off_even_without_admission_events(runs, tmp_path):
