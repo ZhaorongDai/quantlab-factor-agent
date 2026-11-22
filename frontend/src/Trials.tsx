@@ -107,7 +107,7 @@ function AdmissionMap({ run, picked, fresh, pick, hovered, hover }: {
           <circle key={key(p)} cx={X(p.largest_correlation ?? 0)} cy={Y(axis.value(p)!)} r={size(p)}
                   className={`point ${p.status}${fresh.has(key(p)) ? ' fresh' : ''}${picked === key(p) ? ' picked' : ''}`}
                   onClick={() => pick(key(p))} onMouseEnter={() => hover(key(p))} onMouseLeave={() => hover(null)}>
-            <title>{`round ${p.round}, slot ${p.slot + 1}: ${p.status}, ${tOff ? `IC ${p.ic_mean!.toFixed(4)}` : `t ${fmt(p.partial_ic_t)}`}, |ρ| ${fmt(p.largest_correlation)}`}</title>
+            <title>{`round ${p.round}, slot ${p.slot + 1}: ${p.status}, ${tOff ? `rank IC ${p.ic_mean!.toFixed(4)}` : `t ${fmt(p.partial_ic_t)}`}, |ρ| ${fmt(p.largest_correlation)}`}</title>
           </circle>
         ))}
         {lifted && <circle cx={X(lifted.largest_correlation ?? 0)} cy={Y(axis.value(lifted)!)} r={10} className="hover-ring" />}
@@ -115,7 +115,7 @@ function AdmissionMap({ run, picked, fresh, pick, hovered, hover }: {
       <figcaption className="muted small">
         <span className="key accepted">●</span> accepted <span className="key rejected">●</span> rejected{' '}
         <span className="key failed">●</span> failed ({failed}, listed below)
-        {tOff ? ` · t check off${threshold == null ? ', no IC floor' : ''}` : threshold == null && ' · t threshold unknown'}
+        {tOff ? ` · t check off${threshold == null ? ', no rank-IC floor' : ''}` : threshold == null && ' · t threshold unknown'}
         {limit == null && (bar(run.admission, 'max_correlation') === 'off' ? ' · ρ check off' : ' · ρ limit unknown')}
       </figcaption>
     </figure>
@@ -208,10 +208,10 @@ function Statistics({ p, t, run, name }: { p: Placed; t: Trial; run: Run; name: 
     <dl className="trust">
       <dt>direction</dt>
       <dd title={p.factor_direction > 0 ? 'a higher value went with a higher return' : 'a lower value went with a higher return'}>{p.factor_direction > 0 ? '+1' : '−1'}</dd>
-      <dt>partial-IC t</dt>
+      <dt>partial rank-IC t</dt>
       <dd title={raw('partial_ic_t')}>{fmt(p.partial_ic_t)}</dd>
-      <dt>partial IC</dt><dd title={raw('partial_ic_mean')}>{fmt(p.partial_ic_mean, 4)}</dd>
-      <dt>IC, t</dt><dd><span title={raw('ic_mean')}>{fmt(p.ic_mean, 4)}</span>, <span title={raw('ic_t')}>{fmt(p.ic_t)}</span></dd>
+      <dt>partial rank IC</dt><dd title={raw('partial_ic_mean')}>{fmt(p.partial_ic_mean, 4)}</dd>
+      <dt>rank IC, t</dt><dd><span title={raw('ic_mean')}>{fmt(p.ic_mean, 4)}</span>, <span title={raw('ic_t')}>{fmt(p.ic_t)}</span></dd>
       <dt>closest</dt><dd>{nearest(m.nearest, m.nearest_correlation)}</dd>
       <dt>closest known</dt><dd>{nearest(m.nearest_known, m.nearest_known_correlation)}</dd>
       <dt>coverage</dt><dd>{typeof m.coverage === 'number' ? `${Math.round(m.coverage * 100)}%` : '–'}</dd>
