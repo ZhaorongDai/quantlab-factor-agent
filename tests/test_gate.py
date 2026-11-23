@@ -202,10 +202,12 @@ def test_a_symlinked_directory_outside_the_python_installation_is_not_bound(tmp_
 
 
 def test_code_that_allocates_past_the_memory_limit_is_rejected():
-    gate = Gate(GateConfig(timeout_seconds=30.0, memory_mb=256), price_volume())
+    # The default limit: the sandbox's imports alone take about 210 MB of resident memory on Linux, so a
+    # lower limit can refuse the plain candidate below; the 10**8-element list (about 3.5 GB) is well past it.
+    gate = Gate(GateConfig(timeout_seconds=30.0, memory_mb=1024), price_volume())
     result = gate.check(_candidate("x = list(range(10 ** 8))\nalpha = close / open"), Zoo())
     assert isinstance(result, Rejected)
-    assert any("256 MB memory limit" in r for r in result.reasons), result.reasons
+    assert any("1024 MB memory limit" in r for r in result.reasons), result.reasons
     # The gate still works afterwards.
     assert isinstance(gate.check(_candidate("alpha = close / open"), Zoo()), Passed)
 
