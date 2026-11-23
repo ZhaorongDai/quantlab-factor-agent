@@ -174,10 +174,10 @@ class Metrics:
     largest in absolute value first, at most ``OVERLAPS``.
     ``decile_returns`` holds the mean label of each decile, lowest
     candidate values first. ``coverage`` is the mean daily share of the
-    scored members with a value before any fill. ``daily`` holds the daily
-    series the means and t come from; the ledger leaves it out, and records
-    from it how many full years went in the direction of the IC
-    (``years_in_direction`` of ``full_years``, see ``yearly_stability``).
+    scored members with a value before any fill. ``years_in_direction`` of
+    the ``full_years`` had a mean IC in the direction of ``ic_mean``
+    (``yearly_stability``). ``daily`` holds the daily series the means and t
+    come from; the ledger leaves it out.
     """
 
     ic_mean: float
@@ -193,6 +193,8 @@ class Metrics:
     n_days: int
     start: str
     end: str
+    years_in_direction: int
+    full_years: int
     pool_share: float = float("nan")
     overlaps: tuple[tuple[str, float], ...] = ()
     daily: DailyIC | None = field(default=None, compare=False, repr=False)
@@ -200,13 +202,18 @@ class Metrics:
     def to_dict(self) -> dict:
         """Return the metrics as the ledger stores them, without the daily series."""
         stored = {key: value for key, value in vars(self).items() if key != "daily"}
-        if self.daily is not None:
-            sign = int(np.sign(self.ic_mean)) if np.isfinite(self.ic_mean) else 0
-            stored["years_in_direction"], stored["full_years"] = yearly_stability(self.daily, sign)
         return {
             **stored, "decile_returns": list(self.decile_returns),
             "overlaps": [[name, correlation] for name, correlation in self.overlaps],
         }
+
+    @classmethod
+    def from_dict(cls, recorded: dict) -> "Metrics":
+        """The metrics a ledger record holds (``to_dict``), without the daily series; one missing a field raises."""
+        return cls(**{
+            **recorded, "decile_returns": tuple(recorded["decile_returns"]),
+            "overlaps": tuple((name, correlation) for name, correlation in recorded["overlaps"]),
+        })
 
 
 @dataclass(frozen=True)
@@ -923,6 +930,11 @@ class _Scores:
         days = pd.DatetimeIndex(frame.label["timestamp"].values)[scored]
         ic_mean, ic_t = _mean_and_t(ic, horizon)
         partial_mean, partial_t = _mean_and_t(partial, horizon)
+        daily = DailyIC(
+            days=tuple(pd.DatetimeIndex(frame.label["timestamp"].values).strftime("%Y-%m-%d")),
+            ic=tuple(float(v) for v in ic), partial_ic=tuple(float(v) for v in partial),
+        )
+        held, years = yearly_stability(daily, int(np.sign(ic_mean)) if np.isfinite(ic_mean) else 0)
         return Metrics(
             ic_mean=ic_mean, ic_t=ic_t, partial_ic_mean=partial_mean, partial_ic_t=partial_t,
             nearest=nearest, nearest_correlation=correlation,
@@ -932,12 +944,10 @@ class _Scores:
             n_days=int(scored.sum()),
             start=days[0].strftime("%Y-%m-%d") if len(days) else "",
             end=days[-1].strftime("%Y-%m-%d") if len(days) else "",
+            years_in_direction=held, full_years=years,
             pool_share=_share(explained, bool(names)),
             overlaps=_overlaps(names, row),
-            daily=DailyIC(
-                days=tuple(pd.DatetimeIndex(frame.label["timestamp"].values).strftime("%Y-%m-%d")),
-                ic=tuple(float(v) for v in ic), partial_ic=tuple(float(v) for v in partial),
-            ),
+            daily=daily,
         )
 
     def admit(self, k: int, name: str) -> None:

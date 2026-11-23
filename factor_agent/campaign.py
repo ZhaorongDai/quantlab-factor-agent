@@ -609,6 +609,7 @@ class Campaign:
             del context["lineage"]  # likewise
         if context["fertile_children"] == ContextConfig.fertile_children:
             del context["fertile_children"]  # likewise
+        del context["history_reasons"], context["near_misses"]  # they shape only the planner's prompt: a resume may change them
         settings = {"context": context}
         cap, k = self.config.round.max_children, self.config.round.picked_parents
         rounds = ({"max_children": cap} if cap is not None else {}) | ({"picked_parents": k} if k else {})
@@ -679,8 +680,13 @@ class Campaign:
             ),
             "recent_history": _feedback.history(
                 [(t, r) for t, r in trials if r.round >= first_recent], earlier=trials,
+                reasons=self.config.context.history_reasons,
             ),
             "last_round": _feedback.last_round([(t, r) for t, r in trials if r.round == state.rounds], trials),
+            **({"near_misses": _feedback.near_misses(
+                trials, first_recent, self.config.admission, sum(r.evaluated for r in records),
+                self.config.context.near_misses,
+            )} if self.config.context.near_misses else {}),
             "best": _feedback.best(trials, evaluator.contributions(labels) if labels else {}, lineage),
             **({"themes": _feedback.themes(
                 trials, *evaluator.tried(), self.config.context.theme_correlation, self.config.context.send_back_repeats,

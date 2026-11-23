@@ -24,13 +24,17 @@ needed:
 7. its training partial IC, in its direction, is at least ``min_partial_ic``;
 8. its yearly stability: of the full training years (``FULL_YEAR_DAYS``
    scored days or more) at least the share ``min_year_share`` had a mean IC
-   in its direction (``yearly_stability``); without a full year it fails;
+   in its direction (``Metrics.years_in_direction`` of ``full_years``); without a
+   full year it fails;
 9. with a confirmation segment, its partial IC there, in its direction,
    has a Newey-West t of at least ``confirm_t`` (``confirmed``); the
    reason says so without a number, since no prompt shows a statistic of
    that segment.
 
 The refusals of the other checks give the statistic and its threshold.
+Each training check is defined once (``_COVERAGE``, ``_IN_DIRECTION``):
+``reasons`` gives the first that fails, ``shortfalls`` every one that
+fails and how far short.
 
 The threshold is a Bonferroni correction anchored at ``t_threshold``
 (Harvey, Liu and Zhu 2016). The direction is read from the data, so each
@@ -44,14 +48,15 @@ threshold rising more slowly than Bonferroni's (at 0.5, 3.82 at 100 and
 
 import math
 import re
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from dataclasses import dataclass
 
 import numpy as np
 from scipy import stats
 
 from factor_agent.config import AdmissionConfig
 from factor_agent.evaluator import (
-    FULL_YEAR_DAYS, KNOWN_SAMPLE_EVERY, CompileFailure, Metrics, NodeCoverage, yearly_stability,
+    FULL_YEAR_DAYS, KNOWN_SAMPLE_EVERY, CompileFailure, Metrics, NodeCoverage,
 )
 
 #: The dates a known factor's correlation is sampled on, as the reason says.
@@ -153,6 +158,138 @@ def _share(fraction: float) -> str:
     return f"{fraction:.1%}" if fraction < 0.01 else f"{fraction:.0%}"
 
 
+@dataclass(frozen=True)
+class Shortfall:
+    """An admission check a candidate fails (by its threshold's name) and how far it falls short, relative to the threshold."""
+
+    check: str
+    gap: float
+
+
+@dataclass(frozen=True)
+class _Check:
+    """One training admission check: its threshold's name, its threshold (None when the check is off), the
+    statistic it reads in the factor's direction, whether that statistic is a floor (at least the threshold)
+    or a ceiling (at most), and its refusal reason, written from the statistic and the threshold."""
+
+    name: str
+    threshold: Callable[[AdmissionConfig, int], float | None]
+    value: Callable[[Metrics, int], float]
+    floor: bool
+    reason: Callable[[Metrics, float, float, int], str]
+
+    def passes(self, value: float, bar: float) -> bool:
+        """Whether ``value`` clears ``bar``; a value that is not a number clears no floor."""
+        return value >= bar if self.floor else value <= bar
+
+    def gap(self, value: float, bar: float) -> float:
+        """How far ``value`` falls short of ``bar``, relative to the bar's size (absolute at a bar of 0); infinite
+        for a value that is not a number."""
+        if not math.isfinite(value):
+            return math.inf
+        short = bar - value if self.floor else value - bar
+        return short / abs(bar) if bar else short
+
+
+def _correlation(metrics: Metrics, sign: int) -> float:
+    """The larger absolute correlation with a pool factor or a known factor; 0 without either."""
+    found = [abs(c) for c in (metrics.nearest_correlation, metrics.nearest_known_correlation) if math.isfinite(c)]
+    return max(found, default=0.0)
+
+
+def _correlation_reason(metrics: Metrics, value: float, bar: float, trials: int) -> str:
+    """The refusal for a correlation above ``bar``: the pool factor's when it is the one above, else the known factor's."""
+    if math.isfinite(metrics.nearest_correlation) and abs(metrics.nearest_correlation) > bar:
+        return (
+            f"cross-sectional correlation {metrics.nearest_correlation:+.2f} with {metrics.nearest} "
+            f"is above {bar:g} in absolute value"
+        )
+    return (
+        f"cross-sectional correlation {metrics.nearest_known_correlation:+.2f} with {metrics.nearest_known}, "
+        f"sampled on {_SAMPLED_DATES}, is above {bar:g} in absolute value"
+    )
+
+
+def _year_share(metrics: Metrics, sign: int) -> float:
+    """The share of the full training years whose mean IC went the factor's way; 0 without a full year."""
+    return metrics.years_in_direction / metrics.full_years if metrics.full_years else 0.0
+
+
+#: The coverage check, the one admission makes before it reads the factor's direction.
+_COVERAGE = _Check(
+    "min_coverage", lambda config, trials: config.min_coverage, lambda m, sign: m.coverage, True,
+    lambda m, value, bar, trials: (
+        f"coverage {value:.2f} (the mean daily share of the members with a value) is below {bar:g}"
+    ),
+)
+
+#: The training checks admission makes once the factor has a direction, in order.
+_IN_DIRECTION = (
+    _Check(
+        "max_correlation", lambda config, trials: config.max_correlation, _correlation, False, _correlation_reason,
+    ),
+    _Check(
+        "t_threshold", t_threshold, lambda m, sign: sign * m.partial_ic_t, True,
+        lambda m, value, bar, trials: (
+            f"the partial IC's Newey-West t {value:.2f} (residualised against the reference set and the accepted "
+            f"factors, in the factor's direction) is below the threshold {bar:.2f} at {trials} evaluated trial(s), "
+            f"each counted in both directions"
+        ),
+    ),
+    _Check(
+        "min_monotonicity", lambda config, trials: config.min_monotonicity,
+        lambda m, sign: monotonicity(m.decile_returns, sign), True,
+        lambda m, value, bar, trials: (
+            f"decile monotonicity {value:.2f} (Spearman correlation of the decile returns with the decile, "
+            f"in the factor's direction) is below {bar:g}"
+        ),
+    ),
+    _Check(
+        "min_ic", lambda config, trials: config.min_ic, lambda m, sign: sign * m.ic_mean, True,
+        lambda m, value, bar, trials: f"the training IC {value:.4f} in the factor's direction is below min_ic {bar:g}",
+    ),
+    _Check(
+        "min_partial_ic", lambda config, trials: config.min_partial_ic, lambda m, sign: sign * m.partial_ic_mean, True,
+        lambda m, value, bar, trials: (
+            f"the training partial IC {value:.4f} (residualised against the reference set and the accepted "
+            f"factors) in the factor's direction is below min_partial_ic {bar:g}"
+        ),
+    ),
+    _Check(
+        "min_year_share", lambda config, trials: config.min_year_share, _year_share, True,
+        lambda m, value, bar, trials: (
+            f"the training IC went in the factor's direction in {m.years_in_direction} of {m.full_years} full "
+            f"years ({value:.2f}, years with at least {FULL_YEAR_DAYS} scored days), below min_year_share {bar:g}"
+        ),
+    ),
+)
+
+
+def _failing(
+    checks: Sequence[_Check], metrics: Metrics, sign: int, trials: int, config: AdmissionConfig,
+) -> Iterator[tuple[_Check, float, float]]:
+    """Each of ``checks`` switched on that ``metrics`` fails, in order, with its statistic and its threshold."""
+    for check in checks:
+        bar = check.threshold(config, trials)
+        if bar is None:
+            continue
+        value = check.value(metrics, sign)
+        if not check.passes(value, bar):
+            yield check, value, bar
+
+
+def shortfalls(metrics: Metrics, trials: int, config: AdmissionConfig) -> tuple[Shortfall, ...]:
+    """Every training admission check switched on that a candidate with ``metrics`` fails, in admission order.
+
+    Unlike ``reasons``, it goes on past the first; the direction and the confirmation are not among them.
+    """
+    sign = direction(metrics.ic_mean)
+    return tuple(
+        Shortfall(check.name, check.gap(value, bar))
+        for check, value, bar in _failing((_COVERAGE, *_IN_DIRECTION), metrics, sign, trials, config)
+    )
+
+
 def reasons(
     metrics: Metrics, trials: int, config: AdmissionConfig, confirmation: Metrics | CompileFailure | None = None,
 ) -> list[str]:
@@ -163,54 +300,13 @@ def reasons(
     did not compile does not hold.
     """
     sign = direction(metrics.ic_mean)
-    if config.min_coverage is not None and not metrics.coverage >= config.min_coverage:
-        return [
-            f"coverage {metrics.coverage:.2f} (the mean daily share of the members with a value) "
-            f"is below {config.min_coverage:g}"
-        ]
-    if sign == 0:
+    failed = next(_failing((_COVERAGE,), metrics, sign, trials, config), None)
+    if failed is None and sign == 0:
         return [f"the training IC {metrics.ic_mean:+.4f} gives the factor no direction"]
-    if config.max_correlation is not None and abs(metrics.nearest_correlation) > config.max_correlation:
-        return [
-            f"cross-sectional correlation {metrics.nearest_correlation:+.2f} with {metrics.nearest} "
-            f"is above {config.max_correlation:g} in absolute value"
-        ]
-    if config.max_correlation is not None and abs(metrics.nearest_known_correlation) > config.max_correlation:
-        return [
-            f"cross-sectional correlation {metrics.nearest_known_correlation:+.2f} with {metrics.nearest_known}, "
-            f"sampled on {_SAMPLED_DATES}, is above {config.max_correlation:g} in absolute value"
-        ]
-    threshold = t_threshold(config, trials)
-    partial_t = sign * metrics.partial_ic_t
-    if threshold is not None and not partial_t >= threshold:
-        return [
-            f"the partial IC's Newey-West t {partial_t:.2f} (residualised against the reference set and "
-            f"the accepted factors, in the factor's direction) is below the threshold {threshold:.2f} "
-            f"at {trials} evaluated trial(s), each counted in both directions"
-        ]
-    rising = monotonicity(metrics.decile_returns, sign)
-    if config.min_monotonicity is not None and not rising >= config.min_monotonicity:
-        return [
-            f"decile monotonicity {rising:.2f} (Spearman correlation of the decile returns with the decile, "
-            f"in the factor's direction) is below {config.min_monotonicity:g}"
-        ]
-    if config.min_ic is not None and not sign * metrics.ic_mean >= config.min_ic:
-        return [f"the training IC {sign * metrics.ic_mean:.4f} in the factor's direction is below min_ic {config.min_ic:g}"]
-    if config.min_partial_ic is not None and not sign * metrics.partial_ic_mean >= config.min_partial_ic:
-        return [
-            f"the training partial IC {sign * metrics.partial_ic_mean:.4f} (residualised against the reference set "
-            f"and the accepted factors) in the factor's direction is below min_partial_ic {config.min_partial_ic:g}"
-        ]
-    if config.min_year_share is not None:
-        if metrics.daily is None:
-            raise ValueError("admission: min_year_share needs the candidate's daily ICs (Metrics.daily)")
-        held, years = yearly_stability(metrics.daily, sign)
-        share = held / years if years else 0.0
-        if not years or not share >= config.min_year_share:
-            return [
-                f"the training IC went in the factor's direction in {held} of {years} full years ({share:.2f}, "
-                f"years with at least {FULL_YEAR_DAYS} scored days), below min_year_share {config.min_year_share:g}"
-            ]
+    failed = failed or next(_failing(_IN_DIRECTION, metrics, sign, trials, config), None)
+    if failed is not None:
+        check, value, bar = failed
+        return [check.reason(metrics, value, bar, trials)]
     if confirmation is not None and config.confirm_t is not None and not (
         isinstance(confirmation, Metrics) and confirmed(metrics.ic_mean, confirmation.partial_ic_t, config)
     ):

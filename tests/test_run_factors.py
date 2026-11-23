@@ -25,6 +25,7 @@ from quantlab.factor.predefined.alpha158 import Alpha158Stock
 from tests import synthetic_market
 from tests.campaign_runner import candidate, run, write_config
 from tests.fake_llm import FakeLLM
+from tests.test_planner_feedback import numbered
 
 QUIET_VOLUME = "quiet volume: a day traded on less volume than its twenty-day average"
 
@@ -231,3 +232,23 @@ def test_a_run_with_no_accepted_factor_has_none(runs, tmp_path):
 def test_a_run_where_no_rule_holds_shows_no_diagnosis(runs, tmp_path):
     assert RunView.read(runs / "two_rounds" / "run").diagnosis == ()
     assert _first_rounds(runs, tmp_path, 0).diagnosis == ()
+
+
+def test_with_the_switches_on_the_planner_reads_the_refusal_reasons_and_the_near_misses(runs):
+    # Three rounds and a recent history of one round: at round 3 round 1 is before it, and its two noise trials,
+    # with the monotonicity check off, fall short of the t threshold alone, so they are near misses, the nearer
+    # (the larger t) first; round 2 is the recent history, its lines ending with their reasons.
+    rounds = [ROUND_1, ROUND_2, ROUND_1]
+    config = write_config(runs / "feedback_on", synthetic_market.build(runs / "feedback_on_data"),
+                          admission={"min_monotonicity": None},
+                          context={"recent_rounds": 1, "history_reasons": True, "near_misses": 3},
+                          round={"candidates": 4, "min_per_type": 0, "retries": 0, "max_rounds": 3})
+    run(config, FakeLLM(lambda number, directions: rounds[number - 1]), runs / "kunquant_cache")
+    third = _planner_prompts(runs / "feedback_on" / "run")[2]
+    recent = third.split("<recent_history>")[1].split("</recent_history>")[0]
+    assert "; refused: cross-sectional correlation" in recent
+    near = third.split("<near_misses>")[1].split("</near_misses>")[0]
+    assert numbered(near) == ["1. T1-04", "2. T1-02"]
+    assert "hypothesis: Hypothesis behind noise." in near
+    [_, default, *_] = _planner_prompts(runs / "two_rounds" / "run")
+    assert "<near_misses>" not in default and "; refused:" not in default
