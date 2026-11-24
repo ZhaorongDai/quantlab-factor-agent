@@ -23,7 +23,7 @@ jobs:
   test:
     name: test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 60   # macOS takes about 36 min and a slow runner passed 45
     strategy:
       fail-fast: false
       matrix:
